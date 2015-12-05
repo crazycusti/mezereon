@@ -1,6 +1,7 @@
 void init(void)
 {
-	const char hw[] = "hier ist nichts.";
+	// debug
+	const char hw[] = "videolevel";
 	int i;
 	char* video = (char*) 0xb8000;
 	
