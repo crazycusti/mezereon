@@ -1,6 +1,7 @@
 [BITS 16]
 
 cli
+jmp $
 lgdt [gdt_descriptor]
 
 mov eax, cr0
