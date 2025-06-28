@@ -13,7 +13,7 @@ start:
     ; Kernel (z.B. 10 Sektoren) ab Sektor 2 laden (Sektor 1 ist Bootloader)
     mov si, 0          ; Offset für Kernel im Speicher (0x0000:0x7E00)
     mov bx, 0x7E00     ; Zieladresse im RAM
-    mov dh, 10         ; Anzahl Sektoren (anpassen je nach Kernelgröße)
+    mov dh, 1         ; Anzahl Sektoren (testweise auf 1 gesetzt)
 
 load_kernel:
     mov ah, 0x02       ; BIOS: Sektor lesen
