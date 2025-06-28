@@ -15,8 +15,8 @@ all: disk.img
 bootloader.bin: bootloader.asm
 	$(AS) -f bin $< -o $@
 
-kernel_entry.o: kernel_entry.asm
-	$(AS) -f elf32 $< -o $@
+kernel_entry.bin: kernel_entry.asm
+	$(AS) -f bin $< -o $@
 
 main.o: main.c main.h config.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
@@ -30,14 +30,14 @@ network.o: network.c network.h config.h
 drivers/ne2000.o: drivers/ne2000.c drivers/ne2000.h config.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
-kernel.bin: kernel_entry.o main.o video.o network.o drivers/ne2000.o
+kernel_payload.bin: main.o video.o network.o drivers/ne2000.o
 	$(LD) $(LDFLAGS) $^ -o $@
 
-disk.img: bootloader.bin kernel.bin
+disk.img: bootloader.bin kernel_entry.bin kernel_payload.bin
 	cat $^ > $@
 
 clean:
-	rm -f *.o *.bin *.img network.o video.o main.o kernel.bin bootloader.bin kernel_entry.o
+	rm -f *.o *.bin *.img network.o video.o main.o kernel_payload.bin bootloader.bin kernel_entry.bin
 	rm -f drivers/*.o
 
 .PHONY: all clean
