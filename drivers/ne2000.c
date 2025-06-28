@@ -13,6 +13,6 @@ static inline uint8_t inb(uint16_t port) {
 }
 
 void ne2000_init() {
-    uint8_t val = inb(NE2000_IO);
+    uint8_t val = inb(CONFIG_NE2000_IO);
     (void)val; 
 }
