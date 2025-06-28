@@ -1,7 +1,4 @@
-; kernel_entry.asm - Protected Mode Switcher für 32-Bit-Kernel
-; Wird an 0x7E00 geladen (direkt nach dem Bootloader)
-
-BITS 16
+[BITS 16]
 ORG 0x7E00
 
 cli
