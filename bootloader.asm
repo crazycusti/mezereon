@@ -26,6 +26,9 @@ load_kernel:
     int 0x13           ; BIOS Disk Service
     jc disk_error      ; Fehlerbehandlung
 
+    mov si, success_msg
+    call print_string
+
     ; Kernel starten (Sprung zu 0x0000:0x7E00)
     jmp 0x0000:0x7E00
 
@@ -46,6 +49,7 @@ print_string:
     ret
 
 error_msg db 'Disk Error!', 0
+success_msg db 'DEBUG Load OK', 0
 
 times 510-($-$$) db 0
     dw 0xAA55
