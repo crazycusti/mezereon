@@ -2,8 +2,7 @@
 
 void kmain()
 {
-    video();
-    const char bootmsg = "welcome to mezereon.";
-    bootmsg = extern video_adress;
+    video_init();
+    video_print("Welcome to Mezereon.");
     return;
 }
