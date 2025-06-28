@@ -1,7 +1,7 @@
 CC ?= gcc
 AS = nasm
 LD ?= ld
-CFLAGS ?= -ffreestanding -m32 -Wall -Wextra -nostdlib -nostdinc -fno-builtin -fno-stack-protector
+CFLAGS ?= -ffreestanding -m32 -Wall -Wextra -nostdlib -fno-builtin -fno-stack-protector
 LDFLAGS ?= -Ttext 0x7E00 --oformat binary
 
 CONFIG_NE2000_IO ?= 0x300
