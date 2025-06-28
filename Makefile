@@ -1,5 +1,5 @@
 CC ?= gcc
-AS ?= nasm
+AS = nasm
 LD ?= ld
 CFLAGS ?= -ffreestanding -m32 -Wall -Wextra -nostdlib -nostdinc -fno-builtin -fno-stack-protector
 LDFLAGS ?= -Ttext 0x7E00 --oformat binary

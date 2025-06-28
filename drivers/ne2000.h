@@ -1,4 +1,4 @@
-#include "config.h"
+#include "../config.h"
 #ifndef NE2000_H
 #define NE2000_H
 
