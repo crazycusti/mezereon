@@ -1,5 +1,4 @@
 [BITS 16]
-ORG 0x7E00
 
 cli
 lgdt [gdt_descriptor]
@@ -30,6 +29,9 @@ protected_mode_start:
     mov ss, ax
     mov esp, 0x90000         ; Stack setzen
 
+    mov dword [0xb8000], 0x1F411F41
+    jmp $
+
     extern kmain
-    call kmain               ; Deine C-Funktion aufrufen
-    hlt                      ; Falls kmain zurückkehrt, CPU anhalten
+    ;call kmain              
+    ;hlt                      
