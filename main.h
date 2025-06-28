@@ -1,6 +1,6 @@
-#define VIDEO_MEMORY 0xB8000
-#define VGA_WIDTH 80
-#define VGA_HEIGHT 25
+#include "config.h"
+#include "network.h"
+#include "drivers/ne2000.h"
 
 void video_init();
 
