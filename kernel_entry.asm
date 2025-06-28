@@ -1,13 +1,12 @@
 [BITS 16]
 
 cli
-jmp $
 lgdt [gdt_descriptor]
 
 mov eax, cr0
 or eax, 1
 mov cr0, eax
-
+jmp $
 jmp 0x08:protected_mode_start
 
 gdt_start:
