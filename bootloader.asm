@@ -1,4 +1,4 @@
-; bootloader.asm - Minimaler x86-Bootloader, der die nachfolgenden Sektoren lädt und ausführt
+; bootloader.asm - Minimaler 8086-Bootloader, der die nachfolgenden Sektoren lädt und ausführt
 ; Annahme: Kernel (aus main.c kompiliert) liegt direkt hinter dem Bootsektor
 
 BITS 16
