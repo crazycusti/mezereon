@@ -22,7 +22,8 @@ load_kernel:
     mov cl, 0x02       ; Sektor (ab 2)
     mov dh, 0x00       ; Head
     mov dl, 0x80       ; Erstes Festplattenlaufwerk
-    mov es, ax         ; ES:BX = Zieladresse
+    xor ax, ax
+    mov es, ax
     int 0x13           ; BIOS Disk Service
     jc disk_error      ; Fehlerbehandlung
 
