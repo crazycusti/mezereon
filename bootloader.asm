@@ -119,21 +119,33 @@ cpu_error_msg db 'Error: i386 or better CPU required!', 13, 10, 0
 
 ; CPU-Check für i386
 check_cpu:
-    ; Prüfe ob EFLAGS Bit 21 beschreibbar (i386+ Feature)
-    pushfd
-    pop eax
-    mov ebx, eax
-    xor eax, 0x200000    ; Versuche Bit 21 zu ändern
-    push eax
-    popfd
-    pushfd
-    pop eax
-    cmp eax, ebx         ; Wurde es geändert?
-    je .not_386          ; Nein -> kein i386
-    clc                  ; i386+ gefunden
+    ; Prüfe ob FLAGS Bit 21 beschreibbar (i386+ Feature)
+    pushf
+    pop ax
+    mov bx, ax
+    and ax, 0xFFF0      ; Versuche Bits 12-15 zu ändern
+    push ax
+    popf
+    pushf
+    pop ax
+    cmp ax, bx          ; Wurden sie geändert?
+    je .is_386          ; Nein -> könnte i386 sein
+    ; Kein 8086/8088 (dort sind Bits 12-15 immer 1)
+    clc
+    ret
+.is_386:
+    ; Weitere Tests für 386...
+    mov ax, 0x7000
+    push ax
+    popf                ; Versuche höhere Bits zu setzen
+    pushf
+    pop ax
+    test ax, 0x7000     ; Wurden sie gesetzt?
+    jz .not_386         ; Nein -> kein 386
+    clc
     ret
 .not_386:
-    stc                  ; Fehler: kein i386
+    stc
     ret
 
 ; A20 Gate aktivieren
