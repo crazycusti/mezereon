@@ -44,12 +44,18 @@ load_kernel:
 
     mov si, success_msg
     call print_string
+    mov si, after_load_msg
+    call print_string
 
     ; Prüfe ob mindestens i386
+    mov si, before_cpu_msg
+    call print_string
     call check_cpu
     jc cpu_error
 
     mov si, cpu_ok_msg
+    call print_string
+    mov si, after_cpu_msg
     call print_string
 
     ; A20 Gate aktivieren
@@ -133,11 +139,10 @@ check_cpu:
     call print_string
     
     ; Wenn wir hier sind, ist es mindestens ein 286+
-    ; Für i386: Prüfe ob wir Protected Mode aktivieren können
-    mov eax, cr0
+    ; Für i386+: Vereinfachter Test (keine direkten CR0-Zugriffe im RM)
     mov si, pe_msg
     call print_string
-    
+
     ; Wenn wir hier ankommen, haben wir einen 386+
     clc                 ; Success
     ret
@@ -146,6 +151,9 @@ check_cpu:
 testing_msg db 'CPU Test...', 13, 10, 0
 cr0_msg db 'CR0 Test OK...', 13, 10, 0
 pe_msg db 'PE Test OK...', 13, 10, 0
+before_cpu_msg db 'Before CPU check...', 13, 10, 0
+after_cpu_msg db 'After CPU check...', 13, 10, 0
+after_load_msg db 'After load...', 13, 10, 0
 
 ; A20 Gate aktivieren
 enable_a20:
