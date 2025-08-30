@@ -27,30 +27,16 @@ bool ne2000_present(void) {
         return false;
     }
 
-    // Put NIC in STOP + Page 0 (CR = 0x01: STP=1, PS=00)
-    outb(base + NE2K_REG_CMD, 0x01);
-    io_delay();
-
-    // DCR write-read test; should be readable and not 0xFF
-    outb(base + NE2K_REG_DCR, 0x49);
-    io_delay();
-    uint8_t dcr = inb(base + NE2K_REG_DCR);
-    if (dcr != 0x49) {
-        return false;
-    }
-
-    // Reset path: read RESET, wait for ISR.RST (bit7), then ack and confirm clear
+    // Trigger reset and look for ISR.RST
     (void)inb(base + NE2K_REG_RESET);
     io_delay();
+
     for (int i = 0; i < 65535; i++) {
         uint8_t isr = inb(base + NE2K_REG_ISR);
-        if (isr & 0x80) {
+        if ((isr & 0x80) != 0 && isr != 0xFF) {
+            // Ack reset; not strictly required to confirm presence
             outb(base + NE2K_REG_ISR, 0x80);
-            io_delay();
-            uint8_t isr2 = inb(base + NE2K_REG_ISR);
-            // Bit cleared after ack indicates a real device
-            if ((isr2 & 0x80) == 0) return true;
-            else return false;
+            return true;
         }
     }
     return false;
