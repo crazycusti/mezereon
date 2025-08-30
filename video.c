@@ -20,6 +20,16 @@ static int vga_row = 0;
 static int vga_col = 0;
 
 void video_init() {
+#if CONFIG_VIDEO_CLEAR_ON_INIT
+    volatile uint16_t* video = (uint16_t*) VIDEO_MEMORY;
+    for (int y = 0; y < CONFIG_VGA_HEIGHT; y++) {
+        for (int x = 0; x < CONFIG_VGA_WIDTH; x++) {
+            video[y * CONFIG_VGA_WIDTH + x] = (0x07 << 8) | ' ';
+        }
+    }
+    vga_row = 0;
+    vga_col = 0;
+#else
     /*
      * Preserve bootloader output: do NOT clear the screen.
      * Read current hardware cursor to continue printing after BIOS text.
@@ -47,6 +57,7 @@ void video_init() {
             vga_col = 0;
         }
     }
+#endif
 }
 
 void video_print(const char* str) {

@@ -10,4 +10,10 @@
 #define CONFIG_VGA_WIDTH 80
 #define CONFIG_VGA_HEIGHT 25
 
+// Video behavior
+// 0 = preserve bootloader screen and append; 1 = clear screen on init
+#ifndef CONFIG_VIDEO_CLEAR_ON_INIT
+#define CONFIG_VIDEO_CLEAR_ON_INIT 0
+#endif
+
 #endif // CONFIG_H
