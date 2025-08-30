@@ -129,21 +129,13 @@ cpu_error_msg db 'Error: i386 or better CPU required!', 13, 10, 0
 
 ; CPU-Check für i386
 check_cpu:
-    ; Einfacher Protected Mode Test
+    ; Völlig konservativer Stub: nur Debug-Prints, keine Privileg-OPs
     mov si, testing_msg
     call print_string
-    
-    ; Versuche CR0 zu lesen (nur auf 286+ möglich)
-    smsw ax             ; Sicherer als mov ax, cr0
     mov si, cr0_msg
     call print_string
-    
-    ; Wenn wir hier sind, ist es mindestens ein 286+
-    ; Für i386+: Vereinfachter Test (keine direkten CR0-Zugriffe im RM)
     mov si, pe_msg
     call print_string
-
-    ; Wenn wir hier ankommen, haben wir einen 386+
     clc                 ; Success
     ret
 
