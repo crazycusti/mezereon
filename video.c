@@ -62,13 +62,14 @@ void video_init() {
 }
 
 void video_print_hex16(uint16_t v) {
-    char buf[6];
+    char buf[7];
     buf[0] = '0';
     buf[1] = 'x';
     buf[2] = HEX_DIGITS[(v >> 12) & 0xF];
     buf[3] = HEX_DIGITS[(v >> 8) & 0xF];
     buf[4] = HEX_DIGITS[(v >> 4) & 0xF];
     buf[5] = HEX_DIGITS[(v >> 0) & 0xF];
+    buf[6] = '\0';
     video_print(buf);
 }
 

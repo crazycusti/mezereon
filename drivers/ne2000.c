@@ -16,6 +16,7 @@ static inline void io_delay(void) {
 }
 
 extern void video_print(const char* str);
+extern void video_print_hex16(unsigned short v);
 
 static uint16_t ne2k_base_io = (uint16_t)CONFIG_NE2000_IO;
 
