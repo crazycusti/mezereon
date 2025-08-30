@@ -1,5 +1,12 @@
-; bootloader.asm - Minimaler 8086-Bootloader, der die nachfolgenden Sektoren lädt und ausführt
-; Annahme: Kernel (aus main.c kompiliert) liegt direkt hinter dem Bootsektor
+; bootloader.asm - i386 Protected Mode Bootloader
+; Lädt den Kernel und schaltet in den 32-Bit Protected Mode
+
+; Ziel-CPU ist erstmal fest i386
+%define TARGET_8086    0   ; 8086/8088 Real Mode (für später)
+%define TARGET_286     1   ; 286 Protected Mode (für später)
+%define TARGET_386     2   ; 386+ Protected Mode mit Paging
+%define TARGET_I686    3   ; i686+ (für später)
+%define TARGET_CPU TARGET_386
 
 BITS 16
 ORG 0x7C00
@@ -9,6 +16,10 @@ start:
     xor ax, ax
     mov ss, ax
     mov sp, 0x7C00
+
+    ; Begrüßung anzeigen
+    mov si, boot_msg
+    call print_string
 
     ; Kernel ab Sektor 2 laden (Sektor 1 ist Bootloader)
     mov si, 0          ; Offset für Kernel im Speicher (0x0000:0x7E00)
@@ -30,6 +41,15 @@ load_kernel:
     mov si, success_msg
     call print_string
 
+    ; Prüfe ob mindestens i386
+    call check_cpu
+    jc cpu_error
+
+    mov si, cpu_ok_msg
+    call print_string
+
+    ; A20 Gate aktivieren
+    call enable_a20
 
     ; GDT vorbereiten (im Bootsektor, 3 Einträge: Null, Code, Data)
     cli
@@ -93,6 +113,41 @@ print_string:
 
 error_msg db 'Disk Error!', 0
 success_msg db 'DEBUG Load OK', 0
+boot_msg db 'Mezereon Bootloader starting...', 13, 10, 0
+cpu_ok_msg db 'CPU check passed: i386+ detected', 13, 10, 0
+cpu_error_msg db 'Error: i386 or better CPU required!', 13, 10, 0
+
+; CPU-Check für i386
+check_cpu:
+    ; Prüfe ob EFLAGS Bit 21 beschreibbar (i386+ Feature)
+    pushfd
+    pop eax
+    mov ebx, eax
+    xor eax, 0x200000    ; Versuche Bit 21 zu ändern
+    push eax
+    popfd
+    pushfd
+    pop eax
+    cmp eax, ebx         ; Wurde es geändert?
+    je .not_386          ; Nein -> kein i386
+    clc                  ; i386+ gefunden
+    ret
+.not_386:
+    stc                  ; Fehler: kein i386
+    ret
+
+; A20 Gate aktivieren
+enable_a20:
+    ; Schneller Versuch über Port 0x92 (PS/2)
+    in al, 0x92
+    or al, 2
+    out 0x92, al
+    ret
+
+cpu_error:
+    mov si, cpu_error_msg
+    call print_string
+    jmp $               ; Endlosschleife
 
 times 510-($-$$) db 0
     dw 0xAA55
