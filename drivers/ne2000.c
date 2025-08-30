@@ -67,13 +67,13 @@ bool ne2000_present(void) {
 
 bool ne2000_init(void) {
     if (!ne2000_present()) {
-        video_print("NE2000 not detected. ");
+        video_print("NE2000 not detected.\n");
         return false;
     }
 
     video_print("NE2000 detected at ");
     video_print_hex16(ne2k_base_io);
-    video_print(". ");
+    video_print(".\n");
 
     // Stop the NIC (CR.STOP = 0x01) before further configuration
     outb(ne2k_base_io + NE2K_REG_CMD, 0x01);

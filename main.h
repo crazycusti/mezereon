@@ -4,4 +4,5 @@
 
 void video_init();
 void video_print(const char* str);
+void video_println(const char* str);
 void video_print_hex16(unsigned short v);

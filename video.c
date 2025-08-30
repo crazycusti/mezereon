@@ -92,3 +92,8 @@ void video_print(const char* str) {
         str++;
     }
 }
+
+void video_println(const char* str) {
+    video_print(str);
+    video_print("\n");
+}
