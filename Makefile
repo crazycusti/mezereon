@@ -12,7 +12,8 @@ CC := $(shell command -v gcc-15 2>/dev/null || echo gcc)
 endif
 
 AS = nasm
-LD ?= ld
+# Bevorzuge i386-elf-ld falls verfügbar
+LD := $(shell command -v i386-elf-ld 2>/dev/null || echo ld)
 CFLAGS ?= -ffreestanding -m32 -Wall -Wextra -nostdlib -fno-builtin -fno-stack-protector -fno-pic -fno-pie
 LDFLAGS ?= -Ttext 0x7E00 --oformat binary -m elf_i386
 
@@ -34,11 +35,12 @@ endif
 
 all: disk.img
 
-bootloader.bin: bootloader.asm
-	$(AS) -f bin $< -o $@
+bootloader.bin: bootloader.asm kernel_payload.bin
+	ks=$$((($$(wc -c < kernel_payload.bin)+511)/512)); \
+	$(AS) -f bin -D KERNEL_SECTORS=$$ks $< -o $@
 
-kernel_entry.bin: kernel_entry.asm
-	$(AS) -f bin $< -o $@
+entry32.o: entry32.asm
+	$(AS) -f elf32 $< -o $@
 
 main.o: main.c main.h config.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
@@ -52,14 +54,14 @@ network.o: network.c network.h config.h
 drivers/ne2000.o: drivers/ne2000.c drivers/ne2000.h config.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
-kernel_payload.bin: main.o video.o network.o drivers/ne2000.o
-	$(LD) $(LDFLAGS) $^ -o $@
+kernel_payload.bin: entry32.o main.o video.o network.o drivers/ne2000.o
+	$(LD) -Ttext 0x7E00 --oformat binary -m elf_i386 $^ -o $@
 
-disk.img: bootloader.bin kernel_entry.bin kernel_payload.bin
+disk.img: bootloader.bin kernel_payload.bin
 	cat $^ > $@
 
 clean:
-	rm -f *.o *.bin *.img network.o video.o main.o kernel_payload.bin bootloader.bin kernel_entry.bin
+	rm -f *.o *.bin *.img network.o video.o main.o entry32.o kernel_payload.bin bootloader.bin
 	rm -f drivers/*.o
 
 .PHONY: all clean

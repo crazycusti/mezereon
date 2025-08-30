@@ -8,6 +8,11 @@
 %define TARGET_I686    3   ; i686+ (für später)
 %define TARGET_CPU TARGET_386
 
+; Anzahl zu ladender Sektoren wird vom Build gesetzt
+%ifndef KERNEL_SECTORS
+%define KERNEL_SECTORS 10
+%endif
+
 BITS 16
 ORG 0x7C00
 
@@ -16,25 +21,24 @@ start:
     xor ax, ax
     mov ss, ax
     mov sp, 0x7C00
+    mov ds, ax
 
     ; Begrüßung anzeigen
     mov si, boot_msg
     call print_string
 
     ; Kernel ab Sektor 2 laden (Sektor 1 ist Bootloader)
-    mov si, 0          ; Offset für Kernel im Speicher (0x0000:0x7E00)
-    mov bx, 0x7E00     ; Zieladresse im RAM
-    mov dh, 10        ; Anzahl Sektoren (kernel ist aktuell 932 bytes groß, daher 2 sektoren..)
+    mov bx, 0x7E00     ; Zieladresse im RAM (ES:BX)
+    xor ax, ax
+    mov es, ax         ; ES = 0x0000
 
 load_kernel:
     mov ah, 0x02       ; BIOS: Sektor lesen
-    mov al, dh         ; Anzahl Sektoren
-    mov ch, 0x00       ; Cylinder
-    mov cl, 0x02       ; Sektor (ab 2)
-    mov dh, 0x00       ; Head
-    mov dl, 0x80       ; Erstes Festplattenlaufwerk
-    xor ax, ax
-    mov es, ax
+    mov al, KERNEL_SECTORS ; Anzahl Sektoren
+    mov ch, 0x00       ; Cylinder 0
+    mov cl, 0x02       ; Sektor 2 (1 ist Bootsektor)
+    mov dh, 0x00       ; Head 0
+    mov dl, 0x80       ; Erstes Festplattenlaufwerk (bei Floppy 0x00)
     int 0x13           ; BIOS Disk Service
     jc disk_error      ; Fehlerbehandlung
 
@@ -77,7 +81,7 @@ protected_mode_entry:
     mov ss, ax
     mov esp, 0x9FC00    ; Stack (z.B. unterhalb 640K)
 
-    ; Sprung zum Kernel-Einsprungspunkt (0x7E00)
+    ; Sprung zum Kernel-Einsprungspunkt (0x7E00, 32-bit Entry in payload)
     jmp 0x7E00
 
 ; -----------------------------
@@ -119,34 +123,29 @@ cpu_error_msg db 'Error: i386 or better CPU required!', 13, 10, 0
 
 ; CPU-Check für i386
 check_cpu:
-    ; Prüfe ob FLAGS Bit 21 beschreibbar (i386+ Feature)
-    pushf
-    pop ax
-    mov bx, ax
-    and ax, 0xFFF0      ; Versuche Bits 12-15 zu ändern
-    push ax
-    popf
-    pushf
-    pop ax
-    cmp ax, bx          ; Wurden sie geändert?
-    je .is_386          ; Nein -> könnte i386 sein
-    ; Kein 8086/8088 (dort sind Bits 12-15 immer 1)
-    clc
+    ; Einfacher Protected Mode Test
+    mov si, testing_msg
+    call print_string
+    
+    ; Versuche CR0 zu lesen (nur auf 286+ möglich)
+    smsw ax             ; Sicherer als mov ax, cr0
+    mov si, cr0_msg
+    call print_string
+    
+    ; Wenn wir hier sind, ist es mindestens ein 286+
+    ; Für i386: Prüfe ob wir Protected Mode aktivieren können
+    mov eax, cr0
+    mov si, pe_msg
+    call print_string
+    
+    ; Wenn wir hier ankommen, haben wir einen 386+
+    clc                 ; Success
     ret
-.is_386:
-    ; Weitere Tests für 386...
-    mov ax, 0x7000
-    push ax
-    popf                ; Versuche höhere Bits zu setzen
-    pushf
-    pop ax
-    test ax, 0x7000     ; Wurden sie gesetzt?
-    jz .not_386         ; Nein -> kein 386
-    clc
-    ret
-.not_386:
-    stc
-    ret
+
+; Debug Messages
+testing_msg db 'CPU Test...', 13, 10, 0
+cr0_msg db 'CR0 Test OK...', 13, 10, 0
+pe_msg db 'PE Test OK...', 13, 10, 0
 
 ; A20 Gate aktivieren
 enable_a20:
