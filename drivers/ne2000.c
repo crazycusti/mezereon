@@ -27,8 +27,8 @@ bool ne2000_present(void) {
         return false;
     }
 
-    // Put NIC in STOP + Page 0 (CR = 0x21: STP=1, PS=00)
-    outb(base + NE2K_REG_CMD, 0x21);
+    // Put NIC in STOP + Page 0 (CR = 0x01: STP=1, PS=00)
+    outb(base + NE2K_REG_CMD, 0x01);
     io_delay();
 
     // DCR write-read test; should be readable and not 0xFF
