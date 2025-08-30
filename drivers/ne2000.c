@@ -56,13 +56,13 @@ bool ne2000_present(void) {
     return false;
 }
 
-void ne2000_init(void) {
-    if (ne2000_present()) {
-        video_print("NE2000 detected. ");
-    } else {
+bool ne2000_init(void) {
+    if (!ne2000_present()) {
         video_print("NE2000 not detected. ");
-        return;
+        return false;
     }
+
+    video_print("NE2000 detected. ");
 
     // Stop the NIC (CR.STOP = 0x01) before further configuration
     outb((uint16_t)CONFIG_NE2000_IO + NE2K_REG_CMD, 0x01);
@@ -74,4 +74,5 @@ void ne2000_init(void) {
     io_delay();
 
     // For now we stop here. Full ring buffer init will follow.
+    return true;
 }

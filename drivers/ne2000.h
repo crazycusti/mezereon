@@ -12,6 +12,6 @@
 #define NE2K_REG_RESET  0x1F
 
 bool ne2000_present(void);
-void ne2000_init(void);
+bool ne2000_init(void);
 
 #endif // NE2000_H
