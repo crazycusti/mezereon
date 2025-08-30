@@ -33,17 +33,22 @@ endif
 
 all: disk.img
 
+
 bootloader.bin: bootloader.asm
     $(AS) -f bin $< -o $@
+
 
 kernel_entry.bin: kernel_entry.asm
     $(AS) -f bin $< -o $@
 
+
 main.o: main.c main.h config.h
     $(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
+
 video.o: video.c main.h config.h
     $(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+
 
 network.o: network.c network.h config.h
     $(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
