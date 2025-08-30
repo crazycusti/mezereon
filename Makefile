@@ -10,6 +10,7 @@ endif
 else
 CC := $(shell command -v gcc-15 2>/dev/null || echo gcc)
 endif
+
 AS = nasm
 LD ?= ld
 CFLAGS ?= -ffreestanding -m32 -Wall -Wextra -nostdlib -fno-builtin -fno-stack-protector -fno-pic -fno-pie
@@ -31,37 +32,34 @@ $(warning gcc-15 nicht gefunden, benutze Standard gcc. Für beste Kompatibilitä
 endif
 endif
 
-kernel_entry.bin: kernel_entry.asm
-
 all: disk.img
 
 bootloader.bin: bootloader.asm
-    $(AS) -f bin $< -o $@
+	$(AS) -f bin $< -o $@
 
 kernel_entry.bin: kernel_entry.asm
-    $(AS) -f bin $< -o $@
+	$(AS) -f bin $< -o $@
 
 main.o: main.c main.h config.h
-    $(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
 video.o: video.c main.h config.h
-    $(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
-
+	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
 network.o: network.c network.h config.h
-    $(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
 drivers/ne2000.o: drivers/ne2000.c drivers/ne2000.h config.h
-    $(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
 kernel_payload.bin: main.o video.o network.o drivers/ne2000.o
-    $(LD) $(LDFLAGS) $^ -o $@
+	$(LD) $(LDFLAGS) $^ -o $@
 
 disk.img: bootloader.bin kernel_entry.bin kernel_payload.bin
-    cat $^ > $@
+	cat $^ > $@
 
 clean:
-    rm -f *.o *.bin *.img network.o video.o main.o kernel_payload.bin bootloader.bin kernel_entry.bin
-    rm -f drivers/*.o
+	rm -f *.o *.bin *.img network.o video.o main.o kernel_payload.bin bootloader.bin kernel_entry.bin
+	rm -f drivers/*.o
 
 .PHONY: all clean
