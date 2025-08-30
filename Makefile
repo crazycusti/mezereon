@@ -1,15 +1,14 @@
-
 # Compiler-Auswahl: Bevorzugt i386-elf-gcc (Cross-Compiler), dann gcc-15, dann gcc
 
 # ARM-Macs: explizit i386-elf-gcc aus nativeos/i386-elf-toolchain verwenden
 ifeq ($(shell uname),Darwin)
-	ifeq ($(shell uname -m),arm64)
-		CC := /opt/homebrew/bin/i386-elf-gcc
-	else
-		CC := $(shell command -v i386-elf-gcc 2>/dev/null || command -v gcc-15 2>/dev/null || echo gcc)
-	endif
+ifeq ($(shell uname -m),arm64)
+CC := /opt/homebrew/bin/i386-elf-gcc
 else
-	CC := $(shell command -v gcc-15 2>/dev/null || echo gcc)
+CC := $(shell command -v i386-elf-gcc 2>/dev/null || command -v gcc-15 2>/dev/null || echo gcc)
+endif
+else
+CC := $(shell command -v gcc-15 2>/dev/null || echo gcc)
 endif
 AS = nasm
 LD ?= ld
@@ -22,46 +21,44 @@ CONFIG_NE2000_IO_SIZE ?= 32
 
 CDEFS = -DCONFIG_NE2000_IO=$(CONFIG_NE2000_IO) -DCONFIG_NE2000_IRQ=$(CONFIG_NE2000_IRQ) -DCONFIG_NE2000_IO_SIZE=$(CONFIG_NE2000_IO_SIZE)
 
-
-
 ifeq ($(shell uname),Darwin)
-	ifeq ($(CC),gcc)
-		$(warning Weder i386-elf-gcc noch gcc-15 gefunden, benutze Standard gcc. Für beste Kompatibilität bitte 'brew install i386-elf-gcc' ausführen!)
-	endif
+ifeq ($(CC),gcc)
+$(warning Weder i386-elf-gcc noch gcc-15 gefunden, benutze Standard gcc. Für beste Kompatibilität bitte 'brew install i386-elf-gcc' ausführen!)
+endif
 else
-	ifeq ($(CC),gcc)
-		$(warning gcc-15 nicht gefunden, benutze Standard gcc. Für beste Kompatibilität bitte gcc-15 installieren!)
-	endif
+ifeq ($(CC),gcc)
+$(warning gcc-15 nicht gefunden, benutze Standard gcc. Für beste Kompatibilität bitte gcc-15 installieren!)
+endif
 endif
 
 all: disk.img
 
 bootloader.bin: bootloader.asm
-	$(AS) -f bin $< -o $@
+    $(AS) -f bin $< -o $@
 
 kernel_entry.bin: kernel_entry.asm
-	$(AS) -f bin $< -o $@
+    $(AS) -f bin $< -o $@
 
 main.o: main.c main.h config.h
-	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+    $(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
 video.o: video.c main.h config.h
-	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+    $(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
 network.o: network.c network.h config.h
-	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+    $(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
 drivers/ne2000.o: drivers/ne2000.c drivers/ne2000.h config.h
-	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+    $(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
 kernel_payload.bin: main.o video.o network.o drivers/ne2000.o
-	$(LD) $(LDFLAGS) $^ -o $@
+    $(LD) $(LDFLAGS) $^ -o $@
 
 disk.img: bootloader.bin kernel_entry.bin kernel_payload.bin
-	cat $^ > $@
+    cat $^ > $@
 
 clean:
-	rm -f *.o *.bin *.img network.o video.o main.o kernel_payload.bin bootloader.bin kernel_entry.bin
-	rm -f drivers/*.o
+    rm -f *.o *.bin *.img network.o video.o main.o kernel_payload.bin bootloader.bin kernel_entry.bin
+    rm -f drivers/*.o
 
 .PHONY: all clean
