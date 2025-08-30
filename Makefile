@@ -31,20 +31,18 @@ $(warning gcc-15 nicht gefunden, benutze Standard gcc. Für beste Kompatibilitä
 endif
 endif
 
-all: disk.img
+kernel_entry.bin: kernel_entry.asm
 
+all: disk.img
 
 bootloader.bin: bootloader.asm
     $(AS) -f bin $< -o $@
 
-
 kernel_entry.bin: kernel_entry.asm
     $(AS) -f bin $< -o $@
 
-
 main.o: main.c main.h config.h
     $(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
-
 
 video.o: video.c main.h config.h
     $(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
