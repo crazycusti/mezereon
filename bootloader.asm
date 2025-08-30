@@ -47,16 +47,17 @@ load_kernel:
     mov si, after_load_msg
     call print_string
 
-    ; Prüfe ob mindestens i386
+    ; Prüfe ob mindestens i386 (vorerst übersprungen)
     mov si, before_cpu_msg
     call print_string
+    jmp short .skip_cpu_check
     call check_cpu
     jc cpu_error
-
     mov si, cpu_ok_msg
     call print_string
     mov si, after_cpu_msg
     call print_string
+.skip_cpu_check:
 
     ; A20 Gate aktivieren
     call enable_a20
@@ -64,11 +65,15 @@ load_kernel:
     ; GDT vorbereiten (im Bootsektor, 3 Einträge: Null, Code, Data)
     cli
     lgdt [gdt_descriptor]
+    mov si, after_lgdt_msg
+    call print_string
 
     ; Protected Mode aktivieren
     mov eax, cr0
     or eax, 1
     mov cr0, eax
+    mov si, after_cr0_msg
+    call print_string
 
     ; Weitsprung in 32-Bit Protected Mode (CS: 0x08)
     jmp 0x08:protected_mode_entry
@@ -111,6 +116,7 @@ disk_error:
 
 print_string:
     mov ah, 0x0E
+    cld
 .next_char:
     lodsb
     or al, al
@@ -146,6 +152,8 @@ pe_msg db 'PE Test OK...', 13, 10, 0
 before_cpu_msg db 'Before CPU check...', 13, 10, 0
 after_cpu_msg db 'After CPU check...', 13, 10, 0
 after_load_msg db 'After load...', 13, 10, 0
+after_lgdt_msg db 'After LGDT...', 13, 10, 0
+after_cr0_msg db 'After CR0...', 13, 10, 0
 
 ; A20 Gate aktivieren
 enable_a20:
