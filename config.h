@@ -6,6 +6,11 @@
 #define CONFIG_NE2000_IRQ  3
 #define CONFIG_NE2000_IO_SIZE 32
 
+// Optional: scan common ISA bases if configured base not found
+#ifndef CONFIG_NE2000_SCAN
+#define CONFIG_NE2000_SCAN 1
+#endif
+
 // Video params für Zeilenauflösung
 #define CONFIG_VGA_WIDTH 80
 #define CONFIG_VGA_HEIGHT 25

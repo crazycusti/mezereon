@@ -18,6 +18,7 @@ static inline uint8_t inb(uint16_t port) {
 
 static int vga_row = 0;
 static int vga_col = 0;
+static const char HEX_DIGITS[] = "0123456789ABCDEF";
 
 void video_init() {
 #if CONFIG_VIDEO_CLEAR_ON_INIT
@@ -58,6 +59,17 @@ void video_init() {
         }
     }
 #endif
+}
+
+void video_print_hex16(uint16_t v) {
+    char buf[6];
+    buf[0] = '0';
+    buf[1] = 'x';
+    buf[2] = HEX_DIGITS[(v >> 12) & 0xF];
+    buf[3] = HEX_DIGITS[(v >> 8) & 0xF];
+    buf[4] = HEX_DIGITS[(v >> 4) & 0xF];
+    buf[5] = HEX_DIGITS[(v >> 0) & 0xF];
+    video_print(buf);
 }
 
 void video_print(const char* str) {
