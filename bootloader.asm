@@ -65,6 +65,7 @@ load_kernel:
     ; GDT vorbereiten (im Bootsektor, 3 Einträge: Null, Code, Data)
     cli
     lgdt [gdt_descriptor]
+    ; Letzter BIOS-Print vor Protected Mode
     mov si, after_lgdt_msg
     call print_string
 
@@ -72,8 +73,6 @@ load_kernel:
     mov eax, cr0
     or eax, 1
     mov cr0, eax
-    mov si, after_cr0_msg
-    call print_string
 
     ; Weitsprung in 32-Bit Protected Mode (CS: 0x08)
     jmp 0x08:protected_mode_entry
@@ -153,7 +152,6 @@ before_cpu_msg db 'Before CPU check...', 13, 10, 0
 after_cpu_msg db 'After CPU check...', 13, 10, 0
 after_load_msg db 'After load...', 13, 10, 0
 after_lgdt_msg db 'After LGDT...', 13, 10, 0
-after_cr0_msg db 'After CR0...', 13, 10, 0
 
 ; A20 Gate aktivieren
 enable_a20:
