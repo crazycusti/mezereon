@@ -1,4 +1,16 @@
-CC ?= gcc
+
+# Compiler-Auswahl: Bevorzugt i386-elf-gcc (Cross-Compiler), dann gcc-15, dann gcc
+
+# ARM-Macs: explizit i386-elf-gcc aus nativeos/i386-elf-toolchain verwenden
+ifeq ($(shell uname),Darwin)
+	ifeq ($(shell uname -m),arm64)
+		CC := /opt/homebrew/bin/i386-elf-gcc
+	else
+		CC := $(shell command -v i386-elf-gcc 2>/dev/null || command -v gcc-15 2>/dev/null || echo gcc)
+	endif
+else
+	CC := $(shell command -v gcc-15 2>/dev/null || echo gcc)
+endif
 AS = nasm
 LD ?= ld
 CFLAGS ?= -ffreestanding -m32 -Wall -Wextra -nostdlib -fno-builtin -fno-stack-protector -fno-pic -fno-pie
@@ -9,6 +21,18 @@ CONFIG_NE2000_IRQ ?= 3
 CONFIG_NE2000_IO_SIZE ?= 32
 
 CDEFS = -DCONFIG_NE2000_IO=$(CONFIG_NE2000_IO) -DCONFIG_NE2000_IRQ=$(CONFIG_NE2000_IRQ) -DCONFIG_NE2000_IO_SIZE=$(CONFIG_NE2000_IO_SIZE)
+
+
+
+ifeq ($(shell uname),Darwin)
+	ifeq ($(CC),gcc)
+		$(warning Weder i386-elf-gcc noch gcc-15 gefunden, benutze Standard gcc. Für beste Kompatibilität bitte 'brew install i386-elf-gcc' ausführen!)
+	endif
+else
+	ifeq ($(CC),gcc)
+		$(warning gcc-15 nicht gefunden, benutze Standard gcc. Für beste Kompatibilität bitte gcc-15 installieren!)
+	endif
+endif
 
 all: disk.img
 

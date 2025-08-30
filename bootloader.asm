@@ -29,8 +29,49 @@ load_kernel:
     mov si, success_msg
     call print_string
 
-    ; Kernel starten (Sprung zu 0x0000:0x7E00)
-    jmp 0x0000:0x7E00
+
+    ; GDT vorbereiten (im Bootsektor, 3 Einträge: Null, Code, Data)
+    cli
+    lgdt [gdt_descriptor]
+
+    ; Protected Mode aktivieren
+    mov eax, cr0
+    or eax, 1
+    mov cr0, eax
+
+    ; Weitsprung in 32-Bit Protected Mode (CS: 0x08)
+    jmp 0x08:protected_mode_entry
+
+; -----------------------------
+; 32-Bit Protected Mode Code
+; -----------------------------
+
+BITS 32
+protected_mode_entry:
+    mov ax, 0x10        ; Data Segment Selector
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
+    mov esp, 0x9FC00    ; Stack (z.B. unterhalb 640K)
+
+    ; Sprung zum Kernel-Einsprungspunkt (0x7E00)
+    jmp 0x7E00
+
+; -----------------------------
+; GDT (im Bootsektor)
+; -----------------------------
+
+gdt_start:
+    dq 0x0000000000000000      ; Null-Deskriptor
+    dq 0x00CF9A000000FFFF      ; Code-Deskriptor (Basis 0, Limit 4GB, 32bit, RX)
+    dq 0x00CF92000000FFFF      ; Data-Deskriptor (Basis 0, Limit 4GB, 32bit, RW)
+gdt_end:
+
+gdt_descriptor:
+    dw gdt_end - gdt_start - 1
+    dd gdt_start
 
 disk_error:
     mov si, error_msg
@@ -47,6 +88,7 @@ print_string:
     jmp .next_char
 .done:
     ret
+
 
 error_msg db 'Disk Error!', 0
 success_msg db 'DEBUG Load OK', 0
