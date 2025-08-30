@@ -20,17 +20,37 @@ extern void video_print(const char* str);
 bool ne2000_present(void) {
     const uint16_t base = (uint16_t)CONFIG_NE2000_IO;
 
-    // Trigger reset: many NE2000 clones reset on read of RESET reg; some on write.
-    (void)inb(base + NE2K_REG_RESET);
+    // Quick 0xFF probe on common regs (floating bus reads as 0xFF)
+    uint8_t p_isr = inb(base + NE2K_REG_ISR);
+    uint8_t p_rst = inb(base + NE2K_REG_RESET);
+    if (p_isr == 0xFF && p_rst == 0xFF) {
+        return false;
+    }
+
+    // Put NIC in STOP + Page 0 (CR = 0x21: STP=1, PS=00)
+    outb(base + NE2K_REG_CMD, 0x21);
     io_delay();
 
-    // Poll ISR for RST bit (bit 7)
+    // DCR write-read test; should be readable and not 0xFF
+    outb(base + NE2K_REG_DCR, 0x49);
+    io_delay();
+    uint8_t dcr = inb(base + NE2K_REG_DCR);
+    if (dcr != 0x49) {
+        return false;
+    }
+
+    // Reset path: read RESET, wait for ISR.RST (bit7), then ack and confirm clear
+    (void)inb(base + NE2K_REG_RESET);
+    io_delay();
     for (int i = 0; i < 65535; i++) {
         uint8_t isr = inb(base + NE2K_REG_ISR);
         if (isr & 0x80) {
-            // Ack reset
             outb(base + NE2K_REG_ISR, 0x80);
-            return true;
+            io_delay();
+            uint8_t isr2 = inb(base + NE2K_REG_ISR);
+            // Bit cleared after ack indicates a real device
+            if ((isr2 & 0x80) == 0) return true;
+            else return false;
         }
     }
     return false;
