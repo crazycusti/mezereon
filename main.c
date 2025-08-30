@@ -8,6 +8,7 @@ void kmain()
     video_println("Networkstack initialized.");
     if (ne2000_init()) {
         video_println("NE2000 network interface initialized.");
+        ne2000_send_test();
     } else {
         video_println("NE2000 network interface not present.");
     }
