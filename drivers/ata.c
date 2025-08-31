@@ -11,8 +11,9 @@ static inline void outw(uint16_t port, uint16_t val){ __asm__ volatile("outw %0,
 static inline uint16_t inw(uint16_t port){ uint16_t v; __asm__ volatile("inw %1,%0":"=a"(v):"Nd"(port)); return v; }
 
 // ATA I/O ports
-#define ATA_IO    ((uint16_t)CONFIG_ATA_PRIMARY_IO)
-#define ATA_CTRL  ((uint16_t)CONFIG_ATA_PRIMARY_CTRL)
+static uint16_t ATA_IO    = (uint16_t)CONFIG_ATA_PRIMARY_IO;
+static uint16_t ATA_CTRL  = (uint16_t)CONFIG_ATA_PRIMARY_CTRL;
+static bool     ATA_SLAVE = false; // false=master, true=slave
 
 // Registers (offsets from ATA_IO)
 #define ATA_REG_DATA      0
@@ -59,6 +60,10 @@ static bool ata_wait_drq_set(void){
     return false;
 }
 
+void ata_set_target(uint16_t io, uint16_t ctrl, bool slave){
+    ATA_IO = io; ATA_CTRL = ctrl; ATA_SLAVE = slave;
+}
+
 bool ata_init(void){
     if (!ata_present()) return false;
     // Disable IRQs (nIEN=1)
@@ -66,7 +71,7 @@ bool ata_init(void){
     if (!ata_wait_bsy_clear()) return false;
 
     // Select master, LBA mode high bits zero
-    outb(ATA_IO+ATA_REG_DRIVE, 0xE0);
+    outb(ATA_IO+ATA_REG_DRIVE, (uint8_t)((ATA_SLAVE ? 0xF0 : 0xE0)));
     ata_400ns_delay();
 
     // IDENTIFY (final, to clear DRQ and sync)
@@ -93,8 +98,8 @@ bool ata_init(void){
 static ata_type_t g_ata_type = ATA_NONE;
 
 ata_type_t ata_detect(void){
-    // Select master
-    outb(ATA_IO+ATA_REG_DRIVE, 0xA0);
+    // Select target (master/slave), CHS select; LBA not needed for IDENTIFY
+    outb(ATA_IO+ATA_REG_DRIVE, (uint8_t)(ATA_SLAVE ? 0xB0 : 0xA0));
     ata_400ns_delay();
 
     uint8_t st = inb(ATA_IO+ATA_REG_STATUS);
@@ -132,12 +137,25 @@ bool ata_present(void){
     return g_ata_type == ATA_ATA;
 }
 
+void ata_scan(ata_dev_t out[4]){
+    const uint16_t ios[2] = { (uint16_t)CONFIG_ATA_PRIMARY_IO, 0x170 };
+    const uint16_t ctrls[2] = { (uint16_t)CONFIG_ATA_PRIMARY_CTRL, 0x376 };
+    for (int ch=0; ch<2; ch++){
+        for (int sl=0; sl<2; sl++){
+            int idx = ch*2 + sl;
+            ata_set_target(ios[ch], ctrls[ch], sl==1);
+            out[idx].io = ios[ch]; out[idx].ctrl = ctrls[ch]; out[idx].slave = (sl==1);
+            out[idx].type = ata_detect();
+        }
+    }
+}
+
 bool ata_read_lba28(uint32_t lba, uint8_t sectors, void* buf){
     if (sectors==0 || sectors>4) sectors=4;
     if (!ata_wait_bsy_clear()) return false;
 
     outb(ATA_CTRL+ATA_REG_DEVCTRL, 0x02); // nIEN=1
-    outb(ATA_IO+ATA_REG_DRIVE, (uint8_t)(0xE0 | ((lba>>24)&0x0F)));
+    outb(ATA_IO+ATA_REG_DRIVE, (uint8_t)((ATA_SLAVE ? 0xF0 : 0xE0) | ((lba>>24)&0x0F)));
     outb(ATA_IO+ATA_REG_SECCNT, sectors);
     outb(ATA_IO+ATA_REG_LBA0, (uint8_t)(lba & 0xFF));
     outb(ATA_IO+ATA_REG_LBA1, (uint8_t)((lba>>8)&0xFF));

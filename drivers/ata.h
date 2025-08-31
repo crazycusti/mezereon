@@ -8,9 +8,24 @@ typedef enum {
     ATA_ATAPI = 2,
 } ata_type_t;
 
-// Probe the primary master and return type
+// Device descriptor used for scan results
+typedef struct {
+    uint16_t io;
+    uint16_t ctrl;
+    bool     slave;   // false=master, true=slave
+    ata_type_t type;  // result of detection
+} ata_dev_t;
+
+// Select target device (default is primary master). Affects subsequent operations.
+void ata_set_target(uint16_t io, uint16_t ctrl, bool slave);
+
+// Probe currently selected target and return type
 ata_type_t ata_detect(void);
-// Return true if a normal ATA disk is present (cached result after detect/init)
+
+// Scan 4 standard slots: [0]=PM, [1]=PS, [2]=SM, [3]=SS
+void ata_scan(ata_dev_t out[4]);
+
+// Return true if the currently selected target is a normal ATA disk
 bool ata_present(void);
 
 bool ata_init(void);
