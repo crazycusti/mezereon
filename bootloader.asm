@@ -46,22 +46,7 @@ start:
     mov es, ax         ; ES = 0x0000
 
 load_kernel:
-    ; Zwei Pfade: HDD (DL>=0x80) einfach am Stück lesen; FDD trackweise.
-    test byte [boot_device_type], 1
-    jz .read_floppy
-
-    ; HDD-Pfad: linear ab CHS 0/0/2 KERNEL_SECTORS lesen
-    mov dl, [boot_drive]
-    xor ch, ch
-    xor dh, dh
-    mov cl, 2
-    mov ah, 0x02
-    mov al, KERNEL_SECTORS
-    int 0x13
-    jc disk_error
-    jmp .read_done
-
-.read_floppy:
+    ; Einheitlicher CHS-Pfad für HDD/FDD: trackweise lesen (robust)
     ; Geometrie abfragen (AH=08)
     mov dl, [boot_drive]
     mov ah, 0x08
@@ -101,6 +86,10 @@ load_kernel:
     mov al, ah
 .count_ok:
     mov [last_count], al
+    ; kleiner Fortschrittsindikator
+    mov al, '.'
+    mov ah, 0x0E
+    int 0x10
     push ax
     mov ah, 0x02
     mov dl, [boot_drive]
