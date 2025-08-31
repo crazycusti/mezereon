@@ -1,6 +1,7 @@
 #include "ata.h"
 #include "../config.h"
 #include "../main.h"
+#include "../keyboard.h"
 #include <stdint.h>
 
 // I/O helpers
@@ -166,6 +167,7 @@ void ata_dump_lba(uint32_t lba, uint8_t sectors_max){
         return;
     }
     uint32_t total = (uint32_t)sectors_max * 512u;
+    video_print("-- atadump: Down/Enter=next, PgDn=+16 lines, q=quit --\n");
     for (uint32_t off=0; off<total; off+=16){
         // address
         video_print_hex16((uint16_t)off);
@@ -183,5 +185,22 @@ void ata_dump_lba(uint32_t lba, uint8_t sectors_max){
             char s[2]; s[0]=(char)c; s[1]=0; video_print(s);
         }
         video_print("\n");
+        // Wait for navigation key: Down/Enter/Space = next line, PgDn = +16 lines, q = quit
+        int advance_lines = 1;
+        for (;;) {
+            int ch = keyboard_poll_char();
+            if (ch < 0) continue;
+            if (ch == KEY_DOWN || ch == '\n' || ch == '\r' || ch == ' ') break;
+            if (ch == KEY_PGDN) { advance_lines = 16; break; }
+            if (ch == 'q' || ch == 'Q') { return; }
+        }
+        if (advance_lines > 1) {
+            uint32_t add = (uint32_t)(advance_lines - 1) * 16u;
+            if (total - off > add) {
+                off += add;
+            } else {
+                // Reaching end; loop increment will terminate.
+            }
+        }
     }
 }

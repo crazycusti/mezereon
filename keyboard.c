@@ -48,9 +48,18 @@ int keyboard_poll_char(void) {
     bool release = (sc & 0x80) != 0; sc &= 0x7F;
 
     if (ext) {
-        // Ignore extended keys for now
-        ext = false;
-        return -1;
+        // Handle arrows/Page keys (make codes): Up=0x48, Down=0x50, Left=0x4B, Right=0x4D, PgUp=0x49, PgDn=0x51
+        bool release_ext = (sc & 0x80) != 0; // already stripped above, so this is always false here
+        (void)release_ext;
+        switch (sc) {
+            case 0x48: ext = false; return KEY_UP;
+            case 0x50: ext = false; return KEY_DOWN;
+            case 0x4B: ext = false; return KEY_LEFT;
+            case 0x4D: ext = false; return KEY_RIGHT;
+            case 0x49: ext = false; return KEY_PGUP;
+            case 0x51: ext = false; return KEY_PGDN;
+            default: ext = false; return -1;
+        }
     }
 
     // Shift press/release
@@ -75,4 +84,3 @@ int keyboard_poll_char(void) {
     }
     return -1;
 }
-

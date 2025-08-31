@@ -54,7 +54,7 @@ network.o: network.c network.h config.h
 drivers/ne2000.o: drivers/ne2000.c drivers/ne2000.h config.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
-drivers/ata.o: drivers/ata.c drivers/ata.h config.h main.h
+drivers/ata.o: drivers/ata.c drivers/ata.h config.h main.h keyboard.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
 keyboard.o: keyboard.c keyboard.h config.h
