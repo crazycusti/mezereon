@@ -34,6 +34,25 @@ void video_update_cursor(void) {
     vga_hw_cursor_update_internal();
 }
 
+static inline void video_scroll(void) {
+    volatile uint16_t* video = (uint16_t*) VIDEO_MEMORY;
+    const int W = CONFIG_VGA_WIDTH;
+    const int H = CONFIG_VGA_HEIGHT;
+    // Move lines 1..H-1 up to 0..H-2
+    for (int y = 1; y < H; y++) {
+        for (int x = 0; x < W; x++) {
+            video[(y - 1) * W + x] = video[y * W + x];
+        }
+    }
+    // Clear last line
+    for (int x = 0; x < W; x++) {
+        video[(H - 1) * W + x] = (0x07 << 8) | ' ';
+    }
+    vga_row = H - 1;
+    if (vga_col >= W) vga_col = 0;
+    vga_hw_cursor_update_internal();
+}
+
 void video_init() {
 #if CONFIG_VIDEO_CLEAR_ON_INIT
     volatile uint16_t* video = (uint16_t*) VIDEO_MEMORY;
@@ -95,19 +114,22 @@ void video_print(const char* str) {
         if (*str == '\n') {
             vga_row++;
             vga_col = 0;
+            if (vga_row >= CONFIG_VGA_HEIGHT) video_scroll();
         } else {
             if (vga_col >= CONFIG_VGA_WIDTH) {
                 vga_col = 0;
                 vga_row++;
+                if (vga_row >= CONFIG_VGA_HEIGHT) video_scroll();
             }
             if (vga_row < CONFIG_VGA_HEIGHT) {
                 video[vga_row * CONFIG_VGA_WIDTH + vga_col] = (0x07 << 8) | *str;
             }
             vga_col++;
+            if (vga_row >= CONFIG_VGA_HEIGHT) video_scroll();
         }
         str++;
     }
-    if (vga_row >= CONFIG_VGA_HEIGHT) { vga_row = CONFIG_VGA_HEIGHT - 1; }
+    if (vga_row >= CONFIG_VGA_HEIGHT) video_scroll();
     if (vga_col >= CONFIG_VGA_WIDTH) { vga_col = CONFIG_VGA_WIDTH - 1; }
     vga_hw_cursor_update_internal();
 }
@@ -120,8 +142,12 @@ void video_println(const char* str) {
 void video_putc(char c) {
     volatile uint16_t* video = (uint16_t*) VIDEO_MEMORY;
     if (c == '\n') {
-        vga_row++; vga_col = 0; vga_hw_cursor_update_internal(); return;
+        vga_row++; vga_col = 0;
+        if (vga_row >= CONFIG_VGA_HEIGHT) video_scroll();
+        vga_hw_cursor_update_internal();
+        return;
     }
+    if (c == '\r') { vga_col = 0; vga_hw_cursor_update_internal(); return; }
     if (c == '\b') {
         if (vga_col > 0) {
             vga_col--;
@@ -131,11 +157,12 @@ void video_putc(char c) {
         return;
     }
     if (vga_col >= CONFIG_VGA_WIDTH) { vga_col = 0; vga_row++; }
+    if (vga_row >= CONFIG_VGA_HEIGHT) video_scroll();
     if (vga_row < CONFIG_VGA_HEIGHT) {
         video[vga_row * CONFIG_VGA_WIDTH + vga_col] = (0x07 << 8) | (uint8_t)c;
     }
     vga_col++;
-    if (vga_row >= CONFIG_VGA_HEIGHT) { vga_row = CONFIG_VGA_HEIGHT - 1; }
+    if (vga_row >= CONFIG_VGA_HEIGHT) video_scroll();
     if (vga_col >= CONFIG_VGA_WIDTH) { vga_col = CONFIG_VGA_WIDTH - 1; }
     vga_hw_cursor_update_internal();
 }
