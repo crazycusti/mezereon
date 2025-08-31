@@ -34,7 +34,7 @@ void shell_run(void) {
                     video_print(CONFIG_KERNEL_VERSION);
                     video_print("\n");
                 } else if (streq(buf, "clear")) {
-                    video_init();
+                    video_clear();
                 } else if (streq(buf, "help")) {
                     video_print("Commands: version, clear, help, ata, atadump [lba], neele mount [lba], neele ls, neele cat <name>\n");
                 } else if (streq(buf, "ata")) {
