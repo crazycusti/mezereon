@@ -32,6 +32,9 @@ extern void video_print_dec(unsigned int v);
 static uint16_t ne2k_base_io = (uint16_t)CONFIG_NE2000_IO;
 static bool ne2k_use_16bit = (CONFIG_NE2000_PIO_16BIT != 0);
 
+// Forward declarations for statics used before definition
+static bool ne2000_read_mac(uint8_t mac[6]);
+
 uint16_t ne2000_io_base(void) {
     return ne2k_base_io;
 }
