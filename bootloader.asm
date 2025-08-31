@@ -86,16 +86,17 @@ load_kernel:
     mov al, ah
 .count_ok:
     mov [last_count], al
-    ; kleiner Fortschrittsindikator
+    ; kleiner Fortschrittsindikator (AL sichern!)
+    push ax
     mov al, '.'
     mov ah, 0x0E
     int 0x10
-    push ax
-    mov ah, 0x02
+    pop ax                 ; AL enthält wieder last_count
+    mov ah, 0x02           ; BIOS Read: AH=0x02, AL=count
     mov dl, [boot_drive]
     int 0x13
     jc disk_error
-    pop ax
+    
     ; Advance buffer by count*512
     mov ah, 0
     push cx
@@ -167,7 +168,8 @@ protected_mode_entry:
     mov esp, 0x9FC00    ; Stack (z.B. unterhalb 640K)
 
     ; Sprung zum Kernel-Einsprungspunkt (0x7E00, 32-bit Entry in payload)
-    jmp 0x7E00
+    mov eax, 0x7E00     ; absoluter Sprung (EIP = 0x7E00)
+    jmp eax
 
 ; -----------------------------
 ; GDT (im Bootsektor)
