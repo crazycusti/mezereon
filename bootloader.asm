@@ -46,7 +46,23 @@ start:
     mov es, ax         ; ES = 0x0000
 
 load_kernel:
-    ; Geometrie abfragen (AH=08) für robustes Lesen (Floppy: 18 Sektoren/Track)
+    ; Zwei Pfade: HDD (DL>=0x80) einfach am Stück lesen; FDD trackweise.
+    test byte [boot_device_type], 1
+    jz .read_floppy
+
+    ; HDD-Pfad: linear ab CHS 0/0/2 KERNEL_SECTORS lesen
+    mov dl, [boot_drive]
+    xor ch, ch
+    xor dh, dh
+    mov cl, 2
+    mov ah, 0x02
+    mov al, KERNEL_SECTORS
+    int 0x13
+    jc disk_error
+    jmp .read_done
+
+.read_floppy:
+    ; Geometrie abfragen (AH=08)
     mov dl, [boot_drive]
     mov ah, 0x08
     int 0x13
@@ -60,13 +76,11 @@ load_kernel:
     mov byte [chs_spt], 18
     mov byte [chs_heads], 1
 .geom_ok:
-
-    ; Drive reset vor dem Lesen (wichtig für Floppy)
+    ; Reset
     mov dl, [boot_drive]
     xor ah, ah
     int 0x13
-
-    ; Startposition: C=0, H=0, S=2
+    ; Startposition
     xor ch, ch
     xor dh, dh
     mov cl, 2
@@ -77,28 +91,23 @@ load_kernel:
     mov al, [remain_sectors]
     or al, al
     jz .read_done
-
     ; rem_track = spt - (cl-1)
     mov ah, [chs_spt]
     mov bl, cl
     dec bl
     sub ah, bl
-    ; al = min(remain, rem_track)
     cmp al, ah
     jbe .count_ok
     mov al, ah
 .count_ok:
     mov [last_count], al
-
-    ; Read al sectors at C,H,S
     push ax
     mov ah, 0x02
     mov dl, [boot_drive]
     int 0x13
     jc disk_error
     pop ax
-
-    ; Advance buffer by count*512 (shift left by 9), preserve CX
+    ; Advance buffer by count*512
     mov ah, 0
     push cx
     mov cl, 9
@@ -106,20 +115,17 @@ load_kernel:
     pop cx
     add bx, ax
     jnc .no_carry
-    ; increment ES on carry
     push es
     pop dx
     inc dx
     push dx
     pop es
 .no_carry:
-
     ; remain -= count
     mov al, [remain_sectors]
     sub al, [last_count]
     mov [remain_sectors], al
-
-    ; CL += count, Trackwechsel berücksichtigen
+    ; CL += count, Trackwechsel
     mov al, [last_count]
     add cl, al
 .track_fix:
