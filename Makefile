@@ -12,10 +12,11 @@ CC := $(shell command -v gcc-15 2>/dev/null || echo gcc)
 endif
 
 AS = nasm
-# Bevorzuge i386-elf-ld falls verfügbar
+# Bevorzuge i386-elf-ld/objcopy falls verfügbar
 LD := $(shell command -v i386-elf-ld 2>/dev/null || echo ld)
+OBJCOPY := $(shell command -v i386-elf-objcopy 2>/dev/null || echo objcopy)
 CFLAGS ?= -ffreestanding -m32 -Wall -Wextra -nostdlib -fno-builtin -fno-stack-protector -fno-pic -fno-pie
-LDFLAGS ?= -Ttext 0x7E00 --oformat binary -m elf_i386
+LDFLAGS ?= -Ttext 0x7E00 -m elf_i386
 
 CONFIG_NE2000_IO ?= 0x300
 CONFIG_NE2000_IRQ ?= 3
@@ -66,8 +67,12 @@ keyboard.o: keyboard.c keyboard.h config.h
 shell.o: shell.c shell.h keyboard.h config.h main.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
-kernel_payload.bin: entry32.o main.o video.o network.o drivers/ne2000.o drivers/ata.o drivers/fs/neelefs.o keyboard.o shell.o
-	$(LD) -Ttext 0x7E00 --oformat binary -m elf_i386 $^ -o $@
+kernel_payload.elf: entry32.o main.o video.o network.o drivers/ne2000.o drivers/ata.o drivers/fs/neelefs.o keyboard.o shell.o
+	$(LD) $(LDFLAGS) $^ -o $@
+
+# Erzeuge flaches Binary ohne führende 0x7E00-Lücke
+kernel_payload.bin: kernel_payload.elf
+	$(OBJCOPY) -O binary --binary-architecture i386 --change-addresses -0x7E00 $< $@
 
 disk.img: bootloader.bin kernel_payload.bin
 	cat $^ > $@
