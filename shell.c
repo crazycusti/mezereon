@@ -37,7 +37,7 @@ void shell_run(void) {
                 } else if (streq(buf, "clear")) {
                     video_clear();
                 } else if (streq(buf, "help")) {
-                    video_print("Commands: version, clear, help, ata, atadump [lba], neele mount [lba], neele ls, neele cat <name>\n");
+                    video_print("Commands: version, clear, help, ata, atadump [lba], neele mount [lba], neele ls, neele cat <name>, netrxdump\n");
                 } else if (streq(buf, "ata")) {
                     if (ata_present()) video_print("ATA present (selected device).\n");
                     else video_print("ATA not present.\n");
@@ -111,6 +111,13 @@ void shell_run(void) {
                         }
                     } else {
                         video_print("usage: neele <mount|ls|cat> ...\n");
+                    }
+                } else if (streq(buf, "netrxdump")) {
+                    video_print("netrxdump: press 'q' to quit.\n");
+                    for (;;) {
+                        int k = keyboard_poll_char();
+                        if (k == 'q' || k == 'Q') { video_print("\n"); break; }
+                        ne2000_poll_rx();
                     }
                 } else {
                     video_print("Unknown command: ");
