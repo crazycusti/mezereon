@@ -41,5 +41,6 @@ bool ne2000_present(void);
 bool ne2000_init(void);
 uint16_t ne2000_io_base(void);
 bool ne2000_send_test(void);
+void ne2000_poll_rx(void);
 
 #endif // NE2000_H

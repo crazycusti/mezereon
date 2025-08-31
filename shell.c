@@ -4,6 +4,7 @@
 #include "drivers/fs/neelefs.h"
 #include "main.h"
 #include "config.h"
+#include "network.h"
 #include <stdint.h>
 
 static void print_prompt(void) {
@@ -22,7 +23,7 @@ void shell_run(void) {
 
     for (;;) {
         int ch = keyboard_poll_char();
-        if (ch < 0) continue;
+        if (ch < 0) { network_poll(); continue; }
 
         if (ch == '\r') ch = '\n';
         if (ch == '\n') {

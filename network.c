@@ -3,3 +3,7 @@
 void network_init() {
     // Netzwerkstack Initialisierung (Platzhalter)
 }
+
+void network_poll() {
+    ne2000_poll_rx();
+}

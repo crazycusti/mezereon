@@ -31,6 +31,8 @@ extern void video_print_dec(unsigned int v);
 
 static uint16_t ne2k_base_io = (uint16_t)CONFIG_NE2000_IO;
 static bool ne2k_use_16bit = (CONFIG_NE2000_PIO_16BIT != 0);
+static const uint8_t NE2K_RX_PSTART = 0x46; // leave 0x40.. for TX
+static const uint8_t NE2K_RX_PSTOP  = 0x80; // end of 32KiB window
 
 // Forward declarations for statics used before definition
 static bool ne2000_read_mac(uint8_t mac[6]);
@@ -100,11 +102,29 @@ bool ne2000_init(void) {
     outb(ne2k_base_io + NE2K_REG_DCR, ne2k_use_16bit ? 0x49 : 0x09);
     io_delay();
 
-    // Basic transmit config: normal operation, mask all IRQs (polling)
+    // Basic TX/RX config: normal operation, mask all IRQs (polling)
     outb(ne2k_base_io + NE2K_REG_TCR, 0x00);
     outb(ne2k_base_io + NE2K_REG_IMR, 0x00);
     // Clear pending interrupts
     outb(ne2k_base_io + NE2K_REG_ISR, 0xFF);
+
+    // Set receive configuration: accept broadcast only (AB)
+    outb(ne2k_base_io + NE2K_REG_RCR, 0x04);
+
+    // Program ring buffer boundaries
+    outb(ne2k_base_io + NE2K_REG_PSTART, NE2K_RX_PSTART);
+    outb(ne2k_base_io + NE2K_REG_PSTOP,  NE2K_RX_PSTOP);
+    outb(ne2k_base_io + NE2K_REG_BNRY,   (uint8_t)(NE2K_RX_PSTART));
+
+    // Switch to Page 1 to set CURR
+    uint8_t cr = inb(ne2k_base_io + NE2K_REG_CMD);
+    outb(ne2k_base_io + NE2K_REG_CMD, (uint8_t)((cr & 0x3F) | (1u<<6))); // PS=1
+    outb(ne2k_base_io + 0x07, (uint8_t)(NE2K_RX_PSTART + 1)); // CURR
+    // Back to Page 0
+    outb(ne2k_base_io + NE2K_REG_CMD, (uint8_t)(cr & 0x3F));
+
+    // Start the NIC (CR.STA)
+    outb(ne2k_base_io + NE2K_REG_CMD, 0x02);
 
     // Self-test: probe PIO width using station PROM read
     {
@@ -230,6 +250,71 @@ static bool ne2000_read_mac(uint8_t mac[6]) {
     for (int i = 0; i < 6; i++) { sum |= mac[i]; ff += (mac[i] == 0xFF); }
     if (sum == 0x00 || ff == 6) return false;
     return true;
+}
+
+static inline void print_hex8(uint8_t v) {
+    const char* hexd = "0123456789ABCDEF";
+    char s[3]; s[0]=hexd[(v>>4)&0xF]; s[1]=hexd[v&0xF]; s[2]=0; video_print(s);
+}
+
+static void ne2000_dump_eth(const uint8_t* buf, uint16_t len) {
+    if (len < 14) return;
+    uint16_t eth = ((uint16_t)buf[12] << 8) | buf[13];
+    video_print("RX eth=0x");
+    video_print_hex16(eth);
+    video_print(" len=");
+    video_print_dec(len);
+    video_print(" src=");
+    for (int i=0;i<6;i++){ if(i) video_print(":"); print_hex8(buf[6+i]); }
+    video_print(" dst=");
+    for (int i=0;i<6;i++){ if(i) video_print(":"); print_hex8(buf[i]); }
+    video_print("\n");
+}
+
+void ne2000_poll_rx(void) {
+    // Read boundary and current pointers
+    uint8_t bnry = inb(ne2k_base_io + NE2K_REG_BNRY);
+    // Switch to Page 1 to read CURR
+    uint8_t cr = inb(ne2k_base_io + NE2K_REG_CMD);
+    outb(ne2k_base_io + NE2K_REG_CMD, (uint8_t)((cr & 0x3F) | (1u<<6)));
+    uint8_t curr = inb(ne2k_base_io + 0x07);
+    // Back to Page 0
+    outb(ne2k_base_io + NE2K_REG_CMD, (uint8_t)(cr & 0x3F));
+
+    while (bnry != (uint8_t)(curr - 1 == 0xFF ? (NE2K_RX_PSTOP - 1) : (curr - 1))) {
+        uint8_t packet_page = (uint8_t)(bnry + 1);
+        if (packet_page >= NE2K_RX_PSTOP) packet_page = NE2K_RX_PSTART;
+        uint16_t hdr_addr = ((uint16_t)packet_page) << 8;
+
+        uint8_t hdr[4];
+        ne2000_remote_read(hdr_addr, hdr, 4);
+        uint8_t next = hdr[1];
+        uint16_t count = (uint16_t)hdr[2] | ((uint16_t)hdr[3] << 8);
+
+        // Read first 64 bytes of payload for summary (avoid large copies)
+        uint16_t payload_addr = hdr_addr + 4;
+        uint8_t buf[64];
+        uint16_t copy = (count > sizeof(buf)) ? (uint16_t)sizeof(buf) : count;
+        if (copy >= 14) {
+            ne2000_remote_read(payload_addr, buf, copy);
+            ne2000_dump_eth(buf, copy);
+        }
+
+        // Advance BNRY to previous page of 'next'
+        uint8_t new_bnry = (next == NE2K_RX_PSTART) ? (NE2K_RX_PSTOP - 1) : (uint8_t)(next - 1);
+        outb(ne2k_base_io + NE2K_REG_BNRY, new_bnry);
+        bnry = new_bnry;
+
+        // Refresh CURR for looping
+        cr = inb(ne2k_base_io + NE2K_REG_CMD);
+        outb(ne2k_base_io + NE2K_REG_CMD, (uint8_t)((cr & 0x3F) | (1u<<6)));
+        curr = inb(ne2k_base_io + 0x07);
+        outb(ne2k_base_io + NE2K_REG_CMD, (uint8_t)(cr & 0x3F));
+    }
+
+    // Ack PRX if set
+    uint8_t isr = inb(ne2k_base_io + NE2K_REG_ISR);
+    if (isr & NE2K_ISR_PRX) outb(ne2k_base_io + NE2K_REG_ISR, NE2K_ISR_PRX);
 }
 
 static bool ne2000_tx_packet(const uint8_t* frame, uint16_t len) {
