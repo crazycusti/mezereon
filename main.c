@@ -10,8 +10,9 @@ void kmain()
     // Minimal IDT + PIC + PIT setup
     idt_init();
     pic_remap(0x20, 0x28);
+    pic_mask_all();          // mask all IRQs first
     pit_init(100);          // 100 Hz
-    pic_set_mask(0, 0);     // unmask IRQ0 (timer)
+    pic_set_mask(0, 0);     // unmask only IRQ0 (timer)
     interrupts_enable();
     network_init();
     video_println("Networkstack initialized.");

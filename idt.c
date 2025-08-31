@@ -34,9 +34,9 @@ static void idt_set_gate(uint8_t num, uint32_t base, uint16_t sel, uint8_t flags
 }
 
 void idt_init(void) {
-    // zero out table
+    // clear table: mark all entries not present by default
     for (int i=0;i<256;i++) {
-        idt[i].base_low=0; idt[i].base_high=0; idt[i].sel=0x08; idt[i].always0=0; idt[i].flags=0x8E; // default
+        idt[i].base_low=0; idt[i].base_high=0; idt[i].sel=0x08; idt[i].always0=0; idt[i].flags=0x00;
     }
 
     // Map IRQ0 at vector 32 (0x20)
@@ -46,4 +46,3 @@ void idt_init(void) {
     idtp.base  = (uint32_t)&idt[0];
     lidt(&idt[0], sizeof(idt)-1);
 }
-

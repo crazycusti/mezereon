@@ -30,6 +30,11 @@ void pic_set_mask(uint8_t irq, int masked) {
     outb(port, val);
 }
 
+void pic_mask_all(void) {
+    outb(0x21, 0xFF);
+    outb(0xA1, 0xFF);
+}
+
 static volatile uint32_t ticks;
 uint32_t ticks_get(void){ return ticks; }
 
@@ -55,4 +60,3 @@ void irq0_handler_c(void) {
     // Acknowledge PIC
     outb(0x20, 0x20);
 }
-
