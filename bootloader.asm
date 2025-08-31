@@ -98,10 +98,12 @@ load_kernel:
     jc disk_error
     pop ax
 
-    ; Advance buffer by count*512 (shift left by 9)
+    ; Advance buffer by count*512 (shift left by 9), preserve CX
     mov ah, 0
+    push cx
     mov cl, 9
     shl ax, cl
+    pop cx
     add bx, ax
     jnc .no_carry
     ; increment ES on carry
