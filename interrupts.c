@@ -52,11 +52,36 @@ void interrupts_disable(void){ __asm__ volatile("cli"); }
 // C handler for IRQ0 (timer)
 extern void video_print(const char*);
 extern void video_print_dec(unsigned int);
+// For IRQ1 keyboard
+#include "keyboard.h"
+// For IRQ3 NE2000 ack (optional)
+#include "drivers/ne2000.h"
 
 void irq0_handler_c(void) {
     ticks++;
     // minimal: print a dot every second at 100Hz
     // if ((ticks % 100) == 0) { video_print("."); }
     // Acknowledge PIC
+    outb(0x20, 0x20);
+}
+
+void irq1_handler_c(void) {
+    // Read scancode to deassert IRQ and queue for polling path
+    uint8_t sc = inb(0x60);
+    // optional: read status (0x64) to clear
+    (void)inb(0x64);
+    keyboard_isr_byte(sc);
+    outb(0x20, 0x20);
+}
+
+void irq3_handler_c(void) {
+    // If NE2000 present and has pending bits, ack them; otherwise just EOI
+    uint16_t base = ne2000_io_base();
+    if (base) {
+        uint8_t isr = inb((uint16_t)(base + NE2K_REG_ISR));
+        if (isr && isr != 0xFF) {
+            outb((uint16_t)(base + NE2K_REG_ISR), isr);
+        }
+    }
     outb(0x20, 0x20);
 }

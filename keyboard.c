@@ -16,6 +16,16 @@ static bool shift = false;
 static bool caps = false;
 static bool ext  = false; // E0 prefix
 
+// Simple ring buffer for scancodes filled by IRQ1
+#define KBD_QSIZE 32
+static volatile uint8_t qbuf[KBD_QSIZE];
+static volatile uint8_t qhead = 0, qtail = 0;
+
+void keyboard_isr_byte(uint8_t sc) {
+    uint8_t n = (uint8_t)((qhead + 1) % KBD_QSIZE);
+    if (n != qtail) { qbuf[qhead] = sc; qhead = n; }
+}
+
 // Set 1 scancode to ASCII (no shift)
 static const char keymap[128] = {
     0,  27, '1','2','3','4','5','6','7','8','9','0','-','=', '\b',
@@ -41,8 +51,13 @@ void keyboard_init(void) {
 }
 
 int keyboard_poll_char(void) {
-    if ((inb(KBD_STATUS) & 0x01) == 0) return -1; // no data
-    uint8_t sc = inb(KBD_DATA);
+    uint8_t has = 0, sc = 0;
+    if (qhead != qtail) {
+        sc = qbuf[qtail]; qtail = (uint8_t)((qtail + 1) % KBD_QSIZE); has = 1;
+    } else {
+        if ((inb(KBD_STATUS) & 0x01) == 0) return -1; // no data
+        sc = inb(KBD_DATA);
+    }
 
     if (sc == 0xE0) { ext = true; return -1; }
     bool release = (sc & 0x80) != 0; sc &= 0x7F;

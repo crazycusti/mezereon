@@ -16,6 +16,8 @@ struct __attribute__((packed)) idt_ptr {
 };
 
 extern void irq0_stub(void);
+extern void irq1_stub(void);
+extern void irq3_stub(void);
 
 static struct idt_entry idt[256];
 static struct idt_ptr   idtp;
@@ -39,8 +41,10 @@ void idt_init(void) {
         idt[i].base_low=0; idt[i].base_high=0; idt[i].sel=0x08; idt[i].always0=0; idt[i].flags=0x00;
     }
 
-    // Map IRQ0 at vector 32 (0x20)
+    // Map IRQs at vectors 0x20.. (PIC remap)
     idt_set_gate(32, (uint32_t)irq0_stub, 0x08, 0x8E);
+    idt_set_gate(33, (uint32_t)irq1_stub, 0x08, 0x8E);
+    idt_set_gate(35, (uint32_t)irq3_stub, 0x08, 0x8E);
 
     idtp.limit = (uint16_t)(sizeof(idt) - 1);
     idtp.base  = (uint32_t)&idt[0];

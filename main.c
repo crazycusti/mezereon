@@ -12,7 +12,9 @@ void kmain()
     pic_remap(0x20, 0x28);
     pic_mask_all();          // mask all IRQs first
     pit_init(100);          // 100 Hz
-    pic_set_mask(0, 0);     // unmask only IRQ0 (timer)
+    pic_set_mask(0, 0);     // IRQ0 timer
+    pic_set_mask(1, 0);     // IRQ1 keyboard
+    pic_set_mask(3, 0);     // IRQ3 NE2000 (NIC still masked internally)
     interrupts_enable();
     network_init();
     video_println("Networkstack initialized.");
