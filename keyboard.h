@@ -5,6 +5,8 @@
 void keyboard_init(void);
 // Returns ASCII char or -1 if no key available.
 int keyboard_poll_char(void);
+// Enable IRQ-driven mode (no HW polling when enabled)
+void keyboard_set_irq_mode(int enabled);
 // IRQ path: enqueue raw scancode from IRQ1 handler
 void keyboard_isr_byte(uint8_t sc);
 

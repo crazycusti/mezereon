@@ -16,6 +16,7 @@ void kmain()
     pic_set_mask(1, 0);     // IRQ1 keyboard
     pic_set_mask(3, 0);     // IRQ3 NE2000 (NIC still masked internally)
     interrupts_enable();
+    keyboard_set_irq_mode(1);
     network_init();
     video_println("Networkstack initialized.");
     if (ne2000_init()) {

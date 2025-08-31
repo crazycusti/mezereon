@@ -20,11 +20,14 @@ static bool ext  = false; // E0 prefix
 #define KBD_QSIZE 32
 static volatile uint8_t qbuf[KBD_QSIZE];
 static volatile uint8_t qhead = 0, qtail = 0;
+static volatile int kbd_irq_mode = 0;
 
 void keyboard_isr_byte(uint8_t sc) {
     uint8_t n = (uint8_t)((qhead + 1) % KBD_QSIZE);
     if (n != qtail) { qbuf[qhead] = sc; qhead = n; }
 }
+
+void keyboard_set_irq_mode(int enabled) { kbd_irq_mode = enabled ? 1 : 0; }
 
 // Set 1 scancode to ASCII (no shift)
 static const char keymap[128] = {
@@ -51,10 +54,11 @@ void keyboard_init(void) {
 }
 
 int keyboard_poll_char(void) {
-    uint8_t has = 0, sc = 0;
+    uint8_t sc = 0;
     if (qhead != qtail) {
-        sc = qbuf[qtail]; qtail = (uint8_t)((qtail + 1) % KBD_QSIZE); has = 1;
+        sc = qbuf[qtail]; qtail = (uint8_t)((qtail + 1) % KBD_QSIZE);
     } else {
+        if (kbd_irq_mode) return -1; // rely on IRQ only
         if ((inb(KBD_STATUS) & 0x01) == 0) return -1; // no data
         sc = inb(KBD_DATA);
     }
