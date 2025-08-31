@@ -31,4 +31,12 @@
 #define CONFIG_VIDEO_HW_CURSOR 1
 #endif
 
+// ATA primary channel (QEMU default for -hda)
+#ifndef CONFIG_ATA_PRIMARY_IO
+#define CONFIG_ATA_PRIMARY_IO  0x1F0
+#endif
+#ifndef CONFIG_ATA_PRIMARY_CTRL
+#define CONFIG_ATA_PRIMARY_CTRL 0x3F6
+#endif
+
 #endif // CONFIG_H

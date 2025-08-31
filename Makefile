@@ -54,13 +54,16 @@ network.o: network.c network.h config.h
 drivers/ne2000.o: drivers/ne2000.c drivers/ne2000.h config.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
+drivers/ata.o: drivers/ata.c drivers/ata.h config.h main.h
+	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+
 keyboard.o: keyboard.c keyboard.h config.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
 shell.o: shell.c shell.h keyboard.h config.h main.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
-kernel_payload.bin: entry32.o main.o video.o network.o drivers/ne2000.o keyboard.o shell.o
+kernel_payload.bin: entry32.o main.o video.o network.o drivers/ne2000.o drivers/ata.o keyboard.o shell.o
 	$(LD) -Ttext 0x7E00 --oformat binary -m elf_i386 $^ -o $@
 
 disk.img: bootloader.bin kernel_payload.bin
