@@ -11,6 +11,13 @@
 #define CONFIG_NE2000_SCAN 1
 #endif
 
+// NE2000 PIO width selection
+// 1 = use 16-bit PIO (outw/inw) with DCR.WTS=1
+// 0 = use 8-bit PIO (outb/inb) with DCR.WTS=0
+#ifndef CONFIG_NE2000_PIO_16BIT
+#define CONFIG_NE2000_PIO_16BIT 1
+#endif
+
 // Video params für Zeilenauflösung
 #define CONFIG_VGA_WIDTH 80
 #define CONFIG_VGA_HEIGHT 25
