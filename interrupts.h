@@ -1,0 +1,14 @@
+// Minimal IDT/PIC/PIT setup for i386
+#pragma once
+#include <stdint.h>
+
+void idt_init(void);
+void pic_remap(uint8_t offset1, uint8_t offset2);
+void pic_set_mask(uint8_t irq, int masked);
+void pit_init(uint32_t hz);
+void interrupts_enable(void);
+void interrupts_disable(void);
+
+// Tick counter from PIT IRQ0
+uint32_t ticks_get(void);
+
