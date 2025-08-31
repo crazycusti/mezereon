@@ -28,7 +28,7 @@ void shell_run(void) {
             buf[len] = 0;
             if (len > 0) {
                 if (streq(buf, "version")) {
-                    video_print("Mezereon Kernel ");
+                    video_print("Mezereon ");
                     video_print(CONFIG_KERNEL_VERSION);
                     video_print("\n");
                 } else if (streq(buf, "clear")) {
@@ -62,4 +62,3 @@ void shell_run(void) {
         }
     }
 }
-

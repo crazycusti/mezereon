@@ -15,6 +15,11 @@
 #define CONFIG_VGA_WIDTH 80
 #define CONFIG_VGA_HEIGHT 25
 
+// Kernel version string
+#ifndef CONFIG_KERNEL_VERSION
+#define CONFIG_KERNEL_VERSION "0.01-prealpha"
+#endif
+
 // Video behavior
 // 0 = preserve bootloader screen and append; 1 = clear screen on init
 #ifndef CONFIG_VIDEO_CLEAR_ON_INIT
