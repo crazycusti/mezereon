@@ -23,6 +23,30 @@ start:
     mov sp, 0x7C00
     mov ds, ax
 
+    ; BIOS Bootlaufwerk merken (DL) und erkennen (HDD/FDD)
+    mov [boot_drive], dl
+    call detect_boot_device
+    cmp byte [boot_device_type], 0
+    jne .boot_hdd
+    mov si, boot_fdd_msg
+    call print_string
+    jmp .after_bootmsg
+.boot_hdd:
+    mov si, boot_hdd_msg
+    call print_string
+.after_bootmsg:
+    ; DL-Wert ausgeben (Debug)
+    mov si, dl_prefix_msg
+    call print_string
+    mov al, [boot_drive]
+    call print_hex_byte
+    mov al, 'h'
+    call print_char
+    mov al, 13
+    call print_char
+    mov al, 10
+    call print_char
+
     ; Begrüßung anzeigen
     mov si, boot_msg
     call print_string
@@ -38,7 +62,7 @@ load_kernel:
     mov ch, 0x00       ; Cylinder 0
     mov cl, 0x02       ; Sektor 2 (1 ist Bootsektor)
     mov dh, 0x00       ; Head 0
-    mov dl, 0x80       ; Erstes Festplattenlaufwerk (bei Floppy 0x00)
+    mov dl, [boot_drive] ; Vom BIOS übergebenes Bootlaufwerk verwenden
     int 0x13           ; BIOS Disk Service
     jc disk_error      ; Fehlerbehandlung
 
@@ -125,12 +149,52 @@ print_string:
 .done:
     ret
 
+; Ein einzelnes Zeichen in AL ausgeben (BIOS TTY)
+print_char:
+    push ax
+    mov ah, 0x0E
+    int 0x10
+    pop ax
+    ret
+
+; AL als zwei Hex-Zeichen ausgeben
+print_hex_byte:
+    push ax
+    push bx
+    mov bl, al
+    mov al, bl
+    shr al, 4
+    call print_hex_digit
+    mov al, bl
+    and al, 0x0F
+    call print_hex_digit
+    pop bx
+    pop ax
+    ret
+
+; Untere 4 Bit von AL als Hex-Zeichen ausgeben
+print_hex_digit:
+    cmp al, 10
+    jb .digit
+    add al, 'A' - 10
+    jmp .out
+.digit:
+    add al, '0'
+.out:
+    call print_char
+    ret
+
 
 error_msg db 'Disk Error!', 0
 success_msg db 'DEBUG Load OK', 0
 boot_msg db 'Mezereon Bootloader starting...', 13, 10, 0
 cpu_ok_msg db 'CPU check passed: i386+ detected', 13, 10, 0
 cpu_error_msg db 'Error: i386 or better CPU required!', 13, 10, 0
+boot_hdd_msg db 'Boot drive: HDD/EDD', 13, 10, 0
+boot_fdd_msg db 'Boot drive: FDD', 13, 10, 0
+dl_prefix_msg db 'DL=', 0
+boot_drive db 0
+boot_device_type db 0
 
 ; CPU-Check für i386
 check_cpu:
@@ -165,6 +229,37 @@ cpu_error:
     mov si, cpu_error_msg
     call print_string
     jmp $               ; Endlosschleife
+
+; ---------------------------------
+; Bootlaufwerk erkennen (HDD/FDD)
+; Setzt boot_device_type: 0=FDD, 1=HDD/EDD
+; Nutzt EDD 0x41 wenn verfügbar, sonst DL Bit7
+detect_boot_device:
+    push ax
+    push bx
+    push dx
+    mov dl, [boot_drive]
+    mov ah, 0x41
+    mov bx, 0x55AA
+    int 0x13
+    jc .no_edd
+    cmp bx, 0xAA55
+    jne .no_edd
+    mov byte [boot_device_type], 1
+    jmp .out
+.no_edd:
+    mov dl, [boot_drive]
+    test dl, 0x80
+    jz .is_fdd
+    mov byte [boot_device_type], 1
+    jmp .out
+.is_fdd:
+    mov byte [boot_device_type], 0
+.out:
+    pop dx
+    pop bx
+    pop ax
+    ret
 
 times 510-($-$$) db 0
     dw 0xAA55
