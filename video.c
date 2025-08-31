@@ -20,6 +20,20 @@ static int vga_row = 0;
 static int vga_col = 0;
 static const char HEX_DIGITS[] = "0123456789ABCDEF";
 
+static inline void vga_hw_cursor_update_internal(void) {
+#if CONFIG_VIDEO_HW_CURSOR
+    uint16_t pos = (uint16_t)(vga_row * CONFIG_VGA_WIDTH + vga_col);
+    outb(VGA_CRTC_INDEX, 0x0E);
+    outb(VGA_CRTC_DATA, (uint8_t)((pos >> 8) & 0xFF));
+    outb(VGA_CRTC_INDEX, 0x0F);
+    outb(VGA_CRTC_DATA, (uint8_t)(pos & 0xFF));
+#endif
+}
+
+void video_update_cursor(void) {
+    vga_hw_cursor_update_internal();
+}
+
 void video_init() {
 #if CONFIG_VIDEO_CLEAR_ON_INIT
     volatile uint16_t* video = (uint16_t*) VIDEO_MEMORY;
@@ -30,6 +44,7 @@ void video_init() {
     }
     vga_row = 0;
     vga_col = 0;
+    vga_hw_cursor_update_internal();
 #else
     /*
      * Preserve bootloader output: do NOT clear the screen.
@@ -58,6 +73,7 @@ void video_init() {
             vga_col = 0;
         }
     }
+    vga_hw_cursor_update_internal();
 #endif
 }
 
@@ -91,6 +107,9 @@ void video_print(const char* str) {
         }
         str++;
     }
+    if (vga_row >= CONFIG_VGA_HEIGHT) { vga_row = CONFIG_VGA_HEIGHT - 1; }
+    if (vga_col >= CONFIG_VGA_WIDTH) { vga_col = CONFIG_VGA_WIDTH - 1; }
+    vga_hw_cursor_update_internal();
 }
 
 void video_println(const char* str) {
@@ -101,13 +120,14 @@ void video_println(const char* str) {
 void video_putc(char c) {
     volatile uint16_t* video = (uint16_t*) VIDEO_MEMORY;
     if (c == '\n') {
-        vga_row++; vga_col = 0; return;
+        vga_row++; vga_col = 0; vga_hw_cursor_update_internal(); return;
     }
     if (c == '\b') {
         if (vga_col > 0) {
             vga_col--;
             video[vga_row * CONFIG_VGA_WIDTH + vga_col] = (0x07 << 8) | ' ';
         }
+        vga_hw_cursor_update_internal();
         return;
     }
     if (vga_col >= CONFIG_VGA_WIDTH) { vga_col = 0; vga_row++; }
@@ -115,4 +135,7 @@ void video_putc(char c) {
         video[vga_row * CONFIG_VGA_WIDTH + vga_col] = (0x07 << 8) | (uint8_t)c;
     }
     vga_col++;
+    if (vga_row >= CONFIG_VGA_HEIGHT) { vga_row = CONFIG_VGA_HEIGHT - 1; }
+    if (vga_col >= CONFIG_VGA_WIDTH) { vga_col = CONFIG_VGA_WIDTH - 1; }
+    vga_hw_cursor_update_internal();
 }

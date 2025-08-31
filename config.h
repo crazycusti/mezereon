@@ -26,4 +26,9 @@
 #define CONFIG_VIDEO_CLEAR_ON_INIT 0
 #endif
 
+// Keep VGA hardware cursor in sync with text output
+#ifndef CONFIG_VIDEO_HW_CURSOR
+#define CONFIG_VIDEO_HW_CURSOR 1
+#endif
+
 #endif // CONFIG_H
