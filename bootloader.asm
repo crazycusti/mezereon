@@ -57,14 +57,94 @@ start:
     mov es, ax         ; ES = 0x0000
 
 load_kernel:
-    mov ah, 0x02       ; BIOS: Sektor lesen
-    mov al, KERNEL_SECTORS ; Anzahl Sektoren
-    mov ch, 0x00       ; Cylinder 0
-    mov cl, 0x02       ; Sektor 2 (1 ist Bootsektor)
-    mov dh, 0x00       ; Head 0
-    mov dl, [boot_drive] ; Vom BIOS übergebenes Bootlaufwerk verwenden
-    int 0x13           ; BIOS Disk Service
-    jc disk_error      ; Fehlerbehandlung
+    ; Geometrie abfragen (AH=08) für robustes Lesen (Floppy: 18 Sektoren/Track)
+    mov dl, [boot_drive]
+    mov ah, 0x08
+    int 0x13
+    jc .geom_fallback
+    mov al, cl
+    and al, 0x3F
+    mov [chs_spt], al
+    mov [chs_heads], dh
+    jmp .geom_ok
+.geom_fallback:
+    mov byte [chs_spt], 18
+    mov byte [chs_heads], 1
+.geom_ok:
+
+    ; Drive reset vor dem Lesen (wichtig für Floppy)
+    mov dl, [boot_drive]
+    xor ah, ah
+    int 0x13
+
+    ; Startposition: C=0, H=0, S=2
+    xor ch, ch
+    xor dh, dh
+    mov cl, 2
+    mov al, KERNEL_SECTORS
+    mov [remain_sectors], al
+
+.read_loop:
+    mov al, [remain_sectors]
+    or al, al
+    jz .read_done
+
+    ; rem_track = spt - (cl-1)
+    mov ah, [chs_spt]
+    mov bl, cl
+    dec bl
+    sub ah, bl
+    ; al = min(remain, rem_track)
+    cmp al, ah
+    jbe .count_ok
+    mov al, ah
+.count_ok:
+    mov [last_count], al
+
+    ; Read al sectors at C,H,S
+    push ax
+    mov ah, 0x02
+    mov dl, [boot_drive]
+    int 0x13
+    jc disk_error
+    pop ax
+
+    ; Advance buffer by count*512
+    mov ah, 0
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    add bx, ax
+    adc es, 0
+
+    ; remain -= count
+    mov al, [remain_sectors]
+    sub al, [last_count]
+    mov [remain_sectors], al
+
+    ; CL += count, Trackwechsel berücksichtigen
+    mov al, [last_count]
+    add cl, al
+.track_fix:
+    cmp cl, [chs_spt]
+    jbe .cont
+    sub cl, [chs_spt]
+    inc dh
+    cmp dh, [chs_heads]
+    jbe .cont
+    mov dh, 0
+    inc ch
+    jmp .track_fix
+.cont:
+    jmp .read_loop
+
+.read_done:
 
     mov si, success_msg
     call print_string
@@ -195,6 +275,10 @@ boot_fdd_msg db 'Boot drive: FDD', 13, 10, 0
 dl_prefix_msg db 'DL=', 0
 boot_drive db 0
 boot_device_type db 0
+chs_spt db 18
+chs_heads db 1
+remain_sectors db 0
+last_count db 0
 
 ; CPU-Check für i386
 check_cpu:
