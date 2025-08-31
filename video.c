@@ -108,6 +108,22 @@ void video_print_hex16(uint16_t v) {
     video_print(buf);
 }
 
+void video_print_dec(uint32_t v) {
+    char buf[11]; // up to 4294967295
+    int i = 0;
+    if (v == 0) { video_print("0"); return; }
+    while (v > 0 && i < 10) {
+        uint32_t q = v / 10;
+        uint32_t r = v - q * 10;
+        buf[i++] = (char)('0' + r);
+        v = q;
+    }
+    // reverse
+    for (int j = i - 1; j >= 0; j--) {
+        char s[2]; s[0] = buf[j]; s[1] = 0; video_print(s);
+    }
+}
+
 void video_print(const char* str) {
     volatile uint16_t* video = (uint16_t*) VIDEO_MEMORY;
     while (*str) {

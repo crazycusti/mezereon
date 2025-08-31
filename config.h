@@ -39,4 +39,10 @@
 #define CONFIG_ATA_PRIMARY_CTRL 0x3F6
 #endif
 
+// NeeleFS default location (LBA). You can generate an image and map it
+// to a second drive or place it at this LBA on the primary disk.
+#ifndef CONFIG_NEELEFS_LBA
+#define CONFIG_NEELEFS_LBA 2048
+#endif
+
 #endif // CONFIG_H
