@@ -37,6 +37,16 @@ static const uint8_t NE2K_RX_PSTOP  = 0x80; // end of 32KiB window
 // Forward declarations for statics used before definition
 static bool ne2000_read_mac(uint8_t mac[6]);
 
+// Latch for ISR bits observed in IRQ3 (ack'd there)
+static volatile uint8_t ne2k_isr_latch;
+
+void ne2000_isr_latch_or(uint8_t bits) { ne2k_isr_latch |= bits; }
+uint8_t ne2000_isr_take(uint8_t mask) {
+    uint8_t v = (uint8_t)(ne2k_isr_latch & mask);
+    ne2k_isr_latch = (uint8_t)(ne2k_isr_latch & ~mask);
+    return v;
+}
+
 uint16_t ne2000_io_base(void) {
     return ne2k_base_io;
 }
@@ -274,7 +284,7 @@ static void ne2000_dump_eth(const uint8_t* buf, uint16_t len) {
     video_print("\n");
 }
 
-void ne2000_poll_rx(void) {
+static void ne2000_drain_rx(int verbose) {
     // Read boundary and current pointers
     uint8_t bnry = inb(ne2k_base_io + NE2K_REG_BNRY);
     // Switch to Page 1 to read CURR
@@ -294,13 +304,15 @@ void ne2000_poll_rx(void) {
         uint8_t next = hdr[1];
         uint16_t count = (uint16_t)hdr[2] | ((uint16_t)hdr[3] << 8);
 
-        // Read first 64 bytes of payload for summary (avoid large copies)
-        uint16_t payload_addr = hdr_addr + 4;
-        uint8_t buf[64];
-        uint16_t copy = (count > sizeof(buf)) ? (uint16_t)sizeof(buf) : count;
-        if (copy >= 14) {
-            ne2000_remote_read(payload_addr, buf, copy);
-            ne2000_dump_eth(buf, copy);
+        if (verbose) {
+            // Read first 64 bytes of payload for summary (avoid large copies)
+            uint16_t payload_addr = hdr_addr + 4;
+            uint8_t buf[64];
+            uint16_t copy = (count > sizeof(buf)) ? (uint16_t)sizeof(buf) : count;
+            if (copy >= 14) {
+                ne2000_remote_read(payload_addr, buf, copy);
+                ne2000_dump_eth(buf, copy);
+            }
         }
 
         // Advance BNRY to previous page of 'next'
@@ -320,6 +332,18 @@ void ne2000_poll_rx(void) {
     if (isr & NE2K_ISR_PRX) outb(ne2k_base_io + NE2K_REG_ISR, NE2K_ISR_PRX);
 }
 
+void ne2000_poll_rx(void) { // verbose variant for netrxdump
+    ne2000_drain_rx(1);
+}
+
+void ne2000_service(void) {
+    // Take and clear latched IRQ bits from IRQ3
+    uint8_t pending = ne2000_isr_take((uint8_t)(NE2K_ISR_PRX | NE2K_ISR_RXE | NE2K_ISR_OVW | NE2K_ISR_CNT));
+    if (!pending) return;
+    // Drain RX ring; background printing depends on config
+    ne2000_drain_rx(CONFIG_NET_RX_DEBUG);
+}
+
 static bool ne2000_tx_packet(const uint8_t* frame, uint16_t len) {
     if (len < 60) len = 60; // Minimum Ethernet frame length (without FCS)
 
@@ -334,18 +358,23 @@ static bool ne2000_tx_packet(const uint8_t* frame, uint16_t len) {
     outb(ne2k_base_io + NE2K_REG_TBCR0, (uint8_t)(len & 0xFF));
     outb(ne2k_base_io + NE2K_REG_TBCR1, (uint8_t)((len >> 8) & 0xFF));
 
-    // Clear pending TX bits
-    outb(ne2k_base_io + NE2K_REG_ISR, 0x0A); // PTX (0x02) | TXE (0x08)
+    // Clear pending TX bits (ISR) and latch
+    outb(ne2k_base_io + NE2K_REG_ISR, 0x0A); // PTX | TXE
+    (void)ne2000_isr_take(NE2K_ISR_PTX | NE2K_ISR_TXE);
 
     // Start transmitter (CR: STA=1, TXP=1)
     outb(ne2k_base_io + NE2K_REG_CMD, 0x06);
 
-    // Poll for completion
+    // Wait for completion: prefer IRQ latch, fallback to polling NIC ISR
     for (int i = 0; i < 65535; i++) {
+        uint8_t lat = ne2000_isr_take((uint8_t)(NE2K_ISR_PTX | NE2K_ISR_TXE));
+        if (lat) {
+            return (lat & NE2K_ISR_PTX) != 0;
+        }
         uint8_t isr = inb(ne2k_base_io + NE2K_REG_ISR);
-        if (isr & 0x0A) { // PTX or TXE
-            outb(ne2k_base_io + NE2K_REG_ISR, isr & 0x0A); // Ack
-            return (isr & 0x02) != 0; // true if PTX
+        if (isr & 0x0A) {
+            outb(ne2k_base_io + NE2K_REG_ISR, (uint8_t)(isr & 0x0A));
+            return (isr & 0x02) != 0;
         }
     }
     return false;

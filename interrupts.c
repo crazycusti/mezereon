@@ -108,6 +108,8 @@ void irq3_handler_c(void) {
     if (base) {
         uint8_t isr = inb((uint16_t)(base + NE2K_REG_ISR));
         if (isr && isr != 0xFF) {
+            // Latch for driver and ack at device
+            ne2000_isr_latch_or(isr);
             outb((uint16_t)(base + NE2K_REG_ISR), isr);
         }
     }

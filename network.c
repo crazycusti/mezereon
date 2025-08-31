@@ -5,5 +5,5 @@ void network_init() {
 }
 
 void network_poll() {
-    ne2000_poll_rx();
+    ne2000_service();
 }

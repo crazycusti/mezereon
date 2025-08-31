@@ -43,4 +43,11 @@ uint16_t ne2000_io_base(void);
 bool ne2000_send_test(void);
 void ne2000_poll_rx(void);
 
+// IRQ cooperation: latch NIC ISR bits seen in IRQ3
+void ne2000_isr_latch_or(uint8_t bits);
+uint8_t ne2000_isr_take(uint8_t mask);
+
+// Background service: handle latched IRQ events, drain RX ring
+void ne2000_service(void);
+
 #endif // NE2000_H

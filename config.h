@@ -52,4 +52,9 @@
 #define CONFIG_NEELEFS_LBA 2048
 #endif
 
+// Network RX debug printing from background service
+#ifndef CONFIG_NET_RX_DEBUG
+#define CONFIG_NET_RX_DEBUG 0
+#endif
+
 #endif // CONFIG_H
