@@ -1,4 +1,6 @@
 #include "main.h"
+#include "shell.h"
+#include "keyboard.h"
 
 void kmain()
 {
@@ -13,6 +15,6 @@ void kmain()
         video_println("NE2000 network interface not present.");
     }
     video_println("Welcome to Mezereon.");
-  
-    return;
+    keyboard_init();
+    shell_run();
 }

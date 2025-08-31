@@ -97,3 +97,22 @@ void video_println(const char* str) {
     video_print(str);
     video_print("\n");
 }
+
+void video_putc(char c) {
+    volatile uint16_t* video = (uint16_t*) VIDEO_MEMORY;
+    if (c == '\n') {
+        vga_row++; vga_col = 0; return;
+    }
+    if (c == '\b') {
+        if (vga_col > 0) {
+            vga_col--;
+            video[vga_row * CONFIG_VGA_WIDTH + vga_col] = (0x07 << 8) | ' ';
+        }
+        return;
+    }
+    if (vga_col >= CONFIG_VGA_WIDTH) { vga_col = 0; vga_row++; }
+    if (vga_row < CONFIG_VGA_HEIGHT) {
+        video[vga_row * CONFIG_VGA_WIDTH + vga_col] = (0x07 << 8) | (uint8_t)c;
+    }
+    vga_col++;
+}
