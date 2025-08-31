@@ -23,19 +23,6 @@ start:
     mov sp, 0x7C00
     mov ds, ax
 
-    ; BIOS Bootlaufwerk merken (DL) und erkennen (HDD/FDD)
-    mov [boot_drive], dl
-    call detect_boot_device
-    cmp byte [boot_device_type], 0
-    jne .boot_hdd
-    mov si, boot_fdd_msg
-    call print_string
-    jmp .after_bootmsg
-.boot_hdd:
-    mov si, boot_hdd_msg
-    call print_string
-.after_bootmsg:
-
     ; Begrüßung anzeigen
     mov si, boot_msg
     call print_string
@@ -46,97 +33,31 @@ start:
     mov es, ax         ; ES = 0x0000
 
 load_kernel:
-    ; Einheitlicher CHS-Pfad für HDD/FDD: trackweise lesen (robust)
-    ; Geometrie abfragen (AH=08)
-    mov dl, [boot_drive]
-    mov ah, 0x08
-    int 0x13
-    jc .geom_fallback
-    mov al, cl
-    and al, 0x3F
-    mov [chs_spt], al
-    mov [chs_heads], dh
-    jmp .geom_ok
-.geom_fallback:
-    mov byte [chs_spt], 18
-    mov byte [chs_heads], 1
-.geom_ok:
-    ; Reset
-    mov dl, [boot_drive]
-    xor ah, ah
-    int 0x13
-    ; Startposition
-    xor ch, ch
-    xor dh, dh
-    mov cl, 2
-    mov al, KERNEL_SECTORS
-    mov [remain_sectors], al
-
-.read_loop:
-    mov al, [remain_sectors]
-    or al, al
-    jz .read_done
-    ; rem_track = spt - (cl-1)
-    mov ah, [chs_spt]
-    mov bl, cl
-    dec bl
-    sub ah, bl
-    cmp al, ah
-    jbe .count_ok
-    mov al, ah
-.count_ok:
-    mov [last_count], al
-    ; kleiner Fortschrittsindikator (AL sichern!)
-    push ax
-    mov al, '.'
-    mov ah, 0x0E
-    int 0x10
-    pop ax                 ; AL enthält wieder last_count
-    mov ah, 0x02           ; BIOS Read: AH=0x02, AL=count
-    mov dl, [boot_drive]
-    int 0x13
-    jc disk_error
-    
-    ; Advance buffer by count*512
-    mov ah, 0
-    push cx
-    mov cl, 9
-    shl ax, cl
-    pop cx
-    add bx, ax
-    jnc .no_carry
-    push es
-    pop dx
-    inc dx
-    push dx
-    pop es
-.no_carry:
-    ; remain -= count
-    mov al, [remain_sectors]
-    sub al, [last_count]
-    mov [remain_sectors], al
-    ; CL += count, Trackwechsel
-    mov al, [last_count]
-    add cl, al
-.track_fix:
-    cmp cl, [chs_spt]
-    jbe .cont
-    sub cl, [chs_spt]
-    inc dh
-    cmp dh, [chs_heads]
-    jbe .cont
-    mov dh, 0
-    inc ch
-    jmp .track_fix
-.cont:
-    jmp .read_loop
-
-.read_done:
+    mov ah, 0x02       ; BIOS: Sektor lesen
+    mov al, KERNEL_SECTORS ; Anzahl Sektoren
+    mov ch, 0x00       ; Cylinder 0
+    mov cl, 0x02       ; Sektor 2 (1 ist Bootsektor)
+    mov dh, 0x00       ; Head 0
+    mov dl, 0x80       ; Erstes Festplattenlaufwerk (bei Floppy 0x00)
+    int 0x13           ; BIOS Disk Service
+    jc disk_error      ; Fehlerbehandlung
 
     mov si, success_msg
     call print_string
+    mov si, after_load_msg
+    call print_string
 
-    ; CPU-Check übersprungen (Platz sparen)
+    ; Prüfe ob mindestens i386 (vorerst übersprungen)
+    mov si, before_cpu_msg
+    call print_string
+    jmp short .skip_cpu_check
+    call check_cpu
+    jc cpu_error
+    mov si, cpu_ok_msg
+    call print_string
+    mov si, after_cpu_msg
+    call print_string
+.skip_cpu_check:
 
     ; A20 Gate aktivieren
     call enable_a20
@@ -144,6 +65,9 @@ load_kernel:
     ; GDT vorbereiten (im Bootsektor, 3 Einträge: Null, Code, Data)
     cli
     lgdt [gdt_descriptor]
+    ; Letzter BIOS-Print vor Protected Mode
+    mov si, after_lgdt_msg
+    call print_string
 
     ; Protected Mode aktivieren
     mov eax, cr0
@@ -168,8 +92,7 @@ protected_mode_entry:
     mov esp, 0x9FC00    ; Stack (z.B. unterhalb 640K)
 
     ; Sprung zum Kernel-Einsprungspunkt (0x7E00, 32-bit Entry in payload)
-    mov eax, 0x7E00     ; absoluter Sprung (EIP = 0x7E00)
-    jmp eax
+    jmp 0x7E00
 
 ; -----------------------------
 ; GDT (im Bootsektor)
@@ -206,17 +129,29 @@ print_string:
 error_msg db 'Disk Error!', 0
 success_msg db 'DEBUG Load OK', 0
 boot_msg db 'Mezereon Bootloader starting...', 13, 10, 0
-boot_hdd_msg db 'Boot drive: HDD/EDD', 13, 10, 0
-boot_fdd_msg db 'Boot drive: FDD', 13, 10, 0
-boot_drive db 0
-boot_device_type db 0
-chs_spt db 18
-chs_heads db 1
-remain_sectors db 0
-last_count db 0
+cpu_ok_msg db 'CPU check passed: i386+ detected', 13, 10, 0
+cpu_error_msg db 'Error: i386 or better CPU required!', 13, 10, 0
 
-; (CPU-Check entfernt um Platz zu sparen)
-; removed debug strings to save space
+; CPU-Check für i386
+check_cpu:
+    ; Völlig konservativer Stub: nur Debug-Prints, keine Privileg-OPs
+    mov si, testing_msg
+    call print_string
+    mov si, cr0_msg
+    call print_string
+    mov si, pe_msg
+    call print_string
+    clc                 ; Success
+    ret
+
+; Debug Messages
+testing_msg db 'CPU Test...', 13, 10, 0
+cr0_msg db 'CR0 Test OK...', 13, 10, 0
+pe_msg db 'PE Test OK...', 13, 10, 0
+before_cpu_msg db 'Before CPU check...', 13, 10, 0
+after_cpu_msg db 'After CPU check...', 13, 10, 0
+after_load_msg db 'After load...', 13, 10, 0
+after_lgdt_msg db 'After LGDT...', 13, 10, 0
 
 ; A20 Gate aktivieren
 enable_a20:
@@ -226,21 +161,10 @@ enable_a20:
     out 0x92, al
     ret
 
-; cpu_error handler nicht mehr verwendet
-
-; ---------------------------------
-; Bootlaufwerk erkennen (HDD/FDD)
-; Setzt boot_device_type: 0=FDD, 1=HDD/EDD
-; Nutzt EDD 0x41 wenn verfügbar, sonst DL Bit7
-detect_boot_device:
-    mov dl, [boot_drive]
-    test dl, 0x80
-    jz .is_fdd
-    mov byte [boot_device_type], 1
-    ret
-.is_fdd:
-    mov byte [boot_device_type], 0
-    ret
+cpu_error:
+    mov si, cpu_error_msg
+    call print_string
+    jmp $               ; Endlosschleife
 
 times 510-($-$$) db 0
     dw 0xAA55
