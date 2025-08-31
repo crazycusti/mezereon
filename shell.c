@@ -37,7 +37,6 @@ void shell_run(void) {
                 } else if (streq(buf, "help")) {
                     video_print("Commands: version, clear, help, ata, atadump [lba]\n");
                 } else if (streq(buf, "ata")) {
-                    extern int ata_present(void);
                     if (ata_present()) video_print("ATA present (primary master).\n");
                     else video_print("ATA not present.\n");
                 } else if (buf[0]=='a' && buf[1]=='t' && buf[2]=='a' && buf[3]=='d' && buf[4]=='u' && buf[5]=='m' && buf[6]=='p') {
