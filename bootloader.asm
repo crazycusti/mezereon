@@ -234,30 +234,13 @@ enable_a20:
 ; Setzt boot_device_type: 0=FDD, 1=HDD/EDD
 ; Nutzt EDD 0x41 wenn verfügbar, sonst DL Bit7
 detect_boot_device:
-    push ax
-    push bx
-    push dx
-    mov dl, [boot_drive]
-    mov ah, 0x41
-    mov bx, 0x55AA
-    int 0x13
-    jc .no_edd
-    cmp bx, 0xAA55
-    jne .no_edd
-    mov byte [boot_device_type], 1
-    jmp .out
-.no_edd:
     mov dl, [boot_drive]
     test dl, 0x80
     jz .is_fdd
     mov byte [boot_device_type], 1
-    jmp .out
+    ret
 .is_fdd:
     mov byte [boot_device_type], 0
-.out:
-    pop dx
-    pop bx
-    pop ax
     ret
 
 times 510-($-$$) db 0
