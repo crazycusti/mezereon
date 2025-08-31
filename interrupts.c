@@ -1,4 +1,5 @@
 #include "interrupts.h"
+#include "config.h"
 
 // I/O helpers
 static inline void outb(uint16_t port, uint8_t val){ __asm__ volatile("outb %0,%1"::"a"(val),"Nd"(port)); }
@@ -59,8 +60,35 @@ extern void video_print_dec(unsigned int);
 
 void irq0_handler_c(void) {
     ticks++;
-    // minimal: print a dot every second at 100Hz
-    // if ((ticks % 100) == 0) { video_print("."); }
+    // Update a small time indicator at top-right ~10 Hz
+    if ((ticks % 10u) == 0u) {
+        uint32_t t = ticks; // copy
+        uint32_t sec = t / 100u;
+        uint32_t tenths = (t % 100u) / 10u;
+
+        // Render "T 12345.6s" right-aligned in first row
+        char buf[12];
+        int pos = 0;
+        buf[pos++] = 'T'; buf[pos++] = ' ';
+        // decimal seconds
+        char tmp[10]; int ti=0;
+        if (sec == 0) { tmp[ti++]='0'; }
+        else {
+            while (sec && ti < 10) { tmp[ti++] = (char)('0' + (sec % 10)); sec/=10; }
+        }
+        while (ti--) buf[pos++] = tmp[ti];
+        buf[pos++] = '.'; buf[pos++] = (char)('0' + (int)tenths);
+        buf[pos++] = 's';
+        int len = pos;
+
+        // write to VGA without touching cursor/state
+        volatile uint16_t* vga = (volatile uint16_t*)0xB8000;
+        int start_col = CONFIG_VGA_WIDTH - len;
+        if (start_col < 0) start_col = 0;
+        for (int i = 0; i < len; i++) {
+            vga[i + start_col] = (uint16_t)((0x1F << 8) | (uint8_t)buf[i]);
+        }
+    }
     // Acknowledge PIC
     outb(0x20, 0x20);
 }

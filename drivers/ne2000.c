@@ -102,9 +102,9 @@ bool ne2000_init(void) {
     outb(ne2k_base_io + NE2K_REG_DCR, ne2k_use_16bit ? 0x49 : 0x09);
     io_delay();
 
-    // Basic TX/RX config: normal operation, mask all IRQs (polling)
-    outb(ne2k_base_io + NE2K_REG_TCR, 0x00);
-    outb(ne2k_base_io + NE2K_REG_IMR, 0x00); // keep IRQs masked (polling baseline)
+    // Basic TX/RX config
+    outb(ne2k_base_io + NE2K_REG_TCR, 0x00);            // normal TX
+    outb(ne2k_base_io + NE2K_REG_IMR, 0x00);            // mask all IRQs for now
     // Clear pending interrupts
     outb(ne2k_base_io + NE2K_REG_ISR, 0xFF);
 
@@ -125,6 +125,9 @@ bool ne2000_init(void) {
 
     // Start the NIC (CR.STA)
     outb(ne2k_base_io + NE2K_REG_CMD, 0x02);
+
+    // Enable NE2000 IRQs: PRX|PTX|RXE|TXE (OVW/CNT optional later)
+    outb(ne2k_base_io + NE2K_REG_IMR, (uint8_t)(NE2K_ISR_PRX | NE2K_ISR_PTX | NE2K_ISR_RXE | NE2K_ISR_TXE));
 
     // Self-test: probe PIO width using station PROM read
     {
