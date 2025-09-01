@@ -55,8 +55,8 @@ extern void video_print(const char*);
 extern void video_print_dec(unsigned int);
 // For IRQ1 keyboard
 #include "keyboard.h"
-// For IRQ3 NE2000 ack (optional)
-#include "drivers/ne2000.h"
+// Top-level NIC IRQ handler
+#include "netface.h"
 
 void irq0_handler_c(void) {
     ticks++;
@@ -103,15 +103,7 @@ void irq1_handler_c(void) {
 }
 
 void irq3_handler_c(void) {
-    // If NE2000 present and has pending bits, ack them; otherwise just EOI
-    uint16_t base = ne2000_io_base();
-    if (base) {
-        uint8_t isr = inb((uint16_t)(base + NE2K_REG_ISR));
-        if (isr && isr != 0xFF) {
-            // Latch for driver and ack at device
-            ne2000_isr_latch_or(isr);
-            outb((uint16_t)(base + NE2K_REG_ISR), isr);
-        }
-    }
+    // Delegate to netface (driver-specific ack/latch), then EOI
+    netface_irq();
     outb(0x20, 0x20);
 }

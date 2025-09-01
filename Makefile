@@ -52,7 +52,7 @@ main.o: main.c main.h config.h
 video.o: video.c main.h config.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
-network.o: network.c network.h config.h
+netface.o: netface.c netface.h config.h drivers/ne2000.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
 drivers/ne2000.o: drivers/ne2000.c drivers/ne2000.h config.h
@@ -70,7 +70,7 @@ keyboard.o: keyboard.c keyboard.h config.h
 shell.o: shell.c shell.h keyboard.h config.h main.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
-kernel_payload.elf: entry32.o isr.o idt.o interrupts.o main.o video.o network.o drivers/ne2000.o drivers/ata.o drivers/fs/neelefs.o keyboard.o shell.o
+kernel_payload.elf: entry32.o isr.o idt.o interrupts.o main.o video.o netface.o drivers/ne2000.o drivers/ata.o drivers/fs/neelefs.o keyboard.o shell.o
 	$(LD) $(LDFLAGS) $^ -o $@
 
 # Erzeuge flaches Binary ohne führende 0x7E00-Lücke
@@ -81,7 +81,7 @@ disk.img: bootloader.bin kernel_payload.bin
 	cat $^ > $@
 
 clean:
-	rm -f *.o *.bin *.img network.o video.o main.o entry32.o isr.o idt.o interrupts.o kernel_payload.bin bootloader.bin
+	rm -f *.o *.bin *.img netface.o video.o main.o entry32.o isr.o idt.o interrupts.o kernel_payload.bin bootloader.bin
 	rm -f drivers/*.o
 
 .PHONY: all clean

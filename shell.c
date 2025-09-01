@@ -4,7 +4,7 @@
 #include "drivers/fs/neelefs.h"
 #include "main.h"
 #include "config.h"
-#include "network.h"
+#include "netface.h"
 #include <stdint.h>
 
 static void print_prompt(void) {
@@ -23,7 +23,7 @@ void shell_run(void) {
 
     for (;;) {
         int ch = keyboard_poll_char();
-        if (ch < 0) { network_poll(); continue; }
+        if (ch < 0) { netface_poll(); continue; }
 
         if (ch == '\r') ch = '\n';
         if (ch == '\n') {
@@ -117,7 +117,7 @@ void shell_run(void) {
                     for (;;) {
                         int k = keyboard_poll_char();
                         if (k == 'q' || k == 'Q') { video_print("\n"); break; }
-                        ne2000_poll_rx();
+                        netface_poll_rx();
                     }
                 } else {
                     video_print("Unknown command: ");

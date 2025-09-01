@@ -1,6 +1,5 @@
 #include "config.h"
-#include "network.h"
-#include "drivers/ne2000.h"
+#include "netface.h"
 
 void video_init();
 void video_clear();

@@ -17,13 +17,11 @@ void kmain()
     pic_set_mask(3, 0);     // IRQ3 NE2000 (NIC still masked internally)
     interrupts_enable();
     keyboard_set_irq_mode(1);
-    network_init();
-    video_println("Networkstack initialized.");
-    if (ne2000_init()) {
-        video_println("NE2000 network interface initialized.");
-        ne2000_send_test();
+    if (netface_init()) {
+        video_println("Network interface initialized.");
+        netface_send_test();
     } else {
-        video_println("NE2000 network interface not present.");
+        video_println("No network interface present.");
     }
     video_println("Welcome to Mezereon.");
     keyboard_init();

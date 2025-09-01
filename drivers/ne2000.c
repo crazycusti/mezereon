@@ -377,6 +377,17 @@ void ne2000_service(void) {
     ne2000_drain_rx(CONFIG_NET_RX_DEBUG);
 }
 
+void ne2000_irq(void) {
+    uint16_t base = ne2000_io_base();
+    if (!base) return;
+    uint8_t isr = inb((uint16_t)(base + NE2K_REG_ISR));
+    if (isr && isr != 0xFF) {
+        // Latch for driver and ack at device
+        ne2000_isr_latch_or(isr);
+        outb((uint16_t)(base + NE2K_REG_ISR), isr);
+    }
+}
+
 static bool ne2000_tx_packet(const uint8_t* frame, uint16_t len) {
     if (len < 60) len = 60; // Minimum Ethernet frame length (without FCS)
 
