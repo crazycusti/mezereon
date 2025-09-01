@@ -388,6 +388,29 @@ void ne2000_irq(void) {
     }
 }
 
+bool ne2000_get_mac(uint8_t mac[6]) {
+    if (!ne2k_base_io) return false;
+    uint8_t cr = inb(ne2k_base_io + NE2K_REG_CMD);
+    outb(ne2k_base_io + NE2K_REG_CMD, (uint8_t)((cr & 0x3F) | (1u<<6))); // PS=1
+    for (int i = 0; i < 6; i++) {
+        mac[i] = inb(ne2k_base_io + NE2K_P1_PAR0 + i);
+    }
+    outb(ne2k_base_io + NE2K_REG_CMD, (uint8_t)(cr & 0x3F));
+    // Basic sanity (not all 0x00)
+    int sum = 0; for (int i=0;i<6;i++) sum |= mac[i];
+    if (sum == 0) {
+        // fallback to PROM read if PAR seems empty
+        return ne2000_read_mac(mac);
+    }
+    return true;
+}
+
+bool ne2000_is_promisc(void) {
+    if (!ne2k_base_io) return false;
+    uint8_t rcr = inb(ne2k_base_io + NE2K_REG_RCR);
+    return (rcr & 0x10) != 0; // PRO bit
+}
+
 static bool ne2000_tx_packet(const uint8_t* frame, uint16_t len) {
     if (len < 60) len = 60; // Minimum Ethernet frame length (without FCS)
 

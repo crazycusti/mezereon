@@ -22,5 +22,13 @@ bool netface_send_test(void);
 // IRQ handler hook (e.g., called from IRQ3 in this build).
 void netface_irq(void);
 
-#endif // NETFACE_H
+// Human-readable active driver name (e.g., "NE2000" or "none").
+const char* netface_active_name(void);
 
+// Print a small diagnostic summary to the screen.
+void netface_diag_print(void);
+
+// Print a compact one-line summary at boot (driver, MAC, promisc, io if relevant).
+void netface_bootinfo_print(void);
+
+#endif // NETFACE_H

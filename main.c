@@ -18,10 +18,16 @@ void kmain()
     interrupts_enable();
     keyboard_set_irq_mode(1);
     if (netface_init()) {
-        video_println("Network interface initialized.");
+        video_print("Network interface initialized. Selected: ");
+        video_print(netface_active_name());
+        video_print("\n");
+        netface_bootinfo_print();
         netface_send_test();
     } else {
-        video_println("No network interface present.");
+        video_print("No network interface present. Selected: ");
+        video_print(netface_active_name());
+        video_print("\n");
+        netface_bootinfo_print();
     }
     video_println("Welcome to Mezereon.");
     keyboard_init();

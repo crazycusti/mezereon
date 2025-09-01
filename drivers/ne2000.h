@@ -51,6 +51,10 @@ void ne2000_poll_rx(void);
 // IRQ ack/latch (called from top-level IRQ handler via netface)
 void ne2000_irq(void);
 
+// Diagnostics
+bool ne2000_get_mac(uint8_t mac[6]);
+bool ne2000_is_promisc(void);
+
 // IRQ cooperation: latch NIC ISR bits seen in IRQ3
 void ne2000_isr_latch_or(uint8_t bits);
 uint8_t ne2000_isr_take(uint8_t mask);
