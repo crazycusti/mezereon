@@ -1,6 +1,7 @@
 #include "interrupts.h"
 #include "config.h"
 #include "arch/x86/io.h"
+#include "console.h"
 
 // PIC remap as per OSDev
 void pic_remap(uint8_t offset1, uint8_t offset2) {
@@ -48,8 +49,6 @@ void interrupts_enable(void){ __asm__ volatile("sti"); }
 void interrupts_disable(void){ __asm__ volatile("cli"); }
 
 // C handler for IRQ0 (timer)
-extern void video_print(const char*);
-extern void video_print_dec(unsigned int);
 // For IRQ1 keyboard
 #include "keyboard.h"
 // Top-level NIC IRQ handler
@@ -79,8 +78,7 @@ void irq0_handler_c(void) {
         int len = pos;
 
         // Write through the video module (no direct VGA access here)
-        extern void video_draw_status_right(const char* buf, int len);
-        video_draw_status_right(buf, len);
+        console_draw_status_right(buf, len);
     }
     // Acknowledge PIC
     outb(0x20, 0x20);

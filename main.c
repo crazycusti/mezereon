@@ -5,8 +5,8 @@
 
 void kmain()
 {
-    video_init();
-    video_println("Initializing Mezereon... Video initialized.");
+    console_init();
+    console_writeln("Initializing Mezereon... Video initialized.");
     // Minimal IDT + PIC + PIT setup
     idt_init();
     pic_remap(0x20, 0x28);
@@ -18,18 +18,18 @@ void kmain()
     interrupts_enable();
     keyboard_set_irq_mode(1);
     if (netface_init()) {
-        video_print("Network interface initialized. Selected: ");
-        video_print(netface_active_name());
-        video_print("\n");
+        console_write("Network interface initialized. Selected: ");
+        console_write(netface_active_name());
+        console_write("\n");
         netface_bootinfo_print();
         netface_send_test();
     } else {
-        video_print("No network interface present. Selected: ");
-        video_print(netface_active_name());
-        video_print("\n");
+        console_write("No network interface present. Selected: ");
+        console_write(netface_active_name());
+        console_write("\n");
         netface_bootinfo_print();
     }
-    video_println("Welcome to Mezereon.");
+    console_writeln("Welcome to Mezereon.");
     keyboard_init();
     shell_run();
 }

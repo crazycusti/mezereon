@@ -1,9 +1,7 @@
 #include "ne2000.h"
 #include "../arch/x86/io.h"
 
-extern void video_print(const char* str);
-extern void video_print_hex16(unsigned short v);
-extern void video_print_dec(unsigned int v);
+#include "../console.h"
 
 static uint16_t ne2k_base_io = (uint16_t)CONFIG_NE2000_IO;
 static bool ne2k_use_16bit = (CONFIG_NE2000_PIO_16BIT != 0);
@@ -71,13 +69,13 @@ bool ne2000_present(void) {
 
 bool ne2000_init(void) {
     if (!ne2000_present()) {
-        video_print("NE2000 not detected.\n");
+            console_write("NE2000 not detected.\n");
         return false;
     }
 
-    video_print("NE2000 detected at ");
-    video_print_hex16(ne2k_base_io);
-    video_print(".\n");
+    console_write("NE2000 detected at ");
+    console_write_hex16(ne2k_base_io);
+    console_write(".\n");
 
     // Stop the NIC (CR.STOP = 0x01) before further configuration
     outb(ne2k_base_io + NE2K_REG_CMD, 0x01);
@@ -124,8 +122,8 @@ bool ne2000_init(void) {
 
     // Self-test: probe PIO width using station PROM read
     {
-        video_print("NE2000 PIO self-test: try ");
-        video_print(ne2k_use_16bit ? "16-bit\n" : "8-bit\n");
+        console_write("NE2000 PIO self-test: try ");
+        console_write(ne2k_use_16bit ? "16-bit\n" : "8-bit\n");
 
         uint8_t mac[6];
         bool ok = ne2000_read_mac(mac);
@@ -134,18 +132,18 @@ bool ne2000_init(void) {
             ne2k_use_16bit = !ne2k_use_16bit;
             outb(ne2k_base_io + NE2K_REG_DCR, ne2k_use_16bit ? 0x49 : 0x09);
             io_delay();
-            video_print("Fallback to ");
-            video_print(ne2k_use_16bit ? "16-bit" : "8-bit");
-            video_print("...\n");
+            console_write("Fallback to ");
+            console_write(ne2k_use_16bit ? "16-bit" : "8-bit");
+            console_write("...\n");
             ok = ne2000_read_mac(mac);
         }
 
         if (ok) {
-            video_print("PIO width OK: ");
-            video_print(ne2k_use_16bit ? "16-bit\n" : "8-bit\n");
+            console_write("PIO width OK: ");
+            console_write(ne2k_use_16bit ? "16-bit\n" : "8-bit\n");
         } else {
-            video_print("PIO probe failed, continuing with ");
-            video_print(ne2k_use_16bit ? "16-bit\n" : "8-bit\n");
+            console_write("PIO probe failed, continuing with ");
+            console_write(ne2k_use_16bit ? "16-bit\n" : "8-bit\n");
         }
     }
 
@@ -167,12 +165,12 @@ bool ne2000_init(void) {
         outb(ne2k_base_io + NE2K_REG_CMD, (uint8_t)(cr2 & 0x3F));             // back to Page 0
 
         // Print MAC for debugging
-        video_print("NIC MAC: ");
+        console_write("NIC MAC: ");
         for (int i = 0; i < 6; i++) {
-            if (i) video_print(":");
+            if (i) console_write(":");
             print_hex8(mac[i]);
         }
-        video_print("\n");
+        console_write("\n");
     }
 
     // For now we stop here. Full ring buffer init will follow.
@@ -276,21 +274,21 @@ static bool ne2000_read_mac(uint8_t mac[6]) {
 
 static inline void print_hex8(uint8_t v) {
     const char* hexd = "0123456789ABCDEF";
-    char s[3]; s[0]=hexd[(v>>4)&0xF]; s[1]=hexd[v&0xF]; s[2]=0; video_print(s);
+    char s[3]; s[0]=hexd[(v>>4)&0xF]; s[1]=hexd[v&0xF]; s[2]=0; console_write(s);
 }
 
 static void ne2000_dump_eth(const uint8_t* buf, uint16_t len) {
     if (len < 14) return;
     uint16_t eth = ((uint16_t)buf[12] << 8) | buf[13];
-    video_print("RX eth=0x");
-    video_print_hex16(eth);
-    video_print(" len=");
-    video_print_dec(len);
-    video_print(" src=");
-    for (int i=0;i<6;i++){ if(i) video_print(":"); print_hex8(buf[6+i]); }
-    video_print(" dst=");
-    for (int i=0;i<6;i++){ if(i) video_print(":"); print_hex8(buf[i]); }
-    video_print("\n");
+    console_write("RX eth=0x");
+    console_write_hex16(eth);
+    console_write(" len=");
+    console_write_dec(len);
+    console_write(" src=");
+    for (int i=0;i<6;i++){ if(i) console_write(":"); print_hex8(buf[6+i]); }
+    console_write(" dst=");
+    for (int i=0;i<6;i++){ if(i) console_write(":"); print_hex8(buf[i]); }
+    console_write("\n");
 }
 
 static void ne2000_drain_rx(int verbose) {
@@ -445,6 +443,6 @@ bool ne2000_send_test(void) {
     while (len < 60) frame[len++] = 0x00;
 
     bool ok = ne2000_tx_packet(frame, len);
-    video_print(ok ? "Sent test frame.\n" : "Send failed.\n");
+    console_write(ok ? "Sent test frame.\n" : "Send failed.\n");
     return ok;
 }

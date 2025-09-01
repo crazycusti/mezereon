@@ -1,6 +1,7 @@
 #include "neelefs.h"
 #include "../../config.h"
 #include "../../main.h"
+#include "../../console.h"
 #include "../ata.h"
 #include <stdint.h>
 
@@ -21,11 +22,11 @@ static uint32_t align_up(uint32_t x, uint32_t a) { return (x + a - 1) & ~(a - 1)
 bool neelefs_mount(uint32_t lba) {
     // Read first sector
     uint8_t sec[512];
-    if (!ata_read_lba28(lba, 1, sec)) { video_println("NeeleFS: read failed"); return false; }
+    if (!ata_read_lba28(lba, 1, sec)) { console_writeln("NeeleFS: read failed"); return false; }
     // Check magic
     const char* m = (const char*)sec;
     for (int i=0; i<8; i++) {
-        if (m[i] != NEELEFS_MAGIC_STR[i]) { video_println("NeeleFS: bad magic"); return false; }
+        if (m[i] != NEELEFS_MAGIC_STR[i]) { console_writeln("NeeleFS: bad magic"); return false; }
     }
     // file count and table bytes
     uint32_t* p32 = (uint32_t*)(sec + 8);
@@ -35,7 +36,7 @@ bool neelefs_mount(uint32_t lba) {
     g_table_bytes = align_up(g_table_bytes + 16, 512) - 16; // account header in sector 0
     g_mount_lba = lba;
     g_mounted = 1;
-    video_print("NeeleFS mounted at LBA "); video_print_hex16((uint16_t)(lba & 0xFFFF)); video_print("\n");
+    console_write("NeeleFS mounted at LBA "); console_write_hex16((uint16_t)(lba & 0xFFFF)); console_write("\n");
     return true;
 }
 
@@ -64,13 +65,12 @@ static bool neelefs_read_dirent(uint32_t index, neelefs_dirent_t* out) {
 }
 
 void neelefs_list(void) {
-    if (!g_mounted) { video_println("NeeleFS not mounted"); return; }
+    if (!g_mounted) { console_writeln("NeeleFS not mounted"); return; }
     for (uint32_t i=0; i<g_count; i++) {
         neelefs_dirent_t e; if (!neelefs_read_dirent(i, &e)) break;
-        video_print(" "); video_print(e.name); video_print("  ");
+        console_write(" "); console_write(e.name); console_write("  ");
         // size
-        extern void video_print_dec(uint32_t v);
-        video_print_dec(e.size); video_print(" bytes\n");
+        console_write_dec(e.size); console_write(" bytes\n");
     }
 }
 
@@ -85,8 +85,8 @@ static int find_entry(const char* name, neelefs_dirent_t* out) {
 }
 
 bool neelefs_cat(const char* name) {
-    if (!g_mounted) { video_println("NeeleFS not mounted"); return false; }
-    neelefs_dirent_t e; if (find_entry(name, &e) < 0) { video_println("Not found"); return false; }
+    if (!g_mounted) { console_writeln("NeeleFS not mounted"); return false; }
+    neelefs_dirent_t e; if (find_entry(name, &e) < 0) { console_writeln("Not found"); return false; }
     uint32_t remaining = e.size;
     uint32_t start = e.offset;
     uint8_t sec[512];
@@ -97,10 +97,10 @@ bool neelefs_cat(const char* name) {
         if (!ata_read_lba28(lba, 1, sec)) return false;
         uint32_t chunk = 512 - off; if (chunk > remaining) chunk = remaining;
         for (uint32_t i=0; i<chunk; i++) {
-            uint8_t c = sec[off+i]; if (c < 32 || c > 126) c = '.'; char s[2]; s[0]=(char)c; s[1]=0; video_print(s);
+            uint8_t c = sec[off+i]; if (c < 32 || c > 126) c = '.'; char s[2]; s[0]=(char)c; s[1]=0; console_write(s);
         }
         remaining -= chunk;
     }
-    video_print("\n");
+    console_write("\n");
     return true;
 }

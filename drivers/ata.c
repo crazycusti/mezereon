@@ -3,12 +3,7 @@
 #include "../main.h"
 #include "../keyboard.h"
 #include <stdint.h>
-
-// I/O helpers
-static inline void outb(uint16_t port, uint8_t val){ __asm__ volatile("outb %0,%1"::"a"(val),"Nd"(port)); }
-static inline uint8_t inb(uint16_t port){ uint8_t v; __asm__ volatile("inb %1,%0":"=a"(v):"Nd"(port)); return v; }
-static inline void outw(uint16_t port, uint16_t val){ __asm__ volatile("outw %0,%1"::"a"(val),"Nd"(port)); }
-static inline uint16_t inw(uint16_t port){ uint16_t v; __asm__ volatile("inw %1,%0":"=a"(v):"Nd"(port)); return v; }
+#include "../arch/x86/io.h"
 
 // ATA I/O ports
 static uint16_t ATA_IO    = (uint16_t)CONFIG_ATA_PRIMARY_IO;
@@ -174,35 +169,35 @@ bool ata_read_lba28(uint32_t lba, uint8_t sectors, void* buf){
 static void print_hex8(uint8_t v){
     char tmp[3];
     static const char H[] = "0123456789ABCDEF";
-    tmp[0]=H[(v>>4)&0xF]; tmp[1]=H[v&0xF]; tmp[2]=0; video_print(tmp);
+    tmp[0]=H[(v>>4)&0xF]; tmp[1]=H[v&0xF]; tmp[2]=0; console_write(tmp);
 }
 
 void ata_dump_lba(uint32_t lba, uint8_t sectors_max){
     if (sectors_max==0 || sectors_max>4) sectors_max=4;
     static uint8_t buf[2048];
     if (!ata_read_lba28(lba, sectors_max, buf)){
-        video_print("ATA read failed.\n");
+        console_write("ATA read failed.\n");
         return;
     }
     uint32_t total = (uint32_t)sectors_max * 512u;
-    video_print("-- atadump: Down/Enter=next, PgDn=+16 lines, q=quit --\n");
+    console_write("-- atadump: Down/Enter=next, PgDn=+16 lines, q=quit --\n");
     for (uint32_t off=0; off<total; off+=16){
         // address
-        video_print_hex16((uint16_t)off);
-        video_print(": ");
+        console_write_hex16((uint16_t)off);
+        console_write(": ");
         // hex bytes
         for (uint32_t i=0;i<16;i++){
             print_hex8(buf[off+i]);
-            video_print(" ");
+            console_write(" ");
         }
         // ascii
-        video_print(" ");
+        console_write(" ");
         for (uint32_t i=0;i<16;i++){
             uint8_t c = buf[off+i];
             if (c<32 || c>126) c='.';
-            char s[2]; s[0]=(char)c; s[1]=0; video_print(s);
+            char s[2]; s[0]=(char)c; s[1]=0; console_write(s);
         }
-        video_print("\n");
+        console_write("\n");
         // Wait for navigation key: Down/Enter/Space = next line, PgDn = +16 lines, q = quit
         int advance_lines = 1;
         for (;;) {
