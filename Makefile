@@ -58,6 +58,8 @@ console.o: console.c console.h config.h
 netface.o: netface.c netface.h config.h drivers/ne2000.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
+platform.o: platform.c platform.h interrupts.h
+	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 drivers/ne2000.o: drivers/ne2000.c drivers/ne2000.h config.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
@@ -73,7 +75,7 @@ keyboard.o: keyboard.c keyboard.h config.h
 shell.o: shell.c shell.h keyboard.h config.h main.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
-kernel_payload.elf: entry32.o isr.o idt.o interrupts.o main.o video.o console.o netface.o drivers/ne2000.o drivers/ata.o drivers/fs/neelefs.o keyboard.o shell.o
+kernel_payload.elf: entry32.o isr.o idt.o interrupts.o platform.o main.o video.o console.o netface.o drivers/ne2000.o drivers/ata.o drivers/fs/neelefs.o keyboard.o shell.o
 	$(LD) $(LDFLAGS) $^ -o $@
 
 # Erzeuge flaches Binary ohne führende 0x7E00-Lücke
