@@ -1,7 +1,7 @@
 [BITS 32]
 
 global _start
-extern kmain
+extern kentry
 
 _start:
     ; Ensure data segments and stack are sane in protected mode
@@ -13,9 +13,10 @@ _start:
     mov ss, ax
     mov esp, 0x9FC00
 
-    call kmain
+    ; New arch-neutral entry with optional boot info pointer (NULL for now)
+    push dword 0
+    call kentry
 
 .halt:
     hlt
     jmp .halt
-
