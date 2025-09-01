@@ -38,6 +38,14 @@
 #define CONFIG_VIDEO_HW_CURSOR 1
 #endif
 
+// Architecture selection (defaults to x86)
+#ifndef CONFIG_ARCH_X86
+#define CONFIG_ARCH_X86 1
+#endif
+#ifndef CONFIG_ARCH_SPARC
+#define CONFIG_ARCH_SPARC 0
+#endif
+
 // ATA primary channel (QEMU default for -hda)
 #ifndef CONFIG_ATA_PRIMARY_IO
 #define CONFIG_ATA_PRIMARY_IO  0x1F0

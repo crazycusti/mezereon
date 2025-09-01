@@ -1,15 +1,26 @@
 #include <stdint.h>
 #include <stdbool.h>
+#include "config.h"
 #include "console.h"
 
 const char* cpu_arch_name(void) {
-    return "x86"; // current build is i386
+#if CONFIG_ARCH_X86
+    return "x86";
+#elif CONFIG_ARCH_SPARC
+    return "sparc";
+#else
+    return "unknown";
+#endif
 }
 
+#if CONFIG_ARCH_X86
 static inline void cpuid_raw(uint32_t leaf, uint32_t* a, uint32_t* b, uint32_t* c, uint32_t* d) {
     uint32_t ra, rb, rc, rd;
     __asm__ volatile ("cpuid" : "=a"(ra), "=b"(rb), "=c"(rc), "=d"(rd) : "a"(leaf), "c"(0));
-    if (a) *a = ra; if (b) *b = rb; if (c) *c = rc; if (d) *d = rd;
+    if (a) *a = ra;
+    if (b) *b = rb;
+    if (c) *c = rc;
+    if (d) *d = rd;
 }
 
 static bool cpuid_supported(void) {
@@ -22,6 +33,12 @@ static bool cpuid_supported(void) {
     __asm__ volatile ("pushl %0; popfl" :: "r"(e1));
     return ((e1 ^ e2) & (1u << 21)) != 0;
 }
+#else
+static inline void cpuid_raw(uint32_t leaf, uint32_t* a, uint32_t* b, uint32_t* c, uint32_t* d) {
+    (void)leaf; if (a) *a = 0; if (b) *b = 0; if (c) *c = 0; if (d) *d = 0;
+}
+static bool cpuid_supported(void) { return false; }
+#endif
 
 static void print_hex32(uint32_t v) {
     static const char H[] = "0123456789ABCDEF";
