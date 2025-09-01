@@ -57,4 +57,11 @@
 #define CONFIG_NET_RX_DEBUG 0
 #endif
 
+// Network receive mode helpers
+// 0 = normal (accept unicast to station + broadcast)
+// 1 = promiscuous (accept all frames, for debugging)
+#ifndef CONFIG_NET_PROMISC
+#define CONFIG_NET_PROMISC 0
+#endif
+
 #endif // CONFIG_H

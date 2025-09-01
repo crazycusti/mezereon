@@ -27,6 +27,12 @@
 #define NE2K_REG_TCR    0x0D
 #define NE2K_REG_DATA   0x10
 
+// Page 1 register offsets (selected via CR PS=1)
+// Note: same base + offset as Page 0, but different mapping.
+#define NE2K_P1_PAR0    0x01  // Physical Address Register 0..5
+#define NE2K_P1_CURR    0x07  // Current Page Register
+#define NE2K_P1_MAR0    0x08  // Multicast Address Register 0..7
+
 // ISR bits
 #define NE2K_ISR_PRX 0x01
 #define NE2K_ISR_PTX 0x02

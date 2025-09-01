@@ -36,6 +36,7 @@ static const uint8_t NE2K_RX_PSTOP  = 0x80; // end of 32KiB window
 
 // Forward declarations for statics used before definition
 static bool ne2000_read_mac(uint8_t mac[6]);
+static inline void print_hex8(uint8_t v);
 
 // Latch for ISR bits observed in IRQ3 (ack'd there)
 static volatile uint8_t ne2k_isr_latch;
@@ -118,8 +119,14 @@ bool ne2000_init(void) {
     // Clear pending interrupts
     outb(ne2k_base_io + NE2K_REG_ISR, 0xFF);
 
-    // Set receive configuration: accept broadcast only (AB)
-    outb(ne2k_base_io + NE2K_REG_RCR, 0x04);
+    // Set receive configuration
+    // Normal: accept broadcast (AB) and physical addr (always enabled)
+    // Debug: optional promiscuous (PRO)
+    uint8_t rcr = 0x04; // AB
+#if CONFIG_NET_PROMISC
+    rcr |= 0x10;        // PRO
+#endif
+    outb(ne2k_base_io + NE2K_REG_RCR, rcr);
 
     // Program ring buffer boundaries
     outb(ne2k_base_io + NE2K_REG_PSTART, NE2K_RX_PSTART);
@@ -129,7 +136,7 @@ bool ne2000_init(void) {
     // Switch to Page 1 to set CURR
     uint8_t cr = inb(ne2k_base_io + NE2K_REG_CMD);
     outb(ne2k_base_io + NE2K_REG_CMD, (uint8_t)((cr & 0x3F) | (1u<<6))); // PS=1
-    outb(ne2k_base_io + 0x07, (uint8_t)(NE2K_RX_PSTART + 1)); // CURR
+    outb(ne2k_base_io + NE2K_P1_CURR, (uint8_t)(NE2K_RX_PSTART + 1)); // CURR
     // Back to Page 0
     outb(ne2k_base_io + NE2K_REG_CMD, (uint8_t)(cr & 0x3F));
 
@@ -164,6 +171,32 @@ bool ne2000_init(void) {
             video_print("PIO probe failed, continuing with ");
             video_print(ne2k_use_16bit ? "16-bit\n" : "8-bit\n");
         }
+    }
+
+    // Read and program station MAC address into PAR (Page 1)
+    {
+        uint8_t mac[6];
+        if (!ne2000_read_mac(mac)) {
+            // Fallback locally administered address
+            mac[0]=0x02; mac[1]=0x00; mac[2]=0x00; mac[3]=0x00; mac[4]=0x00; mac[5]=0x01;
+        }
+
+        // Switch to Page 1, write PAR0..PAR5
+        uint8_t cr2 = inb(ne2k_base_io + NE2K_REG_CMD);
+        outb(ne2k_base_io + NE2K_REG_CMD, (uint8_t)((cr2 & 0x3F) | (1u<<6))); // PS=1
+        for (int i = 0; i < 6; i++) {
+            outb(ne2k_base_io + NE2K_P1_PAR0 + i, mac[i]);
+        }
+        // Leave MAR zeroed (no multicast filter yet)
+        outb(ne2k_base_io + NE2K_REG_CMD, (uint8_t)(cr2 & 0x3F));             // back to Page 0
+
+        // Print MAC for debugging
+        video_print("NIC MAC: ");
+        for (int i = 0; i < 6; i++) {
+            if (i) video_print(":");
+            print_hex8(mac[i]);
+        }
+        video_print("\n");
     }
 
     // For now we stop here. Full ring buffer init will follow.
