@@ -2,11 +2,14 @@
 #include "shell.h"
 #include "keyboard.h"
 #include "platform.h"
+#include "cpu.h"
 
 void kmain()
 {
     console_init();
     console_writeln("Initializing Mezereon... Video initialized.");
+    // Compact CPU info line
+    cpu_bootinfo_print();
     // Platform init: IDT/PIC remap, PIT 100Hz, unmask required IRQs and enable
     platform_interrupts_init();
     platform_timer_init(100);

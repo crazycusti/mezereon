@@ -5,6 +5,7 @@
 #include "main.h"
 #include "config.h"
 #include "netface.h"
+#include "cpu.h"
 #include <stdint.h>
 
 static void print_prompt(void) {
@@ -37,7 +38,7 @@ void shell_run(void) {
                 } else if (streq(buf, "clear")) {
                     console_clear();
                 } else if (streq(buf, "help")) {
-                    console_write("Commands: version, clear, help, ata, atadump [lba], neele mount [lba], neele ls, neele cat <name>, netinfo, netrxdump\n");
+                    console_write("Commands: version, clear, help, cpuinfo, ata, atadump [lba], neele mount [lba], neele ls, neele cat <name>, netinfo, netrxdump\n");
                 } else if (streq(buf, "ata")) {
                     if (ata_present()) console_write("ATA present (selected device).\n");
                     else console_write("ATA not present.\n");
@@ -112,6 +113,8 @@ void shell_run(void) {
                     } else {
                         console_write("usage: neele <mount|ls|cat> ...\n");
                     }
+                } else if (streq(buf, "cpuinfo")) {
+                    cpuinfo_print();
                 } else if (streq(buf, "netinfo")) {
                     netface_diag_print();
                 } else if (streq(buf, "netrxdump")) {
