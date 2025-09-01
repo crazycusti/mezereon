@@ -1,9 +1,6 @@
 #include "interrupts.h"
 #include "config.h"
-
-// I/O helpers
-static inline void outb(uint16_t port, uint8_t val){ __asm__ volatile("outb %0,%1"::"a"(val),"Nd"(port)); }
-static inline uint8_t inb(uint16_t port){ uint8_t r; __asm__ volatile("inb %1,%0":"=a"(r):"Nd"(port)); return r; }
+#include "arch/x86/io.h"
 
 // PIC remap as per OSDev
 void pic_remap(uint8_t offset1, uint8_t offset2) {
@@ -81,13 +78,9 @@ void irq0_handler_c(void) {
         buf[pos++] = 's';
         int len = pos;
 
-        // write to VGA without touching cursor/state
-        volatile uint16_t* vga = (volatile uint16_t*)0xB8000;
-        int start_col = CONFIG_VGA_WIDTH - len;
-        if (start_col < 0) start_col = 0;
-        for (int i = 0; i < len; i++) {
-            vga[i + start_col] = (uint16_t)((0x1F << 8) | (uint8_t)buf[i]);
-        }
+        // Write through the video module (no direct VGA access here)
+        extern void video_draw_status_right(const char* buf, int len);
+        video_draw_status_right(buf, len);
     }
     // Acknowledge PIC
     outb(0x20, 0x20);

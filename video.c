@@ -1,20 +1,11 @@
 #include "main.h"
 #include "config.h"
 #include <stdint.h>
+#include "arch/x86/io.h"
 
 #define VIDEO_MEMORY 0xb8000
 #define VGA_CRTC_INDEX 0x3D4
 #define VGA_CRTC_DATA  0x3D5
-
-static inline void outb(uint16_t port, uint8_t val) {
-    __asm__ volatile ("outb %0, %1" : : "a"(val), "Nd"(port));
-}
-
-static inline uint8_t inb(uint16_t port) {
-    uint8_t ret;
-    __asm__ volatile ("inb %1, %0" : "=a"(ret) : "Nd"(port));
-    return ret;
-}
 
 static int vga_row = 0;
 static int vga_col = 0;
@@ -51,6 +42,18 @@ static inline void video_scroll(void) {
     vga_row = H - 1;
     if (vga_col >= W) vga_col = 0;
     vga_hw_cursor_update_internal();
+}
+
+// Draw a short status string right-aligned in the top row without
+// disturbing the console state/cursor.
+void video_draw_status_right(const char* buf, int len) {
+    if (!buf || len <= 0) return;
+    volatile uint16_t* vga = (volatile uint16_t*)VIDEO_MEMORY;
+    int start_col = CONFIG_VGA_WIDTH - len;
+    if (start_col < 0) start_col = 0;
+    for (int i = 0; i < len; i++) {
+        vga[i + start_col] = (uint16_t)((0x1F << 8) | (uint8_t)buf[i]);
+    }
 }
 
 void video_init() {
