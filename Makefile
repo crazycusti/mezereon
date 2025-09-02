@@ -110,7 +110,7 @@ clean:
 
 # Optional: build a SPARC32 OBP client boot stub (requires sparc-elf-gcc)
 SPARC_CC ?= $(shell command -v sparc-elf-gcc 2>/dev/null || echo sparc-elf-gcc)
-SPARC_CFLAGS ?= -ffreestanding -nostdlib -Wall -Wextra -Os -mcpu=v8 -fno-pic -fno-pie
+SPARC_CFLAGS ?= -ffreestanding -nostdlib -Wall -Wextra -Os -mcpu=v8 -fno-pic -fno-pie -mno-fpu -mflat
 SPARC_CDEFS ?= -DCONFIG_ARCH_X86=0 -DCONFIG_ARCH_SPARC=1
 SPARC_LDFLAGS ?= -nostdlib -Wl,-N -T arch/sparc/link.ld
 

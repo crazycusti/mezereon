@@ -15,9 +15,10 @@ _boot_stack_top:
         .text
 _start:
         sethi   %hi(_boot_stack_top), %sp
-        or      %sp, %lo(_boot_stack_top), %sp  ! set SP to top of our static stack
-        save    %sp, -0x60, %sp                 ! create a small stack frame
-        mov     %i0, %o0                        ! pass OFW entry as first arg
+        or      %sp, %lo(_boot_stack_top), %sp   ! set SP to top of our static stack
+        andn    %sp, 7, %sp                      ! align stack to 8 bytes
+        ! Do NOT save a register window here; let C do its own prologue.
+        ! %o0 is expected to carry the OF client entry pointer.
         call    sparc_boot_main
         nop
 1:      ba      1b
