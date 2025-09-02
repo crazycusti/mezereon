@@ -149,7 +149,7 @@ run-sparc-tftp: sparc-boot
 	$(shell command -v qemu-system-sparc 2>/dev/null || echo qemu-system-sparc) \
 		-M SS-5 -nographic -serial mon:stdio \
 		-netdev user,id=n0,tftp=tftp,bootfile=boot.elf \
-		-device le,netdev=n0 \
+		-device lance,netdev=n0 \
 		-prom-env 'boot-device=net' -prom-env 'input-device=ttya' -prom-env 'output-device=ttya'
 
 .PHONY: all clean
