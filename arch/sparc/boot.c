@@ -8,38 +8,38 @@ static int str_len(const char* s) { int n=0; while (s && s[n]) n++; return n; }
 
 // OF client services
 static uint32_t ofw_open(ofw_entry_t ofw, const char* dev) {
-    struct {
+    volatile struct {
         const char* service; int nargs; int nret;
         const char* dev;     uint32_t ihandle;
     } args = { "open", 1, 1, dev, 0 };
-    (void)ofw(&args);
+    (void)ofw((void*)&args);
     return args.ihandle;
 }
 
 static int ofw_write(ofw_entry_t ofw, uint32_t ih, const void* buf, int len) {
-    struct {
+    volatile struct {
         const char* service; int nargs; int nret;
         uint32_t ih;         const void* buf; int len; int actual;
     } args = { "write", 3, 1, ih, buf, len, -1 };
-    (void)ofw(&args);
+    (void)ofw((void*)&args);
     return args.actual;
 }
 
 static uint32_t ofw_finddevice(ofw_entry_t ofw, const char* path) {
-    struct {
+    volatile struct {
         const char* service; int nargs; int nret;
         const char* path;    uint32_t phandle;
     } args = { "finddevice", 1, 1, path, 0 };
-    (void)ofw(&args);
+    (void)ofw((void*)&args);
     return args.phandle;
 }
 
 static int ofw_getprop(ofw_entry_t ofw, uint32_t ph, const char* name, void* buf, int buflen) {
-    struct {
+    volatile struct {
         const char* service; int nargs; int nret;
         uint32_t ph;         const char* name; void* buf; int buflen; int actual;
     } args = { "getprop", 4, 1, ph, name, buf, buflen, -1 };
-    (void)ofw(&args);
+    (void)ofw((void*)&args);
     return args.actual;
 }
 
