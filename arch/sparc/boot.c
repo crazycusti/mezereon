@@ -4,20 +4,70 @@ typedef int (*ofw_entry_t)(void*);
 
 extern void kentry(void* bootinfo);
 
-// Minimal IEEE-1275 (OpenFirmware) client interface: interpret
-static int ofw_interpret(ofw_entry_t ofw, const char* forth) {
+static int str_len(const char* s) { int n=0; while (s && s[n]) n++; return n; }
+
+// OF client services
+static uint32_t ofw_open(ofw_entry_t ofw, const char* dev) {
     struct {
         const char* service; int nargs; int nret;
-        const char* forth;   int catch_result;
-    } args = { "interpret", 1, 1, forth, 0 };
+        const char* dev;     uint32_t ihandle;
+    } args = { "open", 1, 1, dev, 0 };
     (void)ofw(&args);
-    return args.catch_result;
+    return args.ihandle;
+}
+
+static int ofw_write(ofw_entry_t ofw, uint32_t ih, const void* buf, int len) {
+    struct {
+        const char* service; int nargs; int nret;
+        uint32_t ih;         const void* buf; int len; int actual;
+    } args = { "write", 3, 1, ih, buf, len, -1 };
+    (void)ofw(&args);
+    return args.actual;
+}
+
+static uint32_t ofw_finddevice(ofw_entry_t ofw, const char* path) {
+    struct {
+        const char* service; int nargs; int nret;
+        const char* path;    uint32_t phandle;
+    } args = { "finddevice", 1, 1, path, 0 };
+    (void)ofw(&args);
+    return args.phandle;
+}
+
+static int ofw_getprop(ofw_entry_t ofw, uint32_t ph, const char* name, void* buf, int buflen) {
+    struct {
+        const char* service; int nargs; int nret;
+        uint32_t ph;         const char* name; void* buf; int buflen; int actual;
+    } args = { "getprop", 4, 1, ph, name, buf, buflen, -1 };
+    (void)ofw(&args);
+    return args.actual;
 }
 
 void sparc_boot_main(void* ofw) {
     ofw_entry_t entry = (ofw_entry_t)ofw;
-    // Print a hello via OF 'interpret'
-    ofw_interpret(entry, " .\" Mezereon SPARC boot stub...\" cr");
+
+    // Try to open 'ttya', fallback to 'screen'
+    uint32_t ih = ofw_open(entry, "ttya");
+    if (ih == 0 || (int)ih == -1) ih = ofw_open(entry, "screen");
+
+    const char hello[] = "Mezereon SPARC boot stub...\r\n";
+    if (ih && (int)ih != -1) {
+        ofw_write(entry, ih, hello, str_len(hello));
+
+        // Print bootargs from /chosen if available
+        uint32_t chosen = ofw_finddevice(entry, "/chosen");
+        if (chosen) {
+            char bootargs[256];
+            int n = ofw_getprop(entry, chosen, "bootargs", bootargs, (int)sizeof(bootargs)-1);
+            if (n > 0) {
+                bootargs[n] = '\0';
+                const char pfx[] = "bootargs=";
+                ofw_write(entry, ih, pfx, str_len(pfx));
+                ofw_write(entry, ih, bootargs, str_len(bootargs));
+                ofw_write(entry, ih, "\r\n", 2);
+            }
+        }
+    }
 
     static const char c_backend[] = "ofw";
     boot_info_t bi;
@@ -29,7 +79,5 @@ void sparc_boot_main(void* ofw) {
 
     kentry(&bi);
 
-    // If kentry returns, drop into forth prompt
-    ofw_interpret(entry, " enter");
     for(;;) { /* spin */ }
 }
