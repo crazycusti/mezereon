@@ -46,9 +46,17 @@ static int ofw_getprop(ofw_entry_t ofw, uint32_t ph, const char* name, void* buf
 void sparc_boot_main(void* ofw) {
     ofw_entry_t entry = (ofw_entry_t)ofw;
 
-    // Try to open 'ttya', fallback to 'screen'
-    uint32_t ih = ofw_open(entry, "ttya");
-    if (ih == 0 || (int)ih == -1) ih = ofw_open(entry, "screen");
+    // Prefer stdout ihandle from /chosen; fallback to open("ttya") then "screen"
+    uint32_t ih = 0;
+    {
+        uint32_t chosen = ofw_finddevice(entry, "/chosen");
+        if (chosen) {
+            uint32_t stdout_ih = 0; int n = ofw_getprop(entry, chosen, "stdout", &stdout_ih, sizeof(stdout_ih));
+            if (n == sizeof(stdout_ih) && stdout_ih && (int)stdout_ih != -1) ih = stdout_ih;
+        }
+    }
+    if (!ih || (int)ih == -1) ih = ofw_open(entry, "ttya");
+    if (!ih || (int)ih == -1) ih = ofw_open(entry, "screen");
 
     const char hello[] = "Mezereon SPARC boot stub...\r\n";
     if (ih && (int)ih != -1) {
