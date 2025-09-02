@@ -129,4 +129,11 @@ arch/sparc/kentry.o: kentry.c bootinfo.h config.h
 arch/sparc/boot.elf: arch/sparc/boot_sparc32.o arch/sparc/boot.o arch/sparc/kentry.o
 	$(SPARC_CC) $(SPARC_CFLAGS) $(SPARC_LDFLAGS) $^ -o $@
 
+.PHONY: run-sparc
+run-sparc: sparc-boot
+	$(shell command -v qemu-system-sparc 2>/dev/null || echo qemu-system-sparc) \
+		-M SS-5 -nographic -serial mon:stdio \
+		-prom-env 'output-device=ttya' -prom-env 'input-device=ttya' \
+		-kernel arch/sparc/boot.elf
+
 .PHONY: all clean
