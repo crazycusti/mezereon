@@ -106,5 +106,27 @@ disk.img: bootloader.bin kernel_payload.bin
 clean:
 	rm -f *.o *.bin *.img netface.o console.o $(CONSOLE_BACKEND_OBJ) video.o main.o entry32.o isr.o idt.o interrupts.o kernel_payload.bin bootloader.bin
 	rm -f drivers/*.o
+	rm -f arch/sparc/*.o arch/sparc/boot.elf
+
+# Optional: build a SPARC32 OBP client boot stub (requires sparc-elf-gcc)
+SPARC_CC ?= $(shell command -v sparc-elf-gcc 2>/dev/null || echo sparc-elf-gcc)
+SPARC_CFLAGS ?= -ffreestanding -nostdlib -Wall -Wextra -Os -mcpu=v8
+SPARC_CDEFS ?= -DCONFIG_ARCH_X86=0 -DCONFIG_ARCH_SPARC=1
+SPARC_LDFLAGS ?= -nostdlib -Wl,-N -Wl,-Ttext,0x4000
+
+.PHONY: sparc-boot
+sparc-boot: arch/sparc/boot.elf
+
+arch/sparc/boot_sparc32.o: arch/sparc/boot_sparc32.S arch/sparc/obp.h bootinfo.h
+	$(SPARC_CC) $(SPARC_CFLAGS) $(SPARC_CDEFS) -c $< -o $@
+
+arch/sparc/boot.o: arch/sparc/boot.c arch/sparc/obp.h bootinfo.h
+	$(SPARC_CC) $(SPARC_CFLAGS) $(SPARC_CDEFS) -c $< -o $@
+
+arch/sparc/kentry.o: kentry.c bootinfo.h config.h
+	$(SPARC_CC) $(SPARC_CFLAGS) $(SPARC_CDEFS) -c $< -o $@
+
+arch/sparc/boot.elf: arch/sparc/boot_sparc32.o arch/sparc/boot.o arch/sparc/kentry.o
+	$(SPARC_CC) $(SPARC_CFLAGS) $(SPARC_LDFLAGS) $^ -o $@
 
 .PHONY: all clean
