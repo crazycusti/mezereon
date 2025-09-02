@@ -140,4 +140,16 @@ run-sparc: sparc-boot
 		-prom-env 'output-device=ttya' -prom-env 'input-device=ttya' \
 		-kernel arch/sparc/boot.elf
 
+# Netboot (TFTP) for SPARC via OpenBIOS. This avoids -kernel path issues
+# by letting OF fetch the image via its own TFTP client.
+.PHONY: run-sparc-tftp
+run-sparc-tftp: sparc-boot
+	@mkdir -p tftp
+	cp -f arch/sparc/boot.elf tftp/boot.elf
+	$(shell command -v qemu-system-sparc 2>/dev/null || echo qemu-system-sparc) \
+		-M SS-5 -nographic -serial mon:stdio \
+		-netdev user,id=n0,tftp=tftp,bootfile=boot.elf \
+		-device le,netdev=n0 \
+		-prom-env 'boot-device=net' -prom-env 'input-device=ttya' -prom-env 'output-device=ttya'
+
 .PHONY: all clean
