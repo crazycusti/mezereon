@@ -110,7 +110,7 @@ clean:
 
 # Optional: build a SPARC32 OBP client boot stub (requires sparc-elf-gcc)
 SPARC_CC ?= $(shell command -v sparc-elf-gcc 2>/dev/null || echo sparc-elf-gcc)
-SPARC_CFLAGS ?= -ffreestanding -nostdlib -Wall -Wextra -Os -mcpu=v8 -fno-pic -fno-pie -mno-fpu -mflat
+SPARC_CFLAGS ?= -ffreestanding -nostdlib -Wall -Wextra -Os -mcpu=v8 -fno-pic -fno-pie -fno-builtin -mno-fpu -mflat
 SPARC_CDEFS ?= -DCONFIG_ARCH_X86=0 -DCONFIG_ARCH_SPARC=1
 SPARC_LDFLAGS ?= -nostdlib -Wl,-N -T arch/sparc/link.ld
 
@@ -126,7 +126,10 @@ arch/sparc/boot.o: arch/sparc/boot.c arch/sparc/obp.h bootinfo.h
 arch/sparc/kentry.o: kentry.c bootinfo.h config.h
 	$(SPARC_CC) $(SPARC_CFLAGS) $(SPARC_CDEFS) -c $< -o $@
 
-arch/sparc/boot.elf: arch/sparc/boot_sparc32.o arch/sparc/boot.o arch/sparc/kentry.o
+arch/sparc/minic.o: arch/sparc/minic.c
+	$(SPARC_CC) $(SPARC_CFLAGS) $(SPARC_CDEFS) -c $< -o $@
+
+arch/sparc/boot.elf: arch/sparc/boot_sparc32.o arch/sparc/boot.o arch/sparc/kentry.o arch/sparc/minic.o
 	$(SPARC_CC) $(SPARC_CFLAGS) $(SPARC_LDFLAGS) $^ -o $@
 
 .PHONY: run-sparc
