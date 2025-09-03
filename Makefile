@@ -111,6 +111,10 @@ clean:
 # Optional: build a SPARC32 OBP client boot stub (requires sparc-elf-gcc)
 SPARC_CC ?= $(shell command -v sparc-elf-gcc 2>/dev/null || echo sparc-elf-gcc)
 SPARC_OBJCOPY ?= $(shell command -v sparc-elf-objcopy 2>/dev/null || command -v sparc-unknown-elf-objcopy 2>/dev/null || echo objcopy)
+# If we fell back to plain 'objcopy', try to derive the cross objcopy from SPARC_CC
+ifeq ($(SPARC_OBJCOPY),objcopy)
+SPARC_OBJCOPY := $(dir $(SPARC_CC))$(patsubst %gcc,%objcopy,$(notdir $(SPARC_CC)))
+endif
 SPARC_CFLAGS ?= -ffreestanding -nostdlib -Wall -Wextra -Os -mcpu=v8 -fno-pic -fno-pie -fno-builtin -mno-fpu -mflat -Wa,-Av8
 SPARC_CDEFS ?= -DCONFIG_ARCH_X86=0 -DCONFIG_ARCH_SPARC=1
 SPARC_LDFLAGS ?= -nostdlib -Wl,-N -T arch/sparc/link.ld
