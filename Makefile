@@ -110,7 +110,8 @@ clean:
 
 # Optional: build a SPARC32 OBP client boot stub (requires sparc-elf-gcc)
 SPARC_CC ?= $(shell command -v sparc-elf-gcc 2>/dev/null || echo sparc-elf-gcc)
-SPARC_CFLAGS ?= -ffreestanding -nostdlib -Wall -Wextra -Os -mcpu=v8 -fno-pic -fno-pie -fno-builtin -mno-fpu -mflat
+SPARC_OBJCOPY ?= $(shell command -v sparc-elf-objcopy 2>/dev/null || command -v sparc-unknown-elf-objcopy 2>/dev/null || echo objcopy)
+SPARC_CFLAGS ?= -ffreestanding -nostdlib -Wall -Wextra -Os -mcpu=v8 -fno-pic -fno-pie -fno-builtin -mno-fpu -mflat -Wa,-Av8
 SPARC_CDEFS ?= -DCONFIG_ARCH_X86=0 -DCONFIG_ARCH_SPARC=1
 SPARC_LDFLAGS ?= -nostdlib -Wl,-N -T arch/sparc/link.ld
 
@@ -133,6 +134,10 @@ arch/sparc/minic.o: arch/sparc/minic.c
 arch/sparc/boot.elf: arch/sparc/boot_sparc32.o arch/sparc/boot.o arch/sparc/kentry.o arch/sparc/minic.o
 	$(SPARC_CC) $(SPARC_CFLAGS) $(SPARC_LDFLAGS) $^ -o $@
 
+# Produce a.out SunOS big-endian client program variant (some OFs prefer this)
+arch/sparc/boot.aout: arch/sparc/boot.elf
+	$(SPARC_OBJCOPY) -O a.out-sunos-big $< $@
+
 .PHONY: run-sparc
 run-sparc: sparc-boot
 	$(shell command -v qemu-system-sparc 2>/dev/null || echo qemu-system-sparc) \
@@ -143,12 +148,17 @@ run-sparc: sparc-boot
 # Netboot (TFTP) for SPARC via OpenBIOS. This avoids -kernel path issues
 # by letting OF fetch the image via its own TFTP client.
 .PHONY: run-sparc-tftp
-run-sparc-tftp: sparc-boot
+run-sparc-tftp: arch/sparc/boot.aout sparc-boot
 	@mkdir -p tftp
-	cp -f arch/sparc/boot.elf tftp/boot.elf
+	cp -f arch/sparc/boot.aout tftp/boot
 	$(shell command -v qemu-system-sparc 2>/dev/null || echo qemu-system-sparc) \
 		-M SS-5 -nographic -serial mon:stdio \
-		-net nic,model=lance -net user,tftp=tftp,bootfile=boot.elf \
-		-prom-env 'boot-device=net' -prom-env 'input-device=ttya' -prom-env 'output-device=ttya'
+		-net nic,model=lance -net user,tftp=tftp,bootfile=boot \
+		-boot n \
+		-prom-env 'auto-boot?=true' \
+		-prom-env 'boot-device=net' \
+		-prom-env 'boot-file=' \
+		-prom-env 'boot-command=boot net' \
+		-prom-env 'input-device=ttya' -prom-env 'output-device=ttya'
 
 .PHONY: all clean
