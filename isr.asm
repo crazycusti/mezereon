@@ -1,4 +1,5 @@
 [BITS 32]
+section .text
 
 global irq0_stub
 global irq1_stub
