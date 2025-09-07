@@ -25,10 +25,7 @@ irq0_stub:
     pop es
     pop ds
     popa
-iretd
-
-; Mark non-executable stack for GNU ld to suppress warnings
-section .note.GNU-stack noalloc noexec nowrite
+    iretd
 
 irq1_stub:
     pusha
@@ -67,3 +64,6 @@ irq3_stub:
     pop ds
     popa
     iretd
+
+; Mark non-executable stack for GNU ld to suppress warnings
+section .note.GNU-stack noalloc noexec nowrite
