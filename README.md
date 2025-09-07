@@ -35,7 +35,8 @@ Storage Quickstart
   - Mount: `neele mount [lba]` (default `CONFIG_NEELEFS_LBA`)
   - List/cat: `neele ls [/path]`, `neele cat <name|/path>`
   - Write/dirs (v2 only): `neele mkdir </path>`, `neele write </path> <text>`
-  - Editor: `pad </path>` (Ctrl+S save, Ctrl+Q quit)
+- Editor: `pad </path>` (Ctrl+S save, Ctrl+Q quit)
+  - macOS Terminal: if `Ctrl+S` is swallowed or freezes output, run `stty -ixon` before `make run-*`.
   - More: `docs/fs/neelefs.md`
 
 SPARC toolchain detection
@@ -71,6 +72,7 @@ Useful runtime commands (shell)
 - neele mount [lba]: mount NeeleFS at LBA (default from CONFIG_NEELEFS_LBA).
 - neele ls: list files in NeeleFS root.
 - neele cat <name>: print file contents (non-printables as '.').
+- pad </path>: inline editor (Ctrl+S save, Ctrl+Q quit; v2 only).
 - netinfo: network summary (driver, MAC, promisc, IO base).
 - netrxdump: verbose RX drain; press 'q' to quit.
 

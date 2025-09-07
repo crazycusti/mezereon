@@ -7,6 +7,7 @@
 
 static bool shift = false;
 static bool caps = false;
+static bool ctrl = false; // Left/Right Control
 static bool ext  = false; // E0 prefix
 
 // Simple ring buffer for scancodes filled by IRQ1
@@ -60,9 +61,7 @@ int keyboard_poll_char(void) {
     bool release = (sc & 0x80) != 0; sc &= 0x7F;
 
     if (ext) {
-        // Handle arrows/Page keys (make codes): Up=0x48, Down=0x50, Left=0x4B, Right=0x4D, PgUp=0x49, PgDn=0x51
-        bool release_ext = (sc & 0x80) != 0; // already stripped above, so this is always false here
-        (void)release_ext;
+        // Handle extended keys (E0 prefix)
         switch (sc) {
             case 0x48: ext = false; return KEY_UP;
             case 0x50: ext = false; return KEY_DOWN;
@@ -70,12 +69,17 @@ int keyboard_poll_char(void) {
             case 0x4D: ext = false; return KEY_RIGHT;
             case 0x49: ext = false; return KEY_PGUP;
             case 0x51: ext = false; return KEY_PGDN;
-            default: ext = false; return -1;
+            case 0x1D: // Right Ctrl make
+                ctrl = !release; ext = false; return -1;
+            default:
+                ext = false; return -1;
         }
     }
 
     // Shift press/release
     if (sc == 0x2A || sc == 0x36) { shift = !release; return -1; }
+    // Ctrl press/release (left ctrl; right ctrl handled in E0 branch)
+    if (sc == 0x1D) { ctrl = !release; return -1; }
     // Caps Lock toggle (make only)
     if (sc == 0x3A && !release) { caps = !caps; return -1; }
     // Ignore other releases
@@ -90,6 +94,13 @@ int keyboard_poll_char(void) {
             if (caps && !shift) {
                 if (ch >= 'a' && ch <= 'z') ch = ch - 'a' + 'A';
                 else if (ch >= 'A' && ch <= 'Z') ch = ch - 'A' + 'a';
+            }
+            // Ctrl-letter → control code (ASCII 1..26)
+            if (ctrl) {
+                // Normalize to uppercase range for mask
+                char up = ch;
+                if (up >= 'a' && up <= 'z') up = (char)(up - 'a' + 'A');
+                ch = (char)(up & 0x1F);
             }
         }
         return (int)(unsigned char)ch;

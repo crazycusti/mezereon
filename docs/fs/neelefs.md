@@ -29,6 +29,18 @@ Shell Commands
 - `neele write </path> <txt>` → v2 only; writes text into a new or existing file (contiguous allocation).
 - `pad </path>`               → Simple nano‑like inline editor (v2). Ctrl+S=save, Ctrl+Q=quit. Max ~4 KiB.
 
+Pad Editor
+- Usage: `pad </path>` (v2 only). Mount v2 first via `neele mount`.
+- Load: preloads existing file contents if present; otherwise starts empty.
+- Save: `Ctrl+S` writes the buffer to the file (`neelefs_write_text`).
+- Quit: `Ctrl+Q` exits; warns if there are unsaved changes.
+- Keys: printable ASCII and newline; Enter inserts `\n`; Backspace deletes one char; no cursor/navigation keys.
+- Limit: buffer is ~4 KiB (see `shell.c`), sufficient for quick notes and README‑Style Files.
+- Note: v1 (read‑only) images cannot be edited; use `neele mkfs` to create a v2 region.
+- macOS Terminal tip: if `Ctrl+S` appears ignored or freezes the screen,
+  disable software flow control in the shell before starting QEMU: `stty -ixon`.
+  Re‑enable later with `stty ixon` if desired.
+
 Programming API (v2)
 - `bool neelefs_mkfs_16mb(uint32_t lba)` / `bool neelefs_mkfs_16mb_force(uint32_t lba)`
 - `bool neelefs_ls_path(const char* path)`
@@ -56,11 +68,10 @@ Quickstart
   - `neele mkdir /docs`
   - `neele write /docs/readme "Hello NeeleFS v2"`
   - `neele ls /docs` and `neele cat /docs/readme`
-  - `pad /docs/readme`      (edit inline; Ctrl+S=save, Ctrl+Q=quit)
+  - `pad /docs/readme`      (inline editor; Ctrl+S=save, Ctrl+Q=quit)
 
 Notes & Limits
 - Max region 16 MiB; block size fixed to 512B.
 - Files are contiguous (no fragmentation handling yet); directories can grow block by block.
 - Editor buffer limited (defaults to 4 KiB in shell); increase easily if needed.
 - v1 images built with `tools/mkneelefs.py` are read‑only and remain readable via `neele mount/ls/cat`.
-
