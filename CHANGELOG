@@ -5,3 +5,17 @@
 - Modulbauweise geplant und erstellt
 - NE2000 Testinit
 - Dieser Code ist bisher nicht lauffähig/vollständig
+2025-09-07 12:40:00 (master@a942e91) - build: add SPARC boot.bin target, enhanced clean, changelog cmd
+2025-09-07 12:51:21 (master@a942e91) - cleanup: deprecate SPARC helper scripts; remove tracked .o
+2025-09-07 12:55:00 (master@a942e91) - ignore: add build artifacts to .gitignore; remove tracked binaries
+2025-09-07 12:57:23 (master@a942e91) - docs: add make help target and README note
+2025-09-07 12:58:13 (master@a942e91) - docs: add in-kernel shell command reference to README
+2025-09-07 13:00:14 (master@a942e91) - docs: add workflow examples (atadump, NeeleFS, NE2000) to README
+2025-09-07 13:01:40 (master@a942e91) - qemu: add run-x86-hdd-ne2k target; docs updated
+2025-09-07 13:04:16 (master@a942e91) - build: simplify to host gcc/ld/objcopy; remove macOS cross-toolchain checks
+2025-09-07 13:07:28 (master@a942e91) - build: robust SPARC toolchain detection (native sparc or cross; /home/wynton scan)
+2025-09-07 13:14:44 (master@a942e91) - build: add crosstool-NG x-tools path scan (~/. x-tools, /opt, /usr/local) for SPARC
+2025-09-07 13:21:25 (master@a942e91) - build: generic PATH scan for sparc-*-elf-{gcc,objcopy}; docs updated
+2025-09-07 13:30:33 (master@a942e91) - build: support TOOLCHAIN_DIR for SPARC toolchain discovery; docs updated
+2025-09-07 13:34:59 (master@a942e91) - build: add SPARC_PREFIX and CROSS_COMPILE prefix support for SPARC; docs updated
+2025-09-07 13:40:39 (master@a942e91) - docs: move legacy SPARC docs to docs/legacy-sparc; remove boot.elf symlink

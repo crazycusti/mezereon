@@ -198,6 +198,28 @@ eggs/
 parts/
 var/
 sdist/
+
+
+#############
+## Mezereon build artifacts
+#############
+
+# Objects and binaries
+*.o
+*.elf
+*.bin
+*.img
+*.iso
+
+# QEMU/logs
+qemu.log
+
+# Generated symlinks/outputs
+boot.elf
+
+# SPARC helper outputs
+tftp/
+arch/sparc/cdroot/
 develop-eggs/
 .installed.cfg
 

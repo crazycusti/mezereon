@@ -1,22 +1,3 @@
-#!/usr/bin/expect -f
-# Automated expect script to test OpenBIOS manual loading
-
-set timeout 10
-spawn qemu-system-sparc -M SS-5 -nographic -drive file=sparc_boot_raw.img,format=raw,if=floppy,index=0 -prom-env auto-boot?=false
-
-expect "0 > " {
-    send "hex\r"
-    expect "0 > "
-    send "4000 constant load-base\r" 
-    expect "0 > "
-    send "\" /fd\" open-dev constant fd-ih\r"
-    expect "0 > "
-    send "load-base 800 fd-ih read-blocks\r"
-    expect "0 > "
-    send "load-base go\r"
-    expect "anything" {
-        send_user "\n*** BOOTLOADER EXECUTED! ***\n"
-    }
-}
-
-expect eof
+#!/usr/bin/env bash
+# Deprecated helper (was expect). Use Makefile targets instead.
+echo "[deprecated] Use: make run-sparc-tftp"

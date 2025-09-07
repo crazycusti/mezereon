@@ -1,43 +1,14 @@
-# Compiler-Auswahl: Bevorzugt i386-elf-gcc (Cross-Compiler), dann gcc-15, dann gcc
-
-# ARM-Macs: explizit i386-elf-gcc aus nativeos/i386-elf-toolchain verwenden
-ifeq ($(shell uname),Darwin)
-ifeq ($(shell uname -m),arm64)
-CC := /opt/homebrew/bin/i386-elf-gcc
-else
-CC := $(shell command -v i386-elf-gcc 2>/dev/null || command -v gcc-15 2>/dev/null || echo gcc)
-endif
-else
-CC := $(shell command -v gcc-15 2>/dev/null || echo gcc)
-endif
-
+# Compiler-Auswahl: Standard gcc (host)
+CC ?= gcc
 AS = nasm
-# Bevorzuge i386-elf-ld/objcopy falls verfügbar
-LD := $(shell command -v i386-elf-ld 2>/dev/null || echo ld)
-# Robust objcopy detection: try cross, then gobjcopy, then objcopy
-OBJCOPY := $(shell command -v i386-elf-objcopy 2>/dev/null || command -v gobjcopy 2>/dev/null || command -v objcopy 2>/dev/null)
-ifeq ($(strip $(OBJCOPY)),)
-$(warning Kein objcopy gefunden. Bitte 'brew install i386-elf-binutils' oder 'brew install binutils' (gobjcopy) installieren.)
-OBJCOPY := objcopy
-endif
-# If we fell back to plain 'objcopy', try to derive cross objcopy from CC path
-ifeq ($(OBJCOPY),objcopy)
-OBJCOPY := $(dir $(CC))$(patsubst %gcc,%objcopy,$(notdir $(CC)))
-endif
+# Linker und Objcopy: host tools
+LD ?= ld
+# Robust objcopy detection (host first)
+OBJCOPY := $(shell command -v objcopy 2>/dev/null || command -v gobjcopy 2>/dev/null || echo objcopy)
 CFLAGS ?= -ffreestanding -m32 -Wall -Wextra -nostdlib -fno-builtin -fno-stack-protector -fno-pic -fno-pie
 LDFLAGS ?= -Ttext 0x7E00 -m elf_i386
 
-# On macOS, require cross i386-elf toolchain to avoid Mach-O/PIE issues
-ifeq ($(shell uname),Darwin)
-ifndef FORCE_HOST_TOOLS
-ifeq ($(shell command -v i386-elf-gcc 2>/dev/null),)
-$(error i386-elf-gcc not found. Install with: brew install i386-elf-gcc)
-endif
-ifeq ($(shell command -v i386-elf-ld 2>/dev/null),)
-$(error i386-elf-ld not found. Install with: brew install i386-elf-binutils)
-endif
-endif
-endif
+## Using host gcc/ld/objcopy; ensure 32-bit support libraries are installed for -m32.
 
 CONFIG_NE2000_IO ?= 0x300
 CONFIG_NE2000_IRQ ?= 3
@@ -53,15 +24,7 @@ else
 CONSOLE_BACKEND_OBJ = console_backend_fb_stub.o
 endif
 
-ifeq ($(shell uname),Darwin)
-ifeq ($(CC),gcc)
-$(warning Weder i386-elf-gcc noch gcc-15 gefunden, benutze Standard gcc. Für beste Kompatibilität bitte 'brew install i386-elf-gcc' ausführen!)
-endif
-else
-ifeq ($(CC),gcc)
-$(warning gcc-15 nicht gefunden, benutze Standard gcc. Für beste Kompatibilität bitte gcc-15 installieren!)
-endif
-endif
+
 
 all: disk.img
 
@@ -135,27 +98,162 @@ run-x86-hdd: disk.img
 		-drive file=disk.img,format=raw,if=ide \
 		-net none -serial stdio
 
+.PHONY: run-x86-hdd-ne2k
+run-x86-hdd-ne2k: disk.img
+	$(shell command -v qemu-system-i386 2>/dev/null || echo qemu-system-i386) \
+		-drive file=disk.img,format=raw,if=ide \
+		-device ne2k_isa,netdev=n0,io=$(CONFIG_NE2000_IO),irq=$(CONFIG_NE2000_IRQ) \
+		-netdev user,id=n0 -serial stdio
+
+
+# --- Help target ---
+.PHONY: help
+help:
+	@echo "Mezereon — common make targets"
+	@echo ""
+	@echo "x86:"
+	@echo "  make                  Build x86 floppy image (disk.img)"
+	@echo "  make run-x86-floppy   Run QEMU with disk.img as floppy"
+	@echo "  make run-x86-hdd      Run QEMU with disk.img as IDE disk (no NIC)"
+	@echo "  make run-x86-hdd-ne2k Run QEMU IDE + NE2000 ISA (usernet)"
+	@echo ""
+	@echo "SPARC (OpenBIOS/SS-5):"
+	@echo "  make sparc-boot       Build SPARC client (boot.elf/aout/bin)"
+	@echo "  make run-sparc-tftp   Netboot a.out via QEMU/OpenBIOS TFTP"
+	@echo "  make run-sparc-kernel Direct -kernel boot of boot.elf"
+	@echo "  make run-sparc-cdrom  Boot SPARC ISO (client program)"
+	@echo ""
+	@echo "Maintenance:"
+	@echo "  make clean            Remove build artifacts"
+	@echo "  make distclean        Clean + prune untracked build outputs"
+	@echo "  make log MSG=\"...\"  Append short entry to CHANGELOG"
+	@echo ""
+	@echo "Config (variables):"
+	@echo "  CONSOLE_BACKEND=vga|fb (default vga)"
+	@echo "  CONFIG_NE2000_IO=0x300 CONFIG_NE2000_IRQ=3"
+	@echo "  SPARC_CC (cross GCC), SPARC_OBJCOPY (cross objcopy)"
+	@echo ""
+	@echo "See README.md for details."
+
 
 clean:
-	rm -f *.o *.bin *.img netface.o console.o $(CONSOLE_BACKEND_OBJ) video.o main.o entry32.o isr.o idt.o interrupts.o kentry.o kernel_payload.bin bootloader.bin
-	rm -f drivers/*.o
-	rm -f arch/sparc/*.o arch/sparc/boot.elf
+	# Root objs and binaries
+	rm -f *.o *.bin *.img netface.o console.o $(CONSOLE_BACKEND_OBJ) video.o main.o entry32.o isr.o idt.o interrupts.o kentry.o kernel_payload.bin kernel_payload.elf bootloader.bin
+	# Driver objects
+	rm -f drivers/*.o drivers/*/*.o
+	# SPARC artifacts
+	rm -f arch/sparc/*.o arch/sparc/boot.elf arch/sparc/boot.aout arch/sparc/boot.bin arch/sparc/boot.iso
+	rm -rf arch/sparc/cdroot
+	# Symlinks and helper outputs
+	rm -f boot.elf
+	# TFTP payloads
+	rm -rf tftp
+	# Misc images and logs
+	rm -f sun_boot_disk.img sparc_boot*.img sparc_*_elf_boot.img sparc_working_disk.img qemu.log
 
-# Optional: build a SPARC32 OBP client boot stub (requires sparc-elf-gcc)
-SPARC_CC ?= $(shell command -v sparc-elf-gcc 2>/dev/null || command -v sparc-unknown-elf-gcc 2>/dev/null || echo sparc-elf-gcc)
-SPARC_OBJCOPY ?= $(shell command -v sparc-elf-objcopy 2>/dev/null || command -v sparc-unknown-elf-objcopy 2>/dev/null || command -v objcopy 2>/dev/null || echo objcopy)
-# If we fell back to plain 'objcopy', try to derive the cross objcopy from SPARC_CC
-ifeq ($(SPARC_OBJCOPY),objcopy)
-SPARC_OBJCOPY := $(dir $(SPARC_CC))$(patsubst %gcc,%objcopy,$(notdir $(SPARC_CC)))
+.PHONY: distclean
+distclean: clean
+	@echo "[CLEAN] Removing untracked build products (except VCS/metadata)"
+	@git clean -fdx -e .git -e .gitignore -e .gitattributes -e license -e README.txt -e README.md -e CHANGELOG || true
+
+# --- Simple changelog appender: make log MSG="changed X"
+.PHONY: log
+log:
+	@tools/changelog.sh "$(MSG)"
+
+# Optional: build a SPARC32 OBP client stub (cross or native SPARC host)
+# Detect native SPARC host first, else try common cross toolchains and user-local builds.
+SPARC_IS_NATIVE := $(shell uname -m | tr A-Z a-z | grep -c sparc || true)
+ifeq ($(SPARC_IS_NATIVE),0)
+  # Non-SPARC host: prefer cross toolchains; also scan crosstool-NG default prefixes
+  # Optional explicit prefix: SPARC_PREFIX (e.g., sparc-custom-elf-) or CROSS_COMPILE
+  ifneq ($(strip $(SPARC_PREFIX)$(CROSS_COMPILE)),)
+    SPARC_CC_PREFIX_CANDIDATE := $(shell \
+      command -v $(SPARC_PREFIX)gcc 2>/dev/null || \
+      command -v $(CROSS_COMPILE)gcc 2>/dev/null || \
+      echo "")
+    SPARC_OBJCOPY_PREFIX_CANDIDATE := $(shell \
+      command -v $(SPARC_PREFIX)objcopy 2>/dev/null || \
+      command -v $(CROSS_COMPILE)objcopy 2>/dev/null || \
+      echo "")
+    ifneq ($(strip $(SPARC_CC_PREFIX_CANDIDATE)),)
+      SPARC_CC ?= $(SPARC_CC_PREFIX_CANDIDATE)
+    endif
+    ifneq ($(strip $(SPARC_OBJCOPY_PREFIX_CANDIDATE)),)
+      SPARC_OBJCOPY ?= $(SPARC_OBJCOPY_PREFIX_CANDIDATE)
+    endif
+  endif
+  # Optional: honor TOOLCHAIN_DIR when provided (expects <dir>/bin/* in typical layouts)
+  ifneq ($(strip $(TOOLCHAIN_DIR)),)
+    SPARC_CC ?= $(shell \
+      ls -1 $(TOOLCHAIN_DIR)/bin/sparc-unknown-elf-gcc 2>/dev/null | head -n1 || \
+      ls -1 $(TOOLCHAIN_DIR)/bin/sparc-elf-gcc 2>/dev/null | head -n1 || \
+      ls -1 $(TOOLCHAIN_DIR)/bin/sparc-*-elf-gcc 2>/dev/null | head -n1 || \
+      ls -1 $(TOOLCHAIN_DIR)/sparc-unknown-elf-gcc 2>/dev/null | head -n1 || \
+      ls -1 $(TOOLCHAIN_DIR)/sparc-elf-gcc 2>/dev/null | head -n1 || \
+      ls -1 $(TOOLCHAIN_DIR)/sparc-*-elf-gcc 2>/dev/null | head -n1 )
+    SPARC_OBJCOPY ?= $(shell \
+      ls -1 $(TOOLCHAIN_DIR)/bin/sparc-unknown-elf-objcopy 2>/dev/null | head -n1 || \
+      ls -1 $(TOOLCHAIN_DIR)/bin/sparc-elf-objcopy 2>/dev/null | head -n1 || \
+      ls -1 $(TOOLCHAIN_DIR)/bin/sparc-*-elf-objcopy 2>/dev/null | head -n1 || \
+      ls -1 $(TOOLCHAIN_DIR)/sparc-unknown-elf-objcopy 2>/dev/null | head -n1 || \
+      ls -1 $(TOOLCHAIN_DIR)/sparc-elf-objcopy 2>/dev/null | head -n1 || \
+      ls -1 $(TOOLCHAIN_DIR)/sparc-*-elf-objcopy 2>/dev/null | head -n1 )
+  endif
+  SPARC_CC ?= $(shell \
+    command -v sparc-elf-gcc 2>/dev/null || \
+    command -v sparc-unknown-elf-gcc 2>/dev/null || \
+    ls -1 $(HOME)/x-tools/*/bin/sparc-unknown-elf-gcc 2>/dev/null | head -n1 || \
+    ls -1 /opt/x-tools/*/bin/sparc-unknown-elf-gcc 2>/dev/null | head -n1 || \
+    ls -1 /usr/local/x-tools/*/bin/sparc-unknown-elf-gcc 2>/dev/null | head -n1 || \
+    ls -1 $(HOME)/x-tools/*/bin/sparc-elf-gcc 2>/dev/null | head -n1 || \
+    ls -1 /opt/x-tools/*/bin/sparc-elf-gcc 2>/dev/null | head -n1 || \
+    ls -1 /usr/local/x-tools/*/bin/sparc-elf-gcc 2>/dev/null | head -n1 || \
+    ls -1 $(HOME)/sparc32gcc/.build/*/*/bin/sparc-unknown-elf-gcc 2>/dev/null | head -n1 || \
+    (IFS=:; for d in $$PATH; do \
+       for n in sparc-*-elf-gcc sparc-unknown-*-gcc; do \
+         if [ -x "$$d/$$n" ]; then echo "$$d/$$n"; exit 0; fi; \
+       done; \
+     done; echo sparc-elf-gcc))
+  SPARC_OBJCOPY ?= $(shell \
+    command -v sparc-elf-objcopy 2>/dev/null || \
+    command -v sparc-unknown-elf-objcopy 2>/dev/null || \
+    ls -1 $(HOME)/x-tools/*/bin/sparc-unknown-elf-objcopy 2>/dev/null | head -n1 || \
+    ls -1 /opt/x-tools/*/bin/sparc-unknown-elf-objcopy 2>/dev/null | head -n1 || \
+    ls -1 /usr/local/x-tools/*/bin/sparc-unknown-elf-objcopy 2>/dev/null | head -n1 || \
+    ls -1 $(HOME)/x-tools/*/bin/sparc-elf-objcopy 2>/dev/null | head -n1 || \
+    ls -1 /opt/x-tools/*/bin/sparc-elf-objcopy 2>/dev/null | head -n1 || \
+    ls -1 /usr/local/x-tools/*/bin/sparc-elf-objcopy 2>/dev/null | head -n1 || \
+    (IFS=:; for d in $$PATH; do \
+       for n in sparc-*-elf-objcopy sparc-unknown-*-objcopy; do \
+         if [ -x "$$d/$$n" ]; then echo "$$d/$$n"; exit 0; fi; \
+       done; \
+     done; echo objcopy))
+  # If using host objcopy as fallback, try to derive a cross-objcopy next to SPARC_CC
+  ifeq ($(SPARC_OBJCOPY),objcopy)
+    SPARC_OBJCOPY := $(dir $(SPARC_CC))$(patsubst %gcc,%objcopy,$(notdir $(SPARC_CC)))
+  endif
+else
+  # Native SPARC host: use system gcc/objcopy
+  SPARC_CC ?= $(shell command -v gcc 2>/dev/null || echo gcc)
+  SPARC_OBJCOPY ?= $(shell command -v objcopy 2>/dev/null || echo objcopy)
 endif
 SPARC_CFLAGS ?= -ffreestanding -nostdlib -Wall -Wextra -Os -mcpu=v8 -fno-pic -fno-pie -fno-builtin -mno-fpu -mflat -Wa,-Av8
 SPARC_CDEFS ?= -DCONFIG_ARCH_X86=0 -DCONFIG_ARCH_SPARC=1
 # Avoid external linker script; set entry + text base explicitly for -kernel and OF
 SPARC_LDFLAGS ?= -nostdlib -Wl,-N,-e,_start,-Ttext=0x4000
 
-.PHONY: sparc-boot
-sparc-boot: arch/sparc/boot.elf
+.PHONY: sparc-boot check-sparc-toolchain
+# Build SPARC client program variants (ELF for -kernel, a.out for OF, bin for manual)
+sparc-boot: check-sparc-toolchain arch/sparc/boot.elf arch/sparc/boot.aout arch/sparc/boot.bin
 	ln -sf arch/sparc/boot.elf boot.elf
+
+# Toolchain sanity: fail clearly if the compiler is not available; warn about objcopy.
+check-sparc-toolchain:
+	@command -v $(SPARC_CC) >/dev/null 2>&1 || (echo "[SPARC] Compiler '$(SPARC_CC)' not found. Set SPARC_CC=/path/to/cross-gcc" && exit 1)
+	@command -v $(SPARC_OBJCOPY) >/dev/null 2>&1 || echo "[SPARC] objcopy '$(SPARC_OBJCOPY)' not found; a.out/bin conversion may fall back to host objcopy if available."
+	@echo "[SPARC] CC      = $(SPARC_CC)"
+	@echo "[SPARC] OBJCOPY = $(SPARC_OBJCOPY)"
 
 arch/sparc/boot_sparc32.o: arch/sparc/boot_sparc32.S bootinfo.h
 	$(SPARC_CC) $(SPARC_CFLAGS) $(SPARC_CDEFS) -c $< -o $@
@@ -185,6 +283,14 @@ arch/sparc/boot.aout: arch/sparc/boot.elf
 	   (command -v gobjcopy >/dev/null 2>&1 && gobjcopy -O a.out-sunos $< $@) >/dev/null 2>&1)) || \
 	 (echo "[SPARC] WARNING: Neither cross nor host objcopy support SunOS a.out; copying ELF as fallback (netboot may fail)" && \
 	  cp -f $< $@)
+
+# Produce a raw binary variant for manual loading experiments
+arch/sparc/boot.bin: arch/sparc/boot.elf
+	@echo "[SPARC] Converting ELF to raw binary..."
+	@($(SPARC_OBJCOPY) -O binary $< $@) >/dev/null 2>&1 || \
+	 (echo "[SPARC] Cross objcopy failed, trying host objcopy..." && \
+	  ((command -v objcopy >/dev/null 2>&1 && objcopy -O binary $< $@) >/dev/null 2>&1 || \
+	   (command -v gobjcopy >/dev/null 2>&1 && gobjcopy -O binary $< $@) >/dev/null 2>&1))
 
 # NOTE: Direct -kernel entry at 0x4000 is unreliable with some QEMU/OpenBIOS
 # builds. Prefer OF client boot via TFTP using SunOS a.out format.
