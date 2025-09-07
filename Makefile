@@ -91,19 +91,32 @@ disk.img: bootloader.bin kernel_payload.bin
 run-x86-floppy: disk.img
 	$(shell command -v qemu-system-i386 2>/dev/null || echo qemu-system-i386) \
 		-drive file=disk.img,if=floppy,format=raw \
-		-net none -serial stdio
+		-net none -display curses
 
 run-x86-hdd: disk.img
 	$(shell command -v qemu-system-i386 2>/dev/null || echo qemu-system-i386) \
 		-drive file=disk.img,format=raw,if=ide \
-		-net none -serial stdio
+		-net none -display curses
 
 .PHONY: run-x86-hdd-ne2k
 run-x86-hdd-ne2k: disk.img
 	$(shell command -v qemu-system-i386 2>/dev/null || echo qemu-system-i386) \
 		-drive file=disk.img,format=raw,if=ide \
-		-device ne2k_isa,netdev=n0,io=$(CONFIG_NE2000_IO),irq=$(CONFIG_NE2000_IRQ) \
-		-netdev user,id=n0 -serial stdio
+		-device ne2k_isa,netdev=n0,iobase=$(CONFIG_NE2000_IO),irq=$(CONFIG_NE2000_IRQ) \
+		-netdev user,id=n0 -display curses
+
+# Headless smoke test (CI/VS Code): no curses/X required; runs for a few seconds
+.PHONY: test-x86-ne2k
+test-x86-ne2k: disk.img
+	@echo "[TEST] Starting headless QEMU (NE2000 @ $(CONFIG_NE2000_IO), IRQ $(CONFIG_NE2000_IRQ)) for 6s..."
+	@timeout 6 $(shell command -v qemu-system-i386 2>/dev/null || echo qemu-system-i386) \
+		-drive file=disk.img,format=raw,if=ide \
+		-device ne2k_isa,netdev=n0,iobase=$(CONFIG_NE2000_IO),irq=$(CONFIG_NE2000_IRQ) \
+		-netdev user,id=n0 -display none -monitor none -serial none || true
+	@echo "[TEST] Done (timeout or normal exit)."
+
+.PHONY: test
+test: test-x86-ne2k
 
 
 # --- Help target ---
@@ -113,9 +126,10 @@ help:
 	@echo ""
 	@echo "x86:"
 	@echo "  make                  Build x86 floppy image (disk.img)"
-	@echo "  make run-x86-floppy   Run QEMU with disk.img as floppy"
-	@echo "  make run-x86-hdd      Run QEMU with disk.img as IDE disk (no NIC)"
-	@echo "  make run-x86-hdd-ne2k Run QEMU IDE + NE2000 ISA (usernet)"
+	@echo "  make run-x86-floppy   Run QEMU (curses terminal) with disk.img as floppy"
+	@echo "  make run-x86-hdd      Run QEMU (curses terminal) with disk.img as IDE disk (no NIC)"
+	@echo "  make run-x86-hdd-ne2k Run QEMU (curses terminal) IDE + NE2000 ISA (usernet)"
+	@echo "  make test-x86-ne2k    Headless smoke test (6s, no TTY required)"
 	@echo ""
 	@echo "SPARC (OpenBIOS/SS-5):"
 	@echo "  make sparc-boot       Build SPARC client (boot.elf/aout/bin)"

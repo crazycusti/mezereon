@@ -19,3 +19,5 @@
 2025-09-07 13:30:33 (master@a942e91) - build: support TOOLCHAIN_DIR for SPARC toolchain discovery; docs updated
 2025-09-07 13:34:59 (master@a942e91) - build: add SPARC_PREFIX and CROSS_COMPILE prefix support for SPARC; docs updated
 2025-09-07 13:40:39 (master@a942e91) - docs: move legacy SPARC docs to docs/legacy-sparc; remove boot.elf symlink
+2025-09-07 13:55:54 (master@8a3207b) - test: add headless test-x86-ne2k (display/monitor/serial none, 6s)
+2025-09-07 13:58:07 (master@8a3207b) - ci: add GitHub Actions workflow (build + headless smoke test); add Makefile 'test' alias

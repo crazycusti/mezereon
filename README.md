@@ -4,8 +4,8 @@ Quick start
 - Show available targets: `make help`
 - x86 (QEMU i386)
   - Build: `make`
-  - Run (floppy): `make run-x86-floppy`
-  - Run (IDE disk): `make run-x86-hdd`
+  - Run (floppy, terminal/curses): `make run-x86-floppy`
+  - Run (IDE disk, terminal/curses): `make run-x86-hdd`
 
 - SPARC (QEMU SS-5, OpenBIOS)
   - Build: `make sparc-boot` (produces `arch/sparc/boot.{elf,aout,bin}`)
@@ -14,7 +14,7 @@ Quick start
   - ISO boot helper: `make run-sparc-cdrom`
   
 Networking (x86, NE2000)
-- Quick run with NE2000: `make run-x86-hdd-ne2k` (usernet, io/irq from CONFIG)
+- Quick run with NE2000 (terminal/curses): `make run-x86-hdd-ne2k` (usernet, io/irq from CONFIG)
 - Manual QEMU example: `qemu-system-i386 -drive file=disk.img,format=raw,if=ide -serial stdio -device ne2k_isa,netdev=n0,io=0x300,irq=3 -netdev user,id=n0`
 
 Dependencies
@@ -94,3 +94,10 @@ Examples
 - SPARC netboot (OpenBIOS):
   - Build: `make sparc-boot`
   - Run: `make run-sparc-tftp`
+
+CI / Automation
+- GitHub Actions workflow included (`.github/workflows/ci.yml`). It:
+  - installs deps on Ubuntu (`qemu-system-x86`, `nasm`, `gcc-multilib`, `binutils`)
+  - runs `make clean && make -j2`
+  - runs headless smoke test: `make test-x86-ne2k`
+- Local quick test alias: `make test` → runs the same smoke test.

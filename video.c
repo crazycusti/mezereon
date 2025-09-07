@@ -11,6 +11,10 @@ static int vga_row = 0;
 static int vga_col = 0;
 static const char HEX_DIGITS[] = "0123456789ABCDEF";
 
+/* Forward declarations to avoid implicit declaration warnings */
+void video_print(const char* str);
+void video_println(const char* str);
+
 static inline void vga_hw_cursor_update_internal(void) {
 #if CONFIG_VIDEO_HW_CURSOR
     uint16_t pos = (uint16_t)(vga_row * CONFIG_VGA_WIDTH + vga_col);

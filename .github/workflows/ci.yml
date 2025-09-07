@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-test-x86:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 nasm gcc-multilib make binutils
+
+      - name: Build (x86)
+        run: |
+          make clean
+          make -j2
+
+      - name: Smoke test (headless x86 + NE2000)
+        run: |
+          make test-x86-ne2k
+
