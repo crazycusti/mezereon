@@ -1,0 +1,11 @@
+# Add binary generation rule after boot.elf rule
+/^arch\/sparc\/boot\.elf:/a\
+\
+arch/sparc/boot.bin: arch/sparc/boot.elf\
+	$(SPARC_CC:gcc=objcopy) -O binary $< $@
+
+# Change run-sparc to use .bin instead of .elf
+s/-kernel arch\/sparc\/boot\.elf/-kernel arch\/sparc\/boot.bin/
+
+# Update sparc-boot target to build both .elf and .bin
+s/^sparc-boot: arch\/sparc\/boot\.elf$/sparc-boot: arch\/sparc\/boot.elf arch\/sparc\/boot.bin/
