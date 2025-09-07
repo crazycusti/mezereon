@@ -175,9 +175,14 @@ arch/sparc/boot.elf: arch/sparc/boot_sparc32.o arch/sparc/boot.o arch/sparc/kent
 arch/sparc/boot.aout: arch/sparc/boot.elf
 	@echo "[SPARC] Converting ELF to SunOS a.out (for OF netboot)..."
 	@($(SPARC_OBJCOPY) -O a.out-sunos-big $< $@) >/dev/null 2>&1 || \
-	 (echo "[SPARC] a.out-sunos-big unsupported; trying a.out-sunos..." && \
+	 (echo "[SPARC] a.out-sunos-big unsupported on $(SPARC_OBJCOPY); trying a.out-sunos..." && \
 	  ($(SPARC_OBJCOPY) -O a.out-sunos $< $@) >/dev/null 2>&1) || \
-	 (echo "[SPARC] WARNING: objcopy lacks SunOS a.out; copying ELF as fallback (netboot may fail)" && \
+	 (echo "[SPARC] Trying host objcopy for SunOS a.out..." && \
+	  ((command -v objcopy >/dev/null 2>&1 && objcopy -O a.out-sunos-big $< $@) >/dev/null 2>&1 || \
+	   (command -v objcopy >/dev/null 2>&1 && objcopy -O a.out-sunos $< $@) >/dev/null 2>&1 || \
+	   (command -v gobjcopy >/dev/null 2>&1 && gobjcopy -O a.out-sunos-big $< $@) >/dev/null 2>&1 || \
+	   (command -v gobjcopy >/dev/null 2>&1 && gobjcopy -O a.out-sunos $< $@) >/dev/null 2>&1)) || \
+	 (echo "[SPARC] WARNING: Neither cross nor host objcopy support SunOS a.out; copying ELF as fallback (netboot may fail)" && \
 	  cp -f $< $@)
 
 # NOTE: Direct -kernel entry at 0x4000 is unreliable with some QEMU/OpenBIOS
@@ -210,6 +215,14 @@ run-sparc-cdrom: arch/sparc/boot.iso
 		-prom-env 'auto-boot?=true' \
 		-prom-env 'boot-device=cdrom' \
 		-prom-env 'boot-file=\\boot' \
+		-prom-env 'input-device=ttya' -prom-env 'output-device=ttya'
+
+# Direct -kernel load of client program (bypasses OF file loader)
+.PHONY: run-sparc-kernel
+run-sparc-kernel: arch/sparc/boot.elf
+	$(shell command -v qemu-system-sparc 2>/dev/null || echo qemu-system-sparc) \
+		-M SS-5 -nographic -serial mon:stdio \
+		-kernel arch/sparc/boot.elf \
 		-prom-env 'input-device=ttya' -prom-env 'output-device=ttya'
 
 arch/sparc/boot.iso: arch/sparc/boot.aout
