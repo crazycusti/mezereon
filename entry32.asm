@@ -20,3 +20,6 @@ _start:
 .halt:
     hlt
     jmp .halt
+
+; Mark non-executable stack for GNU ld to suppress warnings
+section .note.GNU-stack noalloc noexec nowrite
