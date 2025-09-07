@@ -150,7 +150,7 @@ SPARC_OBJCOPY := $(dir $(SPARC_CC))$(patsubst %gcc,%objcopy,$(notdir $(SPARC_CC)
 endif
 SPARC_CFLAGS ?= -ffreestanding -nostdlib -Wall -Wextra -Os -mcpu=v8 -fno-pic -fno-pie -fno-builtin -mno-fpu -mflat -Wa,-Av8
 SPARC_CDEFS ?= -DCONFIG_ARCH_X86=0 -DCONFIG_ARCH_SPARC=1
-SPARC_LDFLAGS ?= -nostdlib -Wl,-N -T arch/sparc/link.ld
+SPARC_LDFLAGS ?= -nostdlib -Wl,-N,-T,arch/sparc/link.ld
 
 .PHONY: sparc-boot
 sparc-boot: arch/sparc/boot.elf
