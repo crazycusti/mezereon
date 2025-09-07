@@ -14,7 +14,12 @@ endif
 AS = nasm
 # Bevorzuge i386-elf-ld/objcopy falls verfügbar
 LD := $(shell command -v i386-elf-ld 2>/dev/null || echo ld)
-OBJCOPY := $(shell command -v i386-elf-objcopy 2>/dev/null || echo objcopy)
+# Robust objcopy detection: try cross, then gobjcopy, then objcopy
+OBJCOPY := $(shell command -v i386-elf-objcopy 2>/dev/null || command -v gobjcopy 2>/dev/null || command -v objcopy 2>/dev/null)
+ifeq ($(strip $(OBJCOPY)),)
+$(warning Kein objcopy gefunden. Bitte 'brew install i386-elf-binutils' oder 'brew install binutils' (gobjcopy) installieren.)
+OBJCOPY := objcopy
+endif
 # If we fell back to plain 'objcopy', try to derive cross objcopy from CC path
 ifeq ($(OBJCOPY),objcopy)
 OBJCOPY := $(dir $(CC))$(patsubst %gcc,%objcopy,$(notdir $(CC)))
