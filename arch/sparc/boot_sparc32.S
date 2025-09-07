@@ -18,7 +18,9 @@ _start:
         or      %sp, %lo(_boot_stack_top), %sp   ! set SP to top of our static stack
         andn    %sp, 7, %sp                      ! align stack to 8 bytes
         ! Do NOT save a register window here; let C do its own prologue.
-        ! %o0 is expected to carry the OF client entry pointer.
+        ! If booted via -kernel, OpenBIOS does NOT pass an OF entry in %o0.
+        ! Pass NULL to C in that case to avoid calling a garbage pointer.
+        clr     %o0
         call    sparc_boot_main
         nop
 1:      ba      1b

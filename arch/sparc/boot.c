@@ -46,6 +46,13 @@ static int ofw_getprop(ofw_entry_t ofw, uint32_t ph, const char* name, void* buf
 void sparc_boot_main(void* ofw) {
     ofw_entry_t entry = (ofw_entry_t)ofw;
 
+    // If no OF entry was provided (e.g., -kernel), skip all OF calls and go straight to kentry
+    if (!entry) {
+        boot_info_t bi; bi.arch = BI_ARCH_SPARC; bi.machine = 0; bi.console = 0; bi.flags = 0; bi.prom = 0;
+        kentry(&bi);
+        for(;;) { /* spin */ }
+    }
+
     // Prefer stdout ihandle from /chosen; fallback to open("ttya") then "screen"
     uint32_t ih = 0;
     {
