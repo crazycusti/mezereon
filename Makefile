@@ -156,7 +156,7 @@ SPARC_LDFLAGS ?= -nostdlib -Wl,-N -T arch/sparc/link.ld
 sparc-boot: arch/sparc/boot.elf
 	ln -sf arch/sparc/boot.elf boot.elf
 
-arch/sparc/boot_sparc32.o: arch/sparc/boot_sparc32.S arch/sparc/obp.h bootinfo.h
+arch/sparc/boot_sparc32.o: arch/sparc/boot_sparc32.S bootinfo.h
 	$(SPARC_CC) $(SPARC_CFLAGS) $(SPARC_CDEFS) -c $< -o $@
 
 arch/sparc/boot.o: arch/sparc/boot.c arch/sparc/obp.h bootinfo.h
