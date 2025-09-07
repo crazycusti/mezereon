@@ -21,3 +21,4 @@
 2025-09-07 13:40:39 (master@a942e91) - docs: move legacy SPARC docs to docs/legacy-sparc; remove boot.elf symlink
 2025-09-07 13:55:54 (master@8a3207b) - test: add headless test-x86-ne2k (display/monitor/serial none, 6s)
 2025-09-07 13:58:07 (master@8a3207b) - ci: add GitHub Actions workflow (build + headless smoke test); add Makefile 'test' alias
+2025-09-07 15:10:46 (master@fab2fe8) - docs: add ATA and NeeleFS docs; README storage quickstart

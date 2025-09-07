@@ -23,6 +23,21 @@ Dependencies
 - SPARC: `sparc-elf-gcc`/`sparc-unknown-elf-gcc`, `sparc-elf-objcopy`, `qemu-system-sparc`, `mkisofs`/`genisoimage`
 Note: On some hosts you may need 32-bit development libraries to link with `-m32` (e.g. `gcc-multilib`).
 
+Storage Quickstart
+- ATA:
+  - Scan/select device: `ata scan` → `ata use <0..3>` (0=PM,1=PS,2=SM,3=SS)
+  - Presence: `ata` (prints if ATA disk present)
+  - Hexdump: `atadump [lba]` (view sectors, PgDn to scroll)
+  - More details: `docs/storage/ata.md`
+
+- NeeleFS:
+  - Format v2 up to 16 MiB: `neele mkfs` (use `neele mkfs force` to overwrite legacy v1/v2)
+  - Mount: `neele mount [lba]` (default `CONFIG_NEELEFS_LBA`)
+  - List/cat: `neele ls [/path]`, `neele cat <name|/path>`
+  - Write/dirs (v2 only): `neele mkdir </path>`, `neele write </path> <text>`
+  - Editor: `pad </path>` (Ctrl+S save, Ctrl+Q quit)
+  - More: `docs/fs/neelefs.md`
+
 SPARC toolchain detection
 - Native SPARC hosts: uses system `gcc/objcopy`.
 - Other hosts: auto-detects cross compilers (`sparc-elf-gcc`, `sparc-unknown-elf-gcc`),

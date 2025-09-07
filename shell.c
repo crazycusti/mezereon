@@ -111,10 +111,15 @@ void shell_run(void) {
                         if (!buf[i]) { console_write("usage: neele cat <name|/path>\n"); }
                         else { if (!neelefs_cat(buf+i)) if (!neelefs_cat_path(buf+i)) console_write("cat failed.\n"); }
                     } else if (buf[i]=='m' && buf[i+1]=='k' && buf[i+2]=='f' && buf[i+3]=='s') {
-                        // format 16MB at current mount LBA or CONFIG
-                        uint32_t lba = CONFIG_NEELEFS_LBA;
+                        // format auto up to 16MB at CONFIG_NEELEFS_LBA; optional "force"
+                        uint32_t lba = CONFIG_NEELEFS_LBA; int force=0;
+                        i+=4; while (buf[i]==' ') i++;
+                        if (buf[i]){
+                            // accept optional "force"
+                            if (buf[i]=='f') { force=1; }
+                        }
                         if (!ata_present()) { console_write("ATA not present.\n"); }
-                        else if (neelefs_mkfs_16mb(lba)) { console_write("mkfs OK.\n"); }
+                        else if (force ? neelefs_mkfs_16mb_force(lba) : neelefs_mkfs_16mb(lba)) { console_write("mkfs OK.\n"); }
                         else { console_write("mkfs failed.\n"); }
                     } else if (buf[i]=='m' && buf[i+1]=='k' && buf[i+2]=='d' && buf[i+3]=='i' && buf[i+4]=='r') {
                         i+=5; while (buf[i]==' ') i++;

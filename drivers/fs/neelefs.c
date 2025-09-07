@@ -233,20 +233,7 @@ static int dir_init_block(uint32_t block_idx){
     return dir_store_block(block_idx, sec);
 }
 
-static int dir_scan_chain(uint32_t dir_block, uint32_t* last_blk_out){
-    // Validate headers along chain; return last block in last_blk_out
-    uint8_t sec[512]; uint32_t blk = dir_block; uint32_t last = dir_block;
-    while (1){
-        if (!dir_load_block(blk, sec)) return 0;
-        ne2_dirblk_hdr_t* h = (ne2_dirblk_hdr_t*)sec;
-        if (h->magic != NE2_DIRBLK_MAGIC) return 0;
-        last = blk;
-        if (h->next_block == 0) break;
-        blk = h->next_block;
-    }
-    if (last_blk_out) *last_blk_out = last;
-    return 1;
-}
+/* dir_scan_chain unused for now */
 
 static int dir_find_entry(uint32_t dir_block, const char* name, ne2_dirent_disk_t* out, uint32_t* out_index){
     uint8_t sec[512]; uint32_t blk = dir_block;
@@ -268,10 +255,9 @@ static int dir_find_entry(uint32_t dir_block, const char* name, ne2_dirent_disk_
     return 0;
 }
 static int dir_add_entry(uint32_t dir_block, const ne2_dirent_disk_t* ent){
-    uint8_t sec[512]; uint32_t blk = dir_block; uint32_t last=dir_block;
+    uint8_t sec[512]; uint32_t blk = dir_block;
     while (1){
         if (!dir_load_block(blk,sec)) return 0;
-        last = blk;
         ne2_dirblk_hdr_t* h = (ne2_dirblk_hdr_t*)sec;
         int hdr_ok = (h->magic == NE2_DIRBLK_MAGIC);
         if (!hdr_ok){
@@ -300,30 +286,7 @@ static int dir_add_entry(uint32_t dir_block, const ne2_dirent_disk_t* ent){
     }
 }
 
-bool neelefs_mkfs_16mb(uint32_t lba){
-    // 16MB region => 32768 blocks
-    ne2_super_t sb; memzero(&sb, sizeof(sb));
-    for (int i=0;i<8;i++) sb.magic[i]=NEELEFS2_MAGIC_STR[i];
-    sb.version = 2; sb.block_size=512; sb.total_blocks = 32768u;
-    // bitmap blocks: ceil(total_blocks/8 / 512) = ceil(32768/4096)=8 blocks
-    sb.bitmap_start = 1; // blocks 1..8 used for bitmap
-    sb.root_block = 9;   // first dir block
-    // compute csum with field zero
-    sb.super_csum = 0; sb.super_csum = crc32_update(0, (const uint8_t*)&sb, 512);
-
-    // write superblock
-    if (!ata_write_lba28(lba,1,&sb)) return false;
-    // zero bitmap and dir block
-    uint8_t zero[512]; memzero(zero,512);
-    for (uint32_t i=0;i<8;i++) if (!ata_write_lba28(lba + 1 + i,1,zero)) return false;
-    // init root dir block with header
-    if (!dir_init_block(sb.root_block)) return false;
-    // mark reserved blocks in bitmap: 0 (super), 1..8 bitmap, 9 root
-    g_mount_lba = lba; g_is_v2=1; g_v2_total_blocks=sb.total_blocks; g_v2_bitmap_start=sb.bitmap_start; g_v2_root_block=sb.root_block; g_mounted=1;
-    bitmap_set(0,1); for (uint32_t b=1;b<=8;b++) bitmap_set(b,1); bitmap_set(sb.root_block,1);
-    console_writeln("NeeleFS2 formatted (16MB)");
-    return true;
-}
+ 
 
 static int resolve_path(const char* path, uint32_t* dir_block_out, char* leaf){
     // Resolve parent dir for leaf; start at root
@@ -365,7 +328,8 @@ bool neelefs_ls_path(const char* path){
 }
 
 bool neelefs_mkdir(const char* path){
-    if (!g_mounted || !g_is_v2) { console_writeln("NeeleFS2 not mounted"); return false; }
+    if (!g_mounted) { console_writeln("NeeleFS not mounted"); return false; }
+    if (!g_is_v2)  { console_writeln("NeeleFS1 mounted (read-only); cannot write"); return false; }
     uint32_t dirb; char leaf[33]; if (!resolve_path(path,&dirb,leaf) || !leaf[0]) { console_writeln("bad path"); return false; }
     ne2_dirent_disk_t e; uint32_t idx; if (dir_find_entry(dirb,leaf,&e,&idx)) { console_writeln("exists"); return false; }
     uint32_t b = alloc_contig(1); if (!b){ console_writeln("no space"); return false; }
@@ -380,7 +344,8 @@ bool neelefs_mkdir(const char* path){
 }
 
 bool neelefs_write_text(const char* path, const char* text){
-    if (!g_mounted || !g_is_v2) { console_writeln("NeeleFS2 not mounted"); return false; }
+    if (!g_mounted) { console_writeln("NeeleFS not mounted"); return false; }
+    if (!g_is_v2)  { console_writeln("NeeleFS1 mounted (read-only); cannot write"); return false; }
     uint32_t dirb; char leaf[33]; if (!resolve_path(path,&dirb,leaf) || !leaf[0]) { console_writeln("bad path"); return false; }
     // measure text
     uint32_t len=0; while (text && text[len]) len++;
@@ -444,4 +409,61 @@ bool neelefs_read_text(const char* path, char* out, uint32_t out_max, uint32_t* 
     if (written < out_max) out[written]=0;
     if (out_len) *out_len = written;
     return true;
+}
+
+// ===== mkfs (auto up to 16MB) with overwrite checks =====
+static int detect_magic(uint32_t lba){
+    uint8_t sec[512]; if (!ata_read_lba28(lba,1,sec)) return -1;
+    int is2=1; for(int i=0;i<8;i++){ if (sec[i]!=NEELEFS2_MAGIC_STR[i]) { is2=0; break; } }
+    if (is2) return 2;
+    int is1=1; for(int i=0;i<8;i++){ if (sec[i]!=NEELEFS_MAGIC_STR[i]) { is1=0; break; } }
+    if (is1) return 1; else return 0;
+}
+
+static uint32_t probe_blocks(uint32_t lba, uint32_t limit){
+    uint8_t sec[512]; uint32_t ok=0, hi=1; if (hi>limit) hi=limit;
+    while (hi<=limit){
+        if (ata_read_lba28(lba + hi - 1, 1, sec)) { ok = hi; if (hi==limit) break; uint32_t next = hi<<1; if (next<=hi) break; hi = (next>limit)?limit:next; }
+        else break;
+    }
+    if (ok==0) return 0;
+    uint32_t lo = ok, r = hi;
+    while (lo+1<r){
+        uint32_t mid = lo + ((r-lo)>>1);
+        if (ata_read_lba28(lba + mid - 1, 1, sec)) lo=mid; else r=mid;
+    }
+    return lo;
+}
+
+static bool neelefs_mkfs_internal(uint32_t lba, int force){
+    int magic = detect_magic(lba);
+    if (magic==2 && !force) { console_writeln("NeeleFS2 already present; use 'neele mkfs force' to overwrite"); return false; }
+    if (magic==1 && !force) { console_writeln("NeeleFS1 volume detected (read-only); use 'neele mkfs force' to overwrite"); return false; }
+
+    uint32_t avail = probe_blocks(lba, 32768u);
+    if (avail < 16u){ console_writeln("mkfs: device too small (need >= 8KiB)"); return false; }
+    uint32_t bm = (avail + 4095u) / 4096u; if (bm==0) bm=1; if (1u + bm + 1u > avail){ console_writeln("mkfs: not enough space for metadata"); return false; }
+
+    ne2_super_t sb; memzero(&sb, sizeof(sb));
+    for (int i=0;i<8;i++) sb.magic[i]=NEELEFS2_MAGIC_STR[i];
+    sb.version = 2; sb.block_size=512; sb.total_blocks = avail;
+    sb.bitmap_start = 1; sb.root_block = 1 + bm;
+    sb.super_csum = 0; sb.super_csum = crc32_update(0, (const uint8_t*)&sb, 512);
+
+    if (!ata_write_lba28(lba,1,&sb)) { console_writeln("mkfs: write failed (device may be write-protected)"); return false; }
+    uint8_t zero[512]; memzero(zero,512);
+    for (uint32_t i=0;i<bm;i++) if (!ata_write_lba28(lba + sb.bitmap_start + i,1,zero)) { console_writeln("mkfs: bitmap write failed"); return false; }
+    if (!dir_init_block(sb.root_block)) { console_writeln("mkfs: root init failed"); return false; }
+    g_mount_lba = lba; g_is_v2=1; g_v2_total_blocks=sb.total_blocks; g_v2_bitmap_start=sb.bitmap_start; g_v2_root_block=sb.root_block; g_mounted=1;
+    bitmap_set(0,1); for (uint32_t b=0;b<bm;b++) bitmap_set(sb.bitmap_start + b,1); bitmap_set(sb.root_block,1);
+    console_write("NeeleFS2 formatted: blocks="); console_write_dec(avail); console_write(" bitmap="); console_write_dec(bm); console_write(" root_blk="); console_write_dec(sb.root_block); console_write("\n");
+    return true;
+}
+
+bool neelefs_mkfs_16mb(uint32_t lba){
+    return neelefs_mkfs_internal(lba, 0);
+}
+
+bool neelefs_mkfs_16mb_force(uint32_t lba){
+    return neelefs_mkfs_internal(lba, 1);
 }

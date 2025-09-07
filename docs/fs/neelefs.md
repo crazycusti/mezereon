@@ -1,0 +1,66 @@
+# NeeleFS — Minimal FS (v1 read‑only, v2 write‑enabled)
+
+Overview
+- v1 (magic `NEELEFS1`): read‑only, flat table in the first sectors; used for simple boot images.
+- v2 (magic `NEELEFS2`): write‑enabled, up to 16 MiB region, 512B blocks, bitmap allocation, directories with growth.
+- Both variants are detected automatically by `neelefs_mount(lba)`; v2 enables write commands, v1 remains read‑only.
+
+On‑Disk Layout (v2)
+- Block size: 512B. Max region: 16 MiB → 32768 blocks.
+- Superblock (block 0):
+  - `magic[8]` = `NEELEFS2`, `version=2`, `block_size=512`, `total_blocks`.
+  - `bitmap_start`: first bitmap block; `root_block`: first directory block.
+  - `super_csum`: crc32 over the 512B header with this field zero.
+- Bitmap (blocks `bitmap_start .. bitmap_start + ceil(total/4096) - 1`): 1 bit per block.
+- Directory blocks:
+  - Header (16B): magic `'D2NE'` little‑endian, `next_block`, `entry_size=64`, `entries_per_blk`.
+  - Entries (64B): `name[32]`, `type(1=file,2=dir)`, `first_block`, `size_bytes`, `csum(crc32 for files)`, `mtime(reserved)`.
+  - Directories grow by appending a new block and linking via `next_block`.
+- Files: stored contiguously (first‑fit allocation); checksum updated on `write`.
+
+Shell Commands
+- `neele mount [lba]`        → Mounts FS at `lba` (default: `CONFIG_NEELEFS_LBA`).
+- `neele mkfs [force]`        → Formats v2 up to 16 MiB at `CONFIG_NEELEFS_LBA`.
+  - Refuses to overwrite `NEELEFS1` (RO) or `NEELEFS2` unless `force` is supplied.
+  - Probes available capacity (up to 16 MiB) and sizes bitmap + root accordingly.
+- `neele ls [path]`           → Lists directory. With `path`, resolves directories first.
+- `neele cat <name|/path>`    → v1: flat name; v2: supports `/path`.
+- `neele mkdir </path>`       → v2 only; creates a directory (grows parent dir if needed).
+- `neele write </path> <txt>` → v2 only; writes text into a new or existing file (contiguous allocation).
+- `pad </path>`               → Simple nano‑like inline editor (v2). Ctrl+S=save, Ctrl+Q=quit. Max ~4 KiB.
+
+Programming API (v2)
+- `bool neelefs_mkfs_16mb(uint32_t lba)` / `bool neelefs_mkfs_16mb_force(uint32_t lba)`
+- `bool neelefs_ls_path(const char* path)`
+- `bool neelefs_mkdir(const char* path)`
+- `bool neelefs_write_text(const char* path, const char* text)`
+- `bool neelefs_read_text(const char* path, char* out, uint32_t out_max, uint32_t* out_len)`
+
+Error Handling (typische Meldungen)
+- Mount: `NeeleFS: bad magic` (kein FS); `NeeleFS2: bad super` (inkonsistent)
+- mkfs:
+  - `NeeleFS2 already present; use 'neele mkfs force' to overwrite`
+  - `NeeleFS1 volume detected (read-only); use 'neele mkfs force' to overwrite`
+  - `mkfs: device too small (need >= 8KiB)`
+  - `mkfs: not enough space for metadata`
+  - `mkfs: write failed (device may be write-protected)`
+  - `mkfs: bitmap write failed`
+  - `mkfs: root init failed`
+- Write ops on v1: `NeeleFS1 mounted (read-only); cannot write`
+- Generic: `bad path`, `exists`, `not found`, `no space`
+
+Quickstart
+- Format & mount a v2 filesystem:
+  - `neele mkfs`            (or `neele mkfs force` to overwrite legacy images)
+  - `neele mount`           (uses `CONFIG_NEELEFS_LBA`)
+  - `neele mkdir /docs`
+  - `neele write /docs/readme "Hello NeeleFS v2"`
+  - `neele ls /docs` and `neele cat /docs/readme`
+  - `pad /docs/readme`      (edit inline; Ctrl+S=save, Ctrl+Q=quit)
+
+Notes & Limits
+- Max region 16 MiB; block size fixed to 512B.
+- Files are contiguous (no fragmentation handling yet); directories can grow block by block.
+- Editor buffer limited (defaults to 4 KiB in shell); increase easily if needed.
+- v1 images built with `tools/mkneelefs.py` are read‑only and remain readable via `neele mount/ls/cat`.
+

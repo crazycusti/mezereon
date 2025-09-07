@@ -18,6 +18,7 @@ bool neelefs_cat(const char* name);
 // v2 API (detected automatically on mount). 16MB region, 512B blocks.
 // Paths use '/' separators, max depth 255, name length <=32.
 bool neelefs_mkfs_16mb(uint32_t lba);
+bool neelefs_mkfs_16mb_force(uint32_t lba);
 bool neelefs_ls_path(const char* path);
 bool neelefs_mkdir(const char* path);
 bool neelefs_write_text(const char* path, const char* text);
