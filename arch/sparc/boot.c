@@ -1,4 +1,29 @@
 #include "../../bootinfo.h"
+#include <stddef.h>
+
+// Minimal libc stubs local to this TU to avoid external deps when
+// building freestanding (-nostdlib). These are 'static' so they only
+// satisfy references generated within this file.
+static void* memcpy(void* dst, const void* src, size_t n) {
+    unsigned char* d = (unsigned char*)dst;
+    const unsigned char* s = (const unsigned char*)src;
+    while (n--) *d++ = *s++;
+    return dst;
+}
+static void* memset(void* dst, int v, size_t n) {
+    unsigned char* d = (unsigned char*)dst;
+    unsigned char b = (unsigned char)v;
+    while (n--) *d++ = b;
+    return dst;
+}
+static void* memmove(void* dst, const void* src, size_t n) {
+    unsigned char* d = (unsigned char*)dst;
+    const unsigned char* s = (const unsigned char*)src;
+    if (d == s || n == 0) return dst;
+    if (d < s) { while (n--) *d++ = *s++; }
+    else { d += n; s += n; while (n--) *--d = *--s; }
+    return dst;
+}
 
 typedef int (*ofw_entry_t)(void*);
 

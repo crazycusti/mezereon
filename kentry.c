@@ -1,5 +1,6 @@
 #include "bootinfo.h"
 #include "config.h"
+#include <stddef.h>
 
 #if CONFIG_ARCH_X86
 // Legacy kernel main (no bootinfo)
@@ -9,6 +10,22 @@ extern void kmain(void);
 #if CONFIG_ARCH_SPARC
 // Minimal OpenFirmware client helpers (replicated to avoid cross-unit deps)
 typedef int (*ofw_entry_t)(void*);
+// Local minimal libc stubs to avoid external deps (static, TU-local)
+static void* memcpy(void* dst, const void* src, size_t n) {
+    unsigned char* d = (unsigned char*)dst;
+    const unsigned char* s = (const unsigned char*)src;
+    while (n--) *d++ = *s++;
+    return dst;
+}
+static void* memset(void* dst, int v, size_t n) {
+    unsigned char* d = (unsigned char*)dst; unsigned char b = (unsigned char)v;
+    while (n--) *d++ = b; return dst;
+}
+static void* memmove(void* dst, const void* src, size_t n) {
+    unsigned char* d = (unsigned char*)dst; const unsigned char* s = (const unsigned char*)src;
+    if (d == s || n == 0) return dst; if (d < s) { while (n--) *d++ = *s++; }
+    else { d += n; s += n; while (n--) *--d = *--s; } return dst;
+}
 static int k_str_len(const char* s) { int n=0; while (s && s[n]) n++; return n; }
 static uint32_t ofw_finddevice(ofw_entry_t ofw, const char* path) {
     volatile struct { const char* service; int nargs; int nret; const char* path; uint32_t phandle; } args = { "finddevice", 1, 1, path, 0 };
