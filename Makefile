@@ -211,12 +211,10 @@ run-sparc-tftp: arch/sparc/boot.aout sparc-boot
 run-sparc-cdrom: arch/sparc/boot.iso
 	$(shell command -v qemu-system-sparc 2>/dev/null || echo qemu-system-sparc) \
 		-M SS-5 -nographic -serial mon:stdio \
-		-drive file=arch/sparc/boot.iso,if=scsi,media=cdrom \
+		-device scsi-cd,scsi-id=6,drive=cd0 \
+		-drive if=none,id=cd0,file=arch/sparc/boot.iso,format=raw,media=cdrom \
 		-boot d \
 		-prom-env 'auto-boot?=true' \
-		-prom-env 'boot-device=cdrom' \
-		-prom-env 'boot-file=f,\\boot' \
-		-prom-env 'boot-command=boot cdrom:f,\\boot' \
 		-prom-env 'input-device=ttya' -prom-env 'output-device=ttya'
 
 # Direct -kernel load of client program (bypasses OF file loader)
