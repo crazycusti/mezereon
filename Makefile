@@ -159,7 +159,7 @@ sparc-boot: arch/sparc/boot.elf
 arch/sparc/boot_sparc32.o: arch/sparc/boot_sparc32.S bootinfo.h
 	$(SPARC_CC) $(SPARC_CFLAGS) $(SPARC_CDEFS) -c $< -o $@
 
-arch/sparc/boot.o: arch/sparc/boot.c arch/sparc/obp.h bootinfo.h
+arch/sparc/boot.o: arch/sparc/boot.c bootinfo.h
 	$(SPARC_CC) $(SPARC_CFLAGS) $(SPARC_CDEFS) -c $< -o $@
 
 arch/sparc/kentry.o: kentry.c bootinfo.h config.h
