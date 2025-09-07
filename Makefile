@@ -168,7 +168,7 @@ arch/sparc/kentry.o: kentry.c bootinfo.h config.h
 arch/sparc/minic.o: arch/sparc/minic.c
 	$(SPARC_CC) $(SPARC_CFLAGS) $(SPARC_CDEFS) -c $< -o $@
 
-arch/sparc/boot.elf: arch/sparc/boot_sparc32.o arch/sparc/boot.o arch/sparc/kentry.o arch/sparc/minic.o
+arch/sparc/boot.elf: arch/sparc/boot_sparc32.o arch/sparc/boot.o arch/sparc/kentry.o
 	$(SPARC_CC) $(SPARC_CFLAGS) $(SPARC_LDFLAGS) $^ -o $@
 
 # Produce a.out SunOS big-endian client program variant (some OFs prefer this)
