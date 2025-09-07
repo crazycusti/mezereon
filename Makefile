@@ -209,7 +209,7 @@ run-sparc-cdrom: arch/sparc/boot.iso
 		-cdrom arch/sparc/boot.iso -boot d \
 		-prom-env 'auto-boot?=true' \
 		-prom-env 'boot-device=cdrom' \
-		-prom-env 'boot-file=boot' \
+		-prom-env 'boot-file=\\boot' \
 		-prom-env 'input-device=ttya' -prom-env 'output-device=ttya'
 
 arch/sparc/boot.iso: arch/sparc/boot.aout
