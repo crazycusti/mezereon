@@ -27,6 +27,18 @@ endif
 CFLAGS ?= -ffreestanding -m32 -Wall -Wextra -nostdlib -fno-builtin -fno-stack-protector -fno-pic -fno-pie
 LDFLAGS ?= -Ttext 0x7E00 -m elf_i386
 
+# On macOS, require cross i386-elf toolchain to avoid Mach-O/PIE issues
+ifeq ($(shell uname),Darwin)
+ifndef FORCE_HOST_TOOLS
+ifeq ($(shell command -v i386-elf-gcc 2>/dev/null),)
+$(error i386-elf-gcc not found. Install with: brew install i386-elf-gcc)
+endif
+ifeq ($(shell command -v i386-elf-ld 2>/dev/null),)
+$(error i386-elf-ld not found. Install with: brew install i386-elf-binutils)
+endif
+endif
+endif
+
 CONFIG_NE2000_IO ?= 0x300
 CONFIG_NE2000_IRQ ?= 3
 CONFIG_NE2000_IO_SIZE ?= 32
@@ -106,7 +118,7 @@ kernel_payload.elf: entry32.o kentry.o isr.o idt.o interrupts.o platform.o main.
 
 # Erzeuge flaches Binary ohne führende 0x7E00-Lücke
 kernel_payload.bin: kernel_payload.elf
-	$(OBJCOPY) -O binary --binary-architecture i386 --change-addresses -0x7E00 $< $@
+	$(OBJCOPY) -O binary --change-addresses -0x7E00 $< $@
 
 disk.img: bootloader.bin kernel_payload.bin
 	cat $^ > $@
