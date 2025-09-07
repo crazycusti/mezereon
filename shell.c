@@ -38,7 +38,7 @@ void shell_run(void) {
                 } else if (streq(buf, "clear")) {
                     console_clear();
                 } else if (streq(buf, "help")) {
-                    console_write("Commands: version, clear, help, cpuinfo, ata, atadump [lba], neele mount [lba], neele ls, neele cat <name>, netinfo, netrxdump\n");
+                    console_write("Commands: version, clear, help, cpuinfo, ata, atadump [lba], neele mount [lba], neele ls [path], neele cat <name|/path>, neele mkfs, neele mkdir </path>, neele write </path> <text>, pad </path>, netinfo, netrxdump\n");
                 } else if (streq(buf, "ata")) {
                     if (ata_present()) console_write("ATA present (selected device).\n");
                     else console_write("ATA not present.\n");
@@ -91,7 +91,7 @@ void shell_run(void) {
                         ata_dump_lba(lba, 4); // up to 2KiB
                     }
                 } else if (buf[0]=='n' && buf[1]=='e' && buf[2]=='e' && buf[3]=='l' && buf[4]=='e') {
-                    // subcommands: mount [lba], ls, cat <name>
+                    // subcommands: mount [lba], ls [path], cat <name|path>, mkfs, mkdir <path>, write <path> <text>
                     int i=5; while (buf[i]==' ') i++;
                     if (buf[i]==0) { console_write("usage: neele <mount|ls|cat> ...\n"); }
                     else if (buf[i]=='m' && buf[i+1]=='o') {
@@ -102,13 +102,32 @@ void shell_run(void) {
                         else if (neelefs_mount(lba)) { console_write("NeeleFS mount OK.\n"); }
                         else { console_write("NeeleFS mount failed.\n"); }
                     } else if (buf[i]=='l' && buf[i+1]=='s') {
-                        neelefs_list();
+                        // optional path
+                        i+=2; while (buf[i]==' ') i++;
+                        if (buf[i]) { if (!neelefs_ls_path(buf+i)) console_write("ls failed.\n"); }
+                        else neelefs_list();
                     } else if (buf[i]=='c' && buf[i+1]=='a' && buf[i+2]=='t') {
                         i+=3; while (buf[i]==' ') i++;
-                        if (!buf[i]) { console_write("usage: neele cat <name>\n"); }
+                        if (!buf[i]) { console_write("usage: neele cat <name|/path>\n"); }
+                        else { if (!neelefs_cat(buf+i)) if (!neelefs_cat_path(buf+i)) console_write("cat failed.\n"); }
+                    } else if (buf[i]=='m' && buf[i+1]=='k' && buf[i+2]=='f' && buf[i+3]=='s') {
+                        // format 16MB at current mount LBA or CONFIG
+                        uint32_t lba = CONFIG_NEELEFS_LBA;
+                        if (!ata_present()) { console_write("ATA not present.\n"); }
+                        else if (neelefs_mkfs_16mb(lba)) { console_write("mkfs OK.\n"); }
+                        else { console_write("mkfs failed.\n"); }
+                    } else if (buf[i]=='m' && buf[i+1]=='k' && buf[i+2]=='d' && buf[i+3]=='i' && buf[i+4]=='r') {
+                        i+=5; while (buf[i]==' ') i++;
+                        if (!buf[i]) { console_write("usage: neele mkdir </path>\n"); }
+                        else { if (!neelefs_mkdir(buf+i)) console_write("mkdir failed.\n"); }
+                    } else if (buf[i]=='w' && buf[i+1]=='r' && buf[i+2]=='i' && buf[i+3]=='t' && buf[i+4]=='e') {
+                        i+=5; while (buf[i]==' ') i++;
+                        if (!buf[i]) { console_write("usage: neele write </path> <text>\n"); }
                         else {
-                            char name[33]; int j=0; while (buf[i] && buf[i]!=' ' && j<32) { name[j++]=buf[i++]; } name[j]='\0';
-                            if (!neelefs_cat(name)) { console_write("cat failed.\n"); }
+                            // path then space then text
+                            char path[128]; int j=0; while (buf[i] && buf[i]!=' ' && j<127){ path[j++]=buf[i++]; } path[j]=0; while (buf[i]==' ') i++;
+                            if (!buf[i]) { console_write("usage: neele write </path> <text>\n"); }
+                            else { if (!neelefs_write_text(path, buf+i)) console_write("write failed.\n"); }
                         }
                     } else {
                         console_write("usage: neele <mount|ls|cat> ...\n");
@@ -123,6 +142,36 @@ void shell_run(void) {
                         int k = keyboard_poll_char();
                         if (k == 'q' || k == 'Q') { console_write("\n"); break; }
                         netface_poll_rx();
+                    }
+                } else if (buf[0]=='p' && buf[1]=='a' && buf[2]=='d' && (buf[3]==' ' || buf[3]==0)) {
+                    int i=3; while (buf[i]==' ') i++;
+                    if (!buf[i]) { console_write("usage: pad </path>\n"); }
+                    else {
+                        // simple line-based editor
+                        static char textbuf[4096]; uint32_t len=0; int modified=0;
+                        // try to load existing
+                        if (!neelefs_read_text(buf+i, textbuf, sizeof(textbuf)-1, &len)) { len=0; textbuf[0]=0; }
+                        console_clear();
+                        console_write("pad: "); console_write(buf+i); console_write("\n^S save  ^Q quit  (max 4K)\n\n");
+                        // print current content
+                        for (uint32_t k=0;k<len;k++){ char s[2]; s[0]=textbuf[k]?textbuf[k]:'.'; s[1]=0; console_write(s); }
+                        for(;;){
+                            int ch = keyboard_poll_char(); if (ch<0) { netface_poll(); continue; }
+                            if (ch == 0x13) { // Ctrl+S
+                                textbuf[len]=0; if (neelefs_write_text(buf+i, textbuf)) { console_write("\n[saved]\n"); modified=0; }
+                                else { console_write("\n[save failed]\n"); }
+                                continue;
+                            }
+                            if (ch == 0x11) { // Ctrl+Q
+                                if (modified) console_write("\n[quit - changes may be lost]\n");
+                                break;
+                            }
+                            if (ch == '\b') { if (len>0){ len--; console_putc('\b'); modified=1; } continue; }
+                            if (ch == '\r') ch='\n';
+                            if ((ch>=32 && ch<=126) || ch=='\n'){
+                                if (len < sizeof(textbuf)-1){ textbuf[len++] = (char)ch; console_putc((char)ch); modified=1; }
+                            }
+                        }
                     }
                 } else {
                     console_write("Unknown command: ");

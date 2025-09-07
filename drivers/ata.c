@@ -36,6 +36,7 @@ static bool     ATA_SLAVE = false; // false=master, true=slave
 // Commands
 #define ATA_CMD_IDENTIFY  0xEC
 #define ATA_CMD_READ_PIO  0x20
+#define ATA_CMD_WRITE_PIO 0x30
 
 static void ata_400ns_delay(void){
     (void)inb(ATA_CTRL); (void)inb(ATA_CTRL); (void)inb(ATA_CTRL); (void)inb(ATA_CTRL);
@@ -162,6 +163,27 @@ bool ata_read_lba28(uint32_t lba, uint8_t sectors, void* buf){
         if (!ata_wait_bsy_clear()) return false;
         if (!ata_wait_drq_set()) return false;
         for (int i=0;i<256;i++) *w++ = inw(ATA_IO+ATA_REG_DATA);
+    }
+    return true;
+}
+
+bool ata_write_lba28(uint32_t lba, uint8_t sectors, const void* buf){
+    if (sectors==0 || sectors>4) sectors=4;
+    if (!ata_wait_bsy_clear()) return false;
+
+    outb(ATA_CTRL+ATA_REG_DEVCTRL, 0x02); // nIEN=1
+    outb(ATA_IO+ATA_REG_DRIVE, (uint8_t)((ATA_SLAVE ? 0xF0 : 0xE0) | ((lba>>24)&0x0F)));
+    outb(ATA_IO+ATA_REG_SECCNT, sectors);
+    outb(ATA_IO+ATA_REG_LBA0, (uint8_t)(lba & 0xFF));
+    outb(ATA_IO+ATA_REG_LBA1, (uint8_t)((lba>>8)&0xFF));
+    outb(ATA_IO+ATA_REG_LBA2, (uint8_t)((lba>>16)&0xFF));
+    outb(ATA_IO+ATA_REG_COMMAND, ATA_CMD_WRITE_PIO);
+
+    const uint16_t* w = (const uint16_t*)buf;
+    for (uint8_t s=0; s<sectors; s++){
+        if (!ata_wait_bsy_clear()) return false;
+        if (!ata_wait_drq_set()) return false;
+        for (int i=0;i<256;i++) outw(ATA_IO+ATA_REG_DATA, *w++);
     }
     return true;
 }

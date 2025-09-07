@@ -2,7 +2,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// Simple read-only NeeleFS living at a fixed LBA on an ATA device
+// NeeleFS v1: simple read-only FS; NeeleFS v2: 16MB, dirs, write support
 
 typedef struct {
     char     name[32];
@@ -15,3 +15,11 @@ bool neelefs_mount(uint32_t lba);
 void neelefs_list(void);
 bool neelefs_cat(const char* name);
 
+// v2 API (detected automatically on mount). 16MB region, 512B blocks.
+// Paths use '/' separators, max depth 255, name length <=32.
+bool neelefs_mkfs_16mb(uint32_t lba);
+bool neelefs_ls_path(const char* path);
+bool neelefs_mkdir(const char* path);
+bool neelefs_write_text(const char* path, const char* text);
+bool neelefs_cat_path(const char* path);
+bool neelefs_read_text(const char* path, char* out, uint32_t out_max, uint32_t* out_len);
