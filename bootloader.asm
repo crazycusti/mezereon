@@ -38,7 +38,7 @@ load_kernel:
     mov ch, 0x00       ; Cylinder 0
     mov cl, 0x02       ; Sektor 2 (1 ist Bootsektor)
     mov dh, 0x00       ; Head 0
-    mov dl, 0x80       ; Erstes Festplattenlaufwerk (bei Floppy 0x00)
+    ; DL enthält vom BIOS das Bootlaufwerk (0x00=Floppy, 0x80=HDD). Nicht überschreiben.
     int 0x13           ; BIOS Disk Service
     jc disk_error      ; Fehlerbehandlung
 

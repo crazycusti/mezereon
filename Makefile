@@ -15,6 +15,10 @@ AS = nasm
 # Bevorzuge i386-elf-ld/objcopy falls verfügbar
 LD := $(shell command -v i386-elf-ld 2>/dev/null || echo ld)
 OBJCOPY := $(shell command -v i386-elf-objcopy 2>/dev/null || echo objcopy)
+# If we fell back to plain 'objcopy', try to derive cross objcopy from CC path
+ifeq ($(OBJCOPY),objcopy)
+OBJCOPY := $(dir $(CC))$(patsubst %gcc,%objcopy,$(notdir $(CC)))
+endif
 CFLAGS ?= -ffreestanding -m32 -Wall -Wextra -nostdlib -fno-builtin -fno-stack-protector -fno-pic -fno-pie
 LDFLAGS ?= -Ttext 0x7E00 -m elf_i386
 
@@ -93,7 +97,7 @@ cpu.o: cpu.c cpu.h console.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
 kernel_payload.elf: entry32.o kentry.o isr.o idt.o interrupts.o platform.o main.o video.o console.o $(CONSOLE_BACKEND_OBJ) netface.o drivers/ne2000.o drivers/ata.o drivers/fs/neelefs.o keyboard.o cpu.o shell.o
-	$(LD) $(LDFLAGS) $^ -o $@
+	$(CC) -nostdlib -m32 -Wl,-Ttext,0x7E00 $^ -o $@
 
 # Erzeuge flaches Binary ohne führende 0x7E00-Lücke
 kernel_payload.bin: kernel_payload.elf
@@ -101,6 +105,18 @@ kernel_payload.bin: kernel_payload.elf
 
 disk.img: bootloader.bin kernel_payload.bin
 	cat $^ > $@
+
+## --- QEMU run helpers (x86) ---
+.PHONY: run-x86-floppy run-x86-hdd
+run-x86-floppy: disk.img
+	$(shell command -v qemu-system-i386 2>/dev/null || echo qemu-system-i386) \
+		-drive file=disk.img,if=floppy,format=raw \
+		-net none -serial stdio
+
+run-x86-hdd: disk.img
+	$(shell command -v qemu-system-i386 2>/dev/null || echo qemu-system-i386) \
+		-drive file=disk.img,format=raw,if=ide \
+		-net none -serial stdio
 
 
 clean:
@@ -140,14 +156,17 @@ arch/sparc/boot.elf: arch/sparc/boot_sparc32.o arch/sparc/boot.o arch/sparc/kent
 
 # Produce a.out SunOS big-endian client program variant (some OFs prefer this)
 arch/sparc/boot.aout: arch/sparc/boot.elf
-	$(SPARC_OBJCOPY) -O a.out-sunos-big $< $@
+	@echo "[SPARC] Converting ELF to SunOS a.out (for OF netboot)..."
+	@($(SPARC_OBJCOPY) -O a.out-sunos-big $< $@) >/dev/null 2>&1 || \
+	 (echo "[SPARC] a.out-sunos-big unsupported; trying a.out-sunos..." && \
+	  ($(SPARC_OBJCOPY) -O a.out-sunos $< $@) >/dev/null 2>&1) || \
+	 (echo "[SPARC] WARNING: objcopy lacks SunOS a.out; copying ELF as fallback (netboot may fail)" && \
+	  cp -f $< $@)
 
+# NOTE: Direct -kernel entry at 0x4000 is unreliable with some QEMU/OpenBIOS
+# builds. Prefer OF client boot via TFTP using SunOS a.out format.
 .PHONY: run-sparc
-run-sparc: sparc-boot
-	$(shell command -v qemu-system-sparc 2>/dev/null || echo qemu-system-sparc) \
-		-M SS-5 -nographic -serial mon:stdio \
-		-prom-env 'output-device=ttya' -prom-env 'input-device=ttya' \
-		-kernel arch/sparc/boot.elf
+run-sparc: run-sparc-tftp
 
 # Netboot (TFTP) for SPARC via OpenBIOS. This avoids -kernel path issues
 # by letting OF fetch the image via its own TFTP client.
@@ -164,5 +183,25 @@ run-sparc-tftp: arch/sparc/boot.aout sparc-boot
 		-prom-env 'boot-file=' \
 		-prom-env 'boot-command=boot net' \
 		-prom-env 'input-device=ttya' -prom-env 'output-device=ttya'
+
+# Create a CD-ROM ISO with the SPARC client program to boot via OpenBIOS
+.PHONY: run-sparc-cdrom
+run-sparc-cdrom: arch/sparc/boot.iso
+	$(shell command -v qemu-system-sparc 2>/dev/null || echo qemu-system-sparc) \
+		-M SS-5 -nographic -serial mon:stdio \
+		-cdrom arch/sparc/boot.iso -boot d \
+		-prom-env 'auto-boot?=true' \
+		-prom-env 'boot-device=cdrom' \
+		-prom-env 'boot-file=boot' \
+		-prom-env 'input-device=ttya' -prom-env 'output-device=ttya'
+
+arch/sparc/boot.iso: arch/sparc/boot.aout
+	@echo "[SPARC] Building ISO image with client program..."
+	@rm -rf arch/sparc/cdroot && mkdir -p arch/sparc/cdroot
+	cp -f arch/sparc/boot.aout arch/sparc/cdroot/boot
+	@(command -v mkisofs >/dev/null 2>&1 && mkisofs -R -V MEZ-SPARC -o $@ arch/sparc/cdroot) || \
+	 (command -v genisoimage >/dev/null 2>&1 && genisoimage -R -V MEZ-SPARC -o $@ arch/sparc/cdroot) || \
+	 (command -v hdiutil >/dev/null 2>&1 && hdiutil makehybrid -iso -joliet -default-volume-name MEZ-SPARC -o $@ arch/sparc/cdroot >/dev/null 2>&1 && \
+	  test -f $@ || mv $@.cdr $@)
 
 .PHONY: all clean
