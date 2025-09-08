@@ -86,6 +86,8 @@ platform.o: platform.c platform.h interrupts.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 drivers/ne2000.o: drivers/ne2000.c drivers/ne2000.h config.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+drivers/pcspeaker.o: drivers/pcspeaker.c drivers/pcspeaker.h arch/x86/io.h platform.h
+	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
 drivers/ata.o: drivers/ata.c drivers/ata.h config.h main.h keyboard.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
@@ -108,7 +110,7 @@ cpu.o: cpu.c cpu.h console.h
 cpuidle.o: cpuidle.c cpuidle.h config.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
-kernel_payload.elf: entry32.o kentry.o isr.o idt.o interrupts.o platform.o main.o video.o console.o $(CONSOLE_BACKEND_OBJ) netface.o net/ipv4.o net/tcp_min.o drivers/ne2000.o drivers/ata.o drivers/fs/neelefs.o drivers/storage.o keyboard.o cpu.o cpuidle.o shell.o
+kernel_payload.elf: entry32.o kentry.o isr.o idt.o interrupts.o platform.o main.o video.o console.o $(CONSOLE_BACKEND_OBJ) netface.o net/ipv4.o net/tcp_min.o drivers/ne2000.o drivers/pcspeaker.o drivers/ata.o drivers/fs/neelefs.o drivers/storage.o keyboard.o cpu.o cpuidle.o shell.o
 	$(LD) $(LDFLAGS) $^ -o $@
 
 # Erzeuge flaches Binary ohne führende 0x7E00-Lücke

@@ -7,6 +7,7 @@
 #include "console.h"
 #include "cpuidle.h"
 #include "net/ipv4.h"
+#include "drivers/pcspeaker.h"
 
 void kmain()
 {
@@ -49,6 +50,13 @@ void kmain()
     } else {
         console_writeln("Storage: no NeeleFS volume found");
     }
+    // Initialize PC speaker (best-effort) and log
+    bool spk = pcspeaker_init();
+    console_write("pcspk: ");
+    console_write(spk?"present":"not present");
+    console_write("\n");
+    if (spk) { pcspeaker_beep(880, 60); }
+
     if (netface_init()) {
         net_ipv4_init();
         console_write("Network interface initialized. Selected: ");

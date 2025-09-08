@@ -10,6 +10,7 @@
 #include "cpuidle.h"
 #include "interrupts.h"
 #include "net/ipv4.h"
+#include "drivers/pcspeaker.h"
 #include <stdint.h>
 
 static void print_prompt(void) {
@@ -42,7 +43,7 @@ void shell_run(void) {
                 } else if (streq(buf, "clear")) {
                     console_clear();
                 } else if (streq(buf, "help")) {
-                    console_write("Commands: version, clear, help, cpuinfo, ticks, wakeups, idle [n], timer <show|hz N|off|on>, ata, atadump [lba], autofs [show|rescan|mount <n>], ip [show|set <ip> <mask> [gw]|ping <ip> [count]], neele mount [lba], neele ls [path], neele cat <name|/path>, neele mkfs, neele mkdir </path>, neele write </path> <text>, neele verify [verbose] [path], pad </path>, netinfo, netrxdump, http [start [port]|stop|status|body <text>]\n");
+                    console_write("Commands: version, clear, help, cpuinfo, ticks, wakeups, idle [n], timer <show|hz N|off|on>, ata, atadump [lba], autofs [show|rescan|mount <n>], ip [show|set <ip> <mask> [gw]|ping <ip> [count]], neele mount [lba], neele ls [path], neele cat <name|/path>, neele mkfs, neele mkdir </path>, neele write </path> <text>, neele verify [verbose] [path], pad </path>, netinfo, netrxdump, beep [freq] [ms], keymusic, http [start [port]|stop|status|body <text>]\n");
                 } else if (streq(buf, "ata")) {
                     if (ata_present()) console_write("ATA present (selected device).\n");
                     else console_write("ATA not present.\n");
@@ -249,6 +250,40 @@ void shell_run(void) {
                     } else if (buf[i]=='o' && buf[i+1]=='n') { // on
                         platform_irq_set_mask(0,0); console_writeln("timer: on (IRQ0 unmasked)");
                     } else { console_writeln("usage: timer <show|hz N|off|on>"); }
+                } else if (buf[0]=='b' && buf[1]=='e' && buf[2]=='e' && buf[3]=='p' && (buf[4]==0 || buf[4]==' ')) {
+                    // beep [freq] [ms]
+                    int i=4; while (buf[i]==' ') i++;
+                    uint32_t f=880, ms=100; int anyf=0, anyms=0;
+                    while (buf[i]>='0'&&buf[i]<='9'){ f=f*10+(buf[i]-'0'); i++; anyf=1; }
+                    while (buf[i]==' ') i++;
+                    while (buf[i]>='0'&&buf[i]<='9'){ ms=ms*10+(buf[i]-'0'); i++; anyms=1; }
+                    if (!pcspeaker_present()) console_writeln("beep: speaker not present");
+                    else { pcspeaker_beep(anyf?f:880, anyms?ms:100); console_writeln("(beep)"); }
+                } else if (streq(buf, "keymusic")) {
+                    console_writeln("keymusic: C D E F G A H(B) — Ctrl+Q quits.");
+                    console_writeln("keys: c d e f g a h (b as alias)");
+                    for (;;) {
+                        int k = keyboard_poll_char();
+                        if (k < 0) { netface_poll(); cpuidle_idle(); continue; }
+                        if (k == 0x11) { // Ctrl+Q
+                            console_write("\n");
+                            break;
+                        }
+                        // Map letters to one octave (approx Hz)
+                        uint32_t f = 0;
+                        switch (k) {
+                            case 'c': case 'C': f = 262; break; // C4 ~261.63
+                            case 'd': case 'D': f = 294; break; // D4 ~293.66
+                            case 'e': case 'E': f = 330; break; // E4 ~329.63
+                            case 'f': case 'F': f = 349; break; // F4 ~349.23
+                            case 'g': case 'G': f = 392; break; // G4 ~392.00
+                            case 'a': case 'A': f = 440; break; // A4 440.00
+                            case 'h': case 'H': f = 494; break; // B4 ~493.88 (German H)
+                            case 'b': case 'B': f = 494; break; // alias for H
+                            default: break;
+                        }
+                        if (f) pcspeaker_beep(f, 150);
+                    }
                 } else if (buf[0]=='h' && buf[1]=='t' && buf[2]=='t' && buf[3]=='p' && (buf[4]==0 || buf[4]==' ')) {
                     extern void net_tcp_min_listen(uint16_t port);
                     extern void net_tcp_min_stop(void);

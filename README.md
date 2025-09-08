@@ -91,6 +91,8 @@ Useful runtime commands (shell)
 - netrxdump: verbose RX drain; press 'q' to quit.
 - ip: show IPv4 config. `ip set <addr> <mask> [gw]` to configure. `ip ping <addr> [count]` to send ICMP echo.
 - http: minimal HTTP server (single-connection, static)
+  - beep: simple PC-speaker test. `beep [freq] [ms]`
+  - keymusic: interactive tones — press C/E, Ctrl+Q quits
   - `http status` — show state and port (default 80)
   - `http start [port]` — start listening
   - `http stop` — stop server
