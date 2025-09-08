@@ -90,6 +90,10 @@ bool neelefs_mount(uint32_t lba) {
         ne2_super_t sb; memcpy_small(&sb, sec, 512);
         // minimal checks
         if (sb.block_size != 512 || sb.total_blocks == 0) { console_writeln("NeeleFS2: bad super"); return false; }
+        // verify superblock CRC
+        uint32_t stored = sb.super_csum; sb.super_csum = 0;
+        uint32_t calc = crc32_update(0, (const uint8_t*)&sb, 512);
+        if (stored != calc) { console_writeln("NeeleFS2: bad super (csum)"); return false; }
         g_is_v2 = 1; g_mount_lba = lba; g_mounted = 1;
         g_v2_total_blocks = sb.total_blocks;
         g_v2_bitmap_start = sb.bitmap_start;
@@ -254,6 +258,20 @@ static int dir_find_entry(uint32_t dir_block, const char* name, ne2_dirent_disk_
     }
     return 0;
 }
+
+// Compute CRC32 of a file stored contiguously
+static int file_crc32(uint32_t first_block, uint32_t size_bytes, uint32_t* out_crc){
+    uint32_t remain = size_bytes; uint32_t blk = first_block; uint8_t sec[512];
+    uint32_t crc = 0;
+    while (remain > 0){
+        if (!ata_read_lba28(g_mount_lba + blk, 1, sec)) return 0;
+        uint32_t chunk = (remain > 512u) ? 512u : remain;
+        crc = crc32_update(crc, sec, chunk);
+        remain -= chunk; blk++;
+    }
+    if (out_crc) *out_crc = crc;
+    return 1;
+}
 static int dir_add_entry(uint32_t dir_block, const ne2_dirent_disk_t* ent){
     uint8_t sec[512]; uint32_t blk = dir_block;
     while (1){
@@ -380,6 +398,9 @@ bool neelefs_cat_path(const char* path){
     if (!g_mounted || !g_is_v2) { console_writeln("NeeleFS2 not mounted"); return false; }
     uint32_t dirb; char leaf[33]; if (!resolve_path(path,&dirb,leaf) || !leaf[0]) { console_writeln("bad path"); return false; }
     ne2_dirent_disk_t e; if (!dir_find_entry(dirb,leaf,&e,0) || e.type!=1) { console_writeln("not found"); return false; }
+    // verify CRC before printing
+    uint32_t crc=0; if (!file_crc32(e.first_block, e.size_bytes, &crc)) return false;
+    if (crc != e.csum) { console_writeln("checksum mismatch"); return false; }
     uint32_t len = e.size_bytes; uint32_t nb = blocks_for_bytes(len); uint8_t sec[512]; uint32_t remain=len; uint32_t blk=e.first_block;
     for (uint32_t i=0;i<nb;i++){
         if (!ata_read_lba28(g_mount_lba + blk + i,1,sec)) return false;
@@ -398,6 +419,10 @@ bool neelefs_read_text(const char* path, char* out, uint32_t out_max, uint32_t* 
     if (!out || out_max==0) return false;
     uint32_t dirb; char leaf[33]; if (!resolve_path(path,&dirb,leaf) || !leaf[0]) return false;
     ne2_dirent_disk_t e; if (!dir_find_entry(dirb,leaf,&e,0) || e.type!=1) return false;
+    // verify CRC over full file first
+    uint32_t crc=0; if (!file_crc32(e.first_block, e.size_bytes, &crc)) return false;
+    if (crc != e.csum) { console_writeln("checksum mismatch"); return false; }
+    // then copy into buffer (may truncate to out_max)
     uint32_t remain = e.size_bytes; uint32_t blk = e.first_block; uint8_t sec[512]; uint32_t written=0;
     while (remain>0 && written<out_max){
         if (!ata_read_lba28(g_mount_lba + blk,1,sec)) break;
@@ -409,6 +434,68 @@ bool neelefs_read_text(const char* path, char* out, uint32_t out_max, uint32_t* 
     if (written < out_max) out[written]=0;
     if (out_len) *out_len = written;
     return true;
+}
+
+// ===== Verify command (CRC32) =====
+static void hex32_print(uint32_t v){ char b[9]; for(int i=0;i<8;i++){ int sh=(7-i)*4; int n=(int)((v>>sh)&0xF); b[i]=(char)(n<10?('0'+n):('A'+n-10)); } b[8]=0; console_write(b);} 
+
+static void print_path_status(const char* path, int ok, uint32_t got, uint32_t exp, int verbose){
+    console_write(path);
+    if (!ok){
+        console_write(": BAD (csum "); hex32_print(got); console_write(" != "); hex32_print(exp); console_write(")\n");
+    } else if (verbose){
+        console_write(": OK (csum "); hex32_print(got); console_write(")\n");
+    } else {
+        console_write(": OK\n");
+    }
+}
+
+static int verify_dir_recursive(uint32_t dir_block, char* pathbuf, uint32_t pathcap, int verbose){
+    uint8_t sec[512]; uint32_t blk=dir_block;
+    while (1){
+        if (!dir_load_block(blk,sec)) return 0;
+        ne2_dirblk_hdr_t* h=(ne2_dirblk_hdr_t*)sec; int hdr_ok = (h->magic==NE2_DIRBLK_MAGIC);
+        uint32_t base = hdr_ok ? (uint32_t)sizeof(ne2_dirblk_hdr_t) : 0u;
+        int entries = hdr_ok ? h->entries_per_blk : (512 / (int)sizeof(ne2_dirent_disk_t));
+        ne2_dirent_disk_t* e=(ne2_dirent_disk_t*)(sec + base);
+        for (int i=0;i<entries;i++){
+            if (e[i].name[0]==0) continue;
+            // build path (ensure single '/'
+            uint32_t len=0; while (len<pathcap && pathbuf[len]) len++;
+            uint32_t j=len;
+            if (j==0 || pathbuf[j-1]!='/') { if (j<pathcap) pathbuf[j++]='/'; }
+            for (int k=0;k<32 && e[i].name[k] && j<pathcap; k++) pathbuf[j++] = e[i].name[k];
+            if (j<pathcap) pathbuf[j] = 0;
+            if (e[i].type==2){
+                // directory
+                verify_dir_recursive(e[i].first_block, pathbuf, pathcap, verbose);
+            } else if (e[i].type==1){
+                uint32_t crc=0; int ok = file_crc32(e[i].first_block, e[i].size_bytes, &crc) && (crc==e[i].csum);
+                print_path_status(pathbuf, ok, crc, e[i].csum, verbose);
+            }
+            // pop component
+            pathbuf[len] = 0;
+        }
+        if (!hdr_ok || h->next_block==0) break;
+        blk = h->next_block;
+    }
+    return 1;
+}
+
+bool neelefs_verify(const char* path, int verbose){
+    if (!g_mounted || !g_is_v2) { console_writeln("NeeleFS2 not mounted"); return false; }
+    if (!path || !path[0] || (path[0]=='/' && path[1]==0)){
+        char pathbuf[256]; pathbuf[0]=0;
+        return verify_dir_recursive(g_v2_root_block, pathbuf, sizeof(pathbuf), verbose) ? true : false;
+    }
+    // resolve
+    uint32_t dirb; char leaf[33]; if (!resolve_path(path,&dirb,leaf) || !leaf[0]){ return false; }
+    ne2_dirent_disk_t e; if (!dir_find_entry(dirb,leaf,&e,0)) return false;
+    char pathbuf[256]; uint32_t j=0; if (path[0]!='/'){ pathbuf[j++]='/'; } for (const char* p=path; *p && j<sizeof(pathbuf)-1; ++p) pathbuf[j++]=*p; pathbuf[j]=0;
+    if (e.type==2) return verify_dir_recursive(e.first_block, pathbuf, sizeof(pathbuf), verbose) ? true : false;
+    uint32_t crc=0; int ok = file_crc32(e.first_block, e.size_bytes, &crc) && (crc==e.csum);
+    print_path_status(pathbuf, ok, crc, e.csum, verbose);
+    return ok?true:false;
 }
 
 // ===== mkfs (auto up to 16MB) with overwrite checks =====

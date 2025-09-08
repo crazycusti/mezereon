@@ -31,4 +31,13 @@ void netface_diag_print(void);
 // Print a compact one-line summary at boot (driver, MAC, promisc, io if relevant).
 void netface_bootinfo_print(void);
 
+// Get active NIC MAC (returns true if available)
+bool netface_get_mac(unsigned char mac[6]);
+
+// Transmit a raw Ethernet frame (returns true on success)
+bool netface_send(const unsigned char* frame, unsigned short len);
+
+// RX callback from drivers: deliver complete Ethernet frame (without FCS)
+void netface_on_rx(const unsigned char* frame, unsigned short len);
+
 #endif // NETFACE_H

@@ -48,16 +48,42 @@ static inline void video_scroll(void) {
     vga_hw_cursor_update_internal();
 }
 
-// Draw a short status string right-aligned in the top row without
-// disturbing the console state/cursor.
-void video_draw_status_right(const char* buf, int len) {
-    if (!buf || len <= 0) return;
+// --- Simple status bar state (top row, blue background) ---
+static char status_left[128];
+static int  status_left_len = 0;
+static char status_right[64];
+static int  status_right_len = 0;
+
+static inline void video_status_redraw(void) {
     volatile uint16_t* vga = (volatile uint16_t*)VIDEO_MEMORY;
-    int start_col = CONFIG_VGA_WIDTH - len;
-    if (start_col < 0) start_col = 0;
-    for (int i = 0; i < len; i++) {
-        vga[i + start_col] = (uint16_t)((0x1F << 8) | (uint8_t)buf[i]);
-    }
+    const uint16_t blue_sp = (uint16_t)((0x1F << 8) | ' ');
+    // Fill entire top row with blue background
+    for (int x=0; x<CONFIG_VGA_WIDTH; x++) vga[x] = blue_sp;
+    // Draw left text
+    int ll = status_left_len; if (ll < 0) ll = 0; if (ll > CONFIG_VGA_WIDTH) ll = CONFIG_VGA_WIDTH;
+    for (int i=0; i<ll && i<CONFIG_VGA_WIDTH; i++) vga[i] = (uint16_t)((0x1F << 8) | (uint8_t)status_left[i]);
+    // Draw right text (right-aligned)
+    int rl = status_right_len; if (rl < 0) rl = 0; if (rl > CONFIG_VGA_WIDTH) rl = CONFIG_VGA_WIDTH;
+    int start = CONFIG_VGA_WIDTH - rl; if (start < 0) start = 0;
+    for (int i=0; i<rl && (start + i) < CONFIG_VGA_WIDTH; i++) vga[start + i] = (uint16_t)((0x1F << 8) | (uint8_t)status_right[i]);
+}
+
+void video_status_set_right(const char* buf, int len) {
+    if (!buf || len<=0) { status_right_len = 0; status_right[0] = 0; video_status_redraw(); return; }
+    if (len > (int)sizeof(status_right)) len = (int)sizeof(status_right);
+    for (int i=0;i<len;i++) status_right[i] = buf[i];
+    status_right_len = len;
+    if (status_right_len > 0 && status_right[status_right_len-1] == '\0') status_right_len--; // ignore trailing NUL in len
+    video_status_redraw();
+}
+
+void video_status_set_left(const char* buf, int len) {
+    if (!buf || len<=0) { status_left_len = 0; status_left[0] = 0; video_status_redraw(); return; }
+    if (len > (int)sizeof(status_left)) len = (int)sizeof(status_left);
+    for (int i=0;i<len;i++) status_left[i] = buf[i];
+    status_left_len = len;
+    if (status_left_len > 0 && status_left[status_left_len-1] == '\0') status_left_len--; // ignore trailing NUL in len
+    video_status_redraw();
 }
 
 void video_init() {

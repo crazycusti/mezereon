@@ -24,3 +24,7 @@ bool neelefs_mkdir(const char* path);
 bool neelefs_write_text(const char* path, const char* text);
 bool neelefs_cat_path(const char* path);
 bool neelefs_read_text(const char* path, char* out, uint32_t out_max, uint32_t* out_len);
+// Verify integrity (CRC32): if path is a file, checks that file; if directory or '/', checks recursively.
+// Verify integrity (CRC32): if path is a file, checks that file; if directory or '/', checks recursively.
+// When verbose!=0, prints CRCs even for OK files.
+bool neelefs_verify(const char* path, int verbose);

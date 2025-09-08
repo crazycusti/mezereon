@@ -8,6 +8,26 @@ OBJCOPY := $(shell command -v objcopy 2>/dev/null || command -v gobjcopy 2>/dev/
 CFLAGS ?= -ffreestanding -m32 -Wall -Wextra -nostdlib -fno-builtin -fno-stack-protector -fno-pic -fno-pie
 LDFLAGS ?= -Ttext 0x7E00 -m elf_i386
 
+# Optional QEMU acceleration: set QEMU_ACCEL=kvm|hvf|whpx to enable hardware acceleration and host CPU model
+ifeq ($(QEMU_ACCEL),kvm)
+QEMU_ACCEL_FLAGS := -enable-kvm -cpu host
+endif
+
+# Optional: host port forwarding to guest (usernet)
+# Set HTTP_HOST_PORT to forward host port to guest TCP/80 (web server)
+# Example: HTTP_HOST_PORT=8080 make run-x86-hdd-ne2k → curl http://127.0.0.1:8080
+HTTP_HOST_PORT ?=
+QEMU_USER_NETDEV := -netdev user,id=n0
+ifneq ($(HTTP_HOST_PORT),)
+QEMU_USER_NETDEV := -netdev user,id=n0,hostfwd=tcp::$(HTTP_HOST_PORT)-:80
+endif
+ifeq ($(QEMU_ACCEL),hvf)
+QEMU_ACCEL_FLAGS := -accel hvf -cpu host
+endif
+ifeq ($(QEMU_ACCEL),whpx)
+QEMU_ACCEL_FLAGS := -accel whpx -cpu host
+endif
+
 ## Using host gcc/ld/objcopy; ensure 32-bit support libraries are installed for -m32.
 
 CONFIG_NE2000_IO ?= 0x300
@@ -56,6 +76,12 @@ console_backend_fb_stub.o: console_backend_fb_stub.c console_backend.h
 netface.o: netface.c netface.h config.h drivers/ne2000.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
+net/ipv4.o: net/ipv4.c net/ipv4.h netface.h console.h platform.h
+	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+
+net/tcp_min.o: net/tcp_min.c net/tcp_min.h net/ipv4.h console.h
+	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+
 platform.o: platform.c platform.h interrupts.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 drivers/ne2000.o: drivers/ne2000.c drivers/ne2000.h config.h
@@ -67,6 +93,9 @@ drivers/ata.o: drivers/ata.c drivers/ata.h config.h main.h keyboard.h
 drivers/fs/neelefs.o: drivers/fs/neelefs.c drivers/fs/neelefs.h drivers/ata.h config.h main.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
+drivers/storage.o: drivers/storage.c drivers/storage.h drivers/ata.h drivers/fs/neelefs.h console.h
+	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+
 keyboard.o: keyboard.c keyboard.h config.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
@@ -76,7 +105,10 @@ shell.o: shell.c shell.h keyboard.h config.h main.h
 cpu.o: cpu.c cpu.h console.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
-kernel_payload.elf: entry32.o kentry.o isr.o idt.o interrupts.o platform.o main.o video.o console.o $(CONSOLE_BACKEND_OBJ) netface.o drivers/ne2000.o drivers/ata.o drivers/fs/neelefs.o keyboard.o cpu.o shell.o
+cpuidle.o: cpuidle.c cpuidle.h config.h
+	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+
+kernel_payload.elf: entry32.o kentry.o isr.o idt.o interrupts.o platform.o main.o video.o console.o $(CONSOLE_BACKEND_OBJ) netface.o net/ipv4.o net/tcp_min.o drivers/ne2000.o drivers/ata.o drivers/fs/neelefs.o drivers/storage.o keyboard.o cpu.o cpuidle.o shell.o
 	$(LD) $(LDFLAGS) $^ -o $@
 
 # Erzeuge flaches Binary ohne führende 0x7E00-Lücke
@@ -90,20 +122,20 @@ disk.img: bootloader.bin kernel_payload.bin
 .PHONY: run-x86-floppy run-x86-hdd
 run-x86-floppy: disk.img
 	$(shell command -v qemu-system-i386 2>/dev/null || echo qemu-system-i386) \
-		-drive file=disk.img,if=floppy,format=raw \
+		$(QEMU_ACCEL_FLAGS) -drive file=disk.img,if=floppy,format=raw \
 		-net none -display curses
 
 run-x86-hdd: disk.img
 	$(shell command -v qemu-system-i386 2>/dev/null || echo qemu-system-i386) \
-		-drive file=disk.img,format=raw,if=ide \
+		$(QEMU_ACCEL_FLAGS) -drive file=disk.img,format=raw,if=ide \
 		-net none -display curses
 
 .PHONY: run-x86-hdd-ne2k
 run-x86-hdd-ne2k: disk.img
 	$(shell command -v qemu-system-i386 2>/dev/null || echo qemu-system-i386) \
-		-drive file=disk.img,format=raw,if=ide \
+		$(QEMU_ACCEL_FLAGS) -drive file=disk.img,format=raw,if=ide \
 		-device ne2k_isa,netdev=n0,iobase=$(CONFIG_NE2000_IO),irq=$(CONFIG_NE2000_IRQ) \
-		-netdev user,id=n0 -display curses
+		$(QEMU_USER_NETDEV) -display curses
 
 # Headless smoke test (CI/VS Code): no curses/X required; runs for a few seconds
 .PHONY: test-x86-ne2k

@@ -2,6 +2,7 @@
 #include "config.h"
 #include "arch/x86/io.h"
 #include "console.h"
+#include "cpuidle.h"
 
 // PIC remap as per OSDev
 void pic_remap(uint8_t offset1, uint8_t offset2) {
@@ -62,19 +63,22 @@ void irq0_handler_c(void) {
         uint32_t sec = t / 100u;
         uint32_t tenths = (t % 100u) / 10u;
 
-        // Render "T 12345.6s" right-aligned in first row
-        char buf[12];
+        // Render "T 12345.6s I 12345" right-aligned in first row
+        char buf[32];
         int pos = 0;
         buf[pos++] = 'T'; buf[pos++] = ' ';
         // decimal seconds
         char tmp[10]; int ti=0;
         if (sec == 0) { tmp[ti++]='0'; }
-        else {
-            while (sec && ti < 10) { tmp[ti++] = (char)('0' + (sec % 10)); sec/=10; }
-        }
+        else { while (sec && ti < 10) { tmp[ti++] = (char)('0' + (sec % 10)); sec/=10; } }
         while (ti--) buf[pos++] = tmp[ti];
         buf[pos++] = '.'; buf[pos++] = (char)('0' + (int)tenths);
-        buf[pos++] = 's';
+        buf[pos++] = 's'; buf[pos++] = ' '; buf[pos++] = 'I'; buf[pos++] = ' ';
+        // wakeups
+        uint32_t w = cpuidle_wakeups_get(); ti=0;
+        if (w == 0) { tmp[ti++]='0'; }
+        else { while (w && ti < 10) { tmp[ti++] = (char)('0' + (w % 10)); w/=10; } }
+        while (ti--) buf[pos++] = tmp[ti];
         int len = pos;
 
         // Write through the video module (no direct VGA access here)

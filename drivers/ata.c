@@ -4,6 +4,7 @@
 #include "../keyboard.h"
 #include <stdint.h>
 #include "../arch/x86/io.h"
+#include "../cpuidle.h"
 
 // ATA I/O ports
 static uint16_t ATA_IO    = (uint16_t)CONFIG_ATA_PRIMARY_IO;
@@ -224,7 +225,7 @@ void ata_dump_lba(uint32_t lba, uint8_t sectors_max){
         int advance_lines = 1;
         for (;;) {
             int ch = keyboard_poll_char();
-            if (ch < 0) continue;
+            if (ch < 0) { cpuidle_idle(); continue; }
             if (ch == KEY_DOWN || ch == '\n' || ch == '\r' || ch == ' ') break;
             if (ch == KEY_PGDN) { advance_lines = 16; break; }
             if (ch == 'q' || ch == 'Q') { return; }

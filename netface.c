@@ -1,6 +1,7 @@
 #include "netface.h"
 #include "drivers/ne2000.h"
 #include "console.h"
+#include <stdint.h>
 
 // Minimal top-level NIC selector: NE2000 only for now
 typedef enum { NETDRV_NONE = 0, NETDRV_NE2000 } netdrv_t;
@@ -130,4 +131,20 @@ void netface_bootinfo_print(void) {
         console_write_hex16(ne2000_io_base());
     }
     console_write("\n");
+}
+
+bool netface_get_mac(unsigned char mac[6]) {
+    if (s_active == NETDRV_NE2000) return ne2000_get_mac(mac);
+    return false;
+}
+
+bool netface_send(const unsigned char* frame, unsigned short len) {
+    if (s_active == NETDRV_NE2000) return ne2000_send(frame, len);
+    return false;
+}
+
+// Forward incoming frames to the IPv4/ARP stack (implemented in net_ipv4.c)
+void netface_on_rx(const unsigned char* frame, unsigned short len) {
+    extern void net_ipv4_on_frame(const uint8_t* frame, uint16_t len);
+    net_ipv4_on_frame((const uint8_t*)frame, (uint16_t)len);
 }

@@ -291,6 +291,9 @@ static void ne2000_dump_eth(const uint8_t* buf, uint16_t len) {
     console_write("\n");
 }
 
+// Upper-layer RX hook (netface will route to net stack)
+extern void netface_on_rx(const uint8_t* frame, uint16_t len);
+
 static void ne2000_drain_rx(int verbose) {
     // Read boundary and current pointers
     uint8_t bnry = inb(ne2k_base_io + NE2K_REG_BNRY);
@@ -311,14 +314,20 @@ static void ne2000_drain_rx(int verbose) {
         uint8_t next = hdr[1];
         uint16_t count = (uint16_t)hdr[2] | ((uint16_t)hdr[3] << 8);
 
-        if (verbose) {
-            // Read first 64 bytes of payload for summary (avoid large copies)
-            uint16_t payload_addr = hdr_addr + 4;
-            uint8_t buf[64];
-            uint16_t copy = (count > sizeof(buf)) ? (uint16_t)sizeof(buf) : count;
-            if (copy >= 14) {
-                ne2000_remote_read(payload_addr, buf, copy);
-                ne2000_dump_eth(buf, copy);
+        // Read payload (data + CRC) minimally or fully and hand to stack
+        uint16_t payload_addr = hdr_addr + 4;
+        uint16_t total = count; // data + 4B FCS
+        uint16_t dlen = (total >= 4) ? (uint16_t)(total - 4) : total;
+        if (dlen >= 14) {
+            if (verbose || dlen <= 1600) {
+                uint16_t copy = dlen > 1600 ? 1600 : dlen;
+                static uint8_t rxbuf[1600];
+                ne2000_remote_read(payload_addr, rxbuf, copy);
+                if (verbose) ne2000_dump_eth(rxbuf, (uint16_t)(copy < 64 ? copy : 64));
+                // Pass full frame (without FCS) if small enough; else skip callback to avoid truncation
+                if (dlen <= 1600) {
+                    netface_on_rx(rxbuf, dlen);
+                }
             }
         }
 
@@ -385,7 +394,7 @@ bool ne2000_is_promisc(void) {
     return (rcr & 0x10) != 0; // PRO bit
 }
 
-static bool ne2000_tx_packet(const uint8_t* frame, uint16_t len) {
+bool ne2000_send(const uint8_t* frame, uint16_t len) {
     if (len < 60) len = 60; // Minimum Ethernet frame length (without FCS)
 
     const uint8_t tpsr = 0x40;             // Transmit page start
@@ -442,7 +451,7 @@ bool ne2000_send_test(void) {
     // Pad to 60 bytes min (NIC will add FCS)
     while (len < 60) frame[len++] = 0x00;
 
-    bool ok = ne2000_tx_packet(frame, len);
+    bool ok = ne2000_send(frame, len);
     console_write(ok ? "Sent test frame.\n" : "Send failed.\n");
     return ok;
 }

@@ -12,4 +12,4 @@ void cback_writeln(const char* s) { (void)s; }
 void cback_write_hex16(uint16_t v) { (void)v; }
 void cback_write_dec(uint32_t v) { (void)v; }
 void cback_draw_status_right(const char* buf, int len) { (void)buf; (void)len; }
-
+void cback_status_set_left(const char* buf, int len) { (void)buf; (void)len; }

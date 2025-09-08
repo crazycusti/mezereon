@@ -2,10 +2,14 @@
 #include "keyboard.h"
 #include "drivers/ata.h"
 #include "drivers/fs/neelefs.h"
+#include "drivers/storage.h"
 #include "main.h"
 #include "config.h"
 #include "netface.h"
 #include "cpu.h"
+#include "cpuidle.h"
+#include "interrupts.h"
+#include "net/ipv4.h"
 #include <stdint.h>
 
 static void print_prompt(void) {
@@ -24,7 +28,7 @@ void shell_run(void) {
 
     for (;;) {
         int ch = keyboard_poll_char();
-        if (ch < 0) { netface_poll(); continue; }
+        if (ch < 0) { netface_poll(); cpuidle_idle(); continue; }
 
         if (ch == '\r') ch = '\n';
         if (ch == '\n') {
@@ -38,7 +42,7 @@ void shell_run(void) {
                 } else if (streq(buf, "clear")) {
                     console_clear();
                 } else if (streq(buf, "help")) {
-                    console_write("Commands: version, clear, help, cpuinfo, ata, atadump [lba], neele mount [lba], neele ls [path], neele cat <name|/path>, neele mkfs, neele mkdir </path>, neele write </path> <text>, pad </path>, netinfo, netrxdump\n");
+                    console_write("Commands: version, clear, help, cpuinfo, ticks, wakeups, idle [n], timer <show|hz N|off|on>, ata, atadump [lba], autofs [show|rescan|mount <n>], ip [show|set <ip> <mask> [gw]|ping <ip> [count]], neele mount [lba], neele ls [path], neele cat <name|/path>, neele mkfs, neele mkdir </path>, neele write </path> <text>, neele verify [verbose] [path], pad </path>, netinfo, netrxdump, http [start [port]|stop|status|body <text>]\n");
                 } else if (streq(buf, "ata")) {
                     if (ata_present()) console_write("ATA present (selected device).\n");
                     else console_write("ATA not present.\n");
@@ -91,7 +95,7 @@ void shell_run(void) {
                         ata_dump_lba(lba, 4); // up to 2KiB
                     }
                 } else if (buf[0]=='n' && buf[1]=='e' && buf[2]=='e' && buf[3]=='l' && buf[4]=='e') {
-                    // subcommands: mount [lba], ls [path], cat <name|path>, mkfs, mkdir <path>, write <path> <text>
+                    // subcommands: mount [lba], ls [path], cat <name|path>, mkfs, mkdir <path>, write <path> <text>, verify [verbose] [path]
                     int i=5; while (buf[i]==' ') i++;
                     if (buf[i]==0) { console_write("usage: neele <mount|ls|cat> ...\n"); }
                     else if (buf[i]=='m' && buf[i+1]=='o') {
@@ -134,11 +138,33 @@ void shell_run(void) {
                             if (!buf[i]) { console_write("usage: neele write </path> <text>\n"); }
                             else { if (!neelefs_write_text(path, buf+i)) console_write("write failed.\n"); }
                         }
+                    } else if (buf[i]=='v' && buf[i+1]=='e' && buf[i+2]=='r' && buf[i+3]=='i' && buf[i+4]=='f' && buf[i+5]=='y') {
+                        i+=6; while (buf[i]==' ') i++;
+                        int verbose=0;
+                        // optional literal "verbose"
+                        if (buf[i]=='v') { const char* kw="verbose"; int k=0; int ok=1; while (kw[k]){ if (buf[i+k]!=kw[k]){ ok=0; break; } k++; }
+                            if (ok) { i+=7; while (buf[i]==' ') i++; verbose=1; }
+                        }
+                        if (buf[i]) { if (!neelefs_verify(buf+i, verbose)) console_write("verify failed.\n"); }
+                        else { if (!neelefs_verify("/", verbose)) console_write("verify failed.\n"); }
                     } else {
                         console_write("usage: neele <mount|ls|cat> ...\n");
                     }
                 } else if (streq(buf, "cpuinfo")) {
                     cpuinfo_print();
+                } else if (streq(buf, "ticks")) {
+                    console_write("ticks="); console_write_dec(ticks_get()); console_write("\n");
+                } else if (streq(buf, "wakeups")) {
+                    console_write("wakeups="); console_write_dec(cpuidle_wakeups_get()); console_write("\n");
+                } else if (buf[0]=='i' && buf[1]=='d' && buf[2]=='l' && buf[3]=='e' && (buf[4]==0 || buf[4]==' ')) {
+                    // idle [n] — perform HLT once or n times
+                    int i=4; while (buf[i]==' ') i++;
+                    if (!buf[i]) { cpuidle_idle(); console_writeln("(hlt)"); }
+                    else {
+                        uint32_t n=0; int any=0; while (buf[i]>='0'&&buf[i]<='9'){ n=n*10+(buf[i]-'0'); i++; any=1; }
+                        if (!any || n==0) { console_writeln("usage: idle [n]"); }
+                        else { for (uint32_t k=0;k<n;k++){ cpuidle_idle(); } console_writeln("(hlt xN)"); }
+                    }
                 } else if (streq(buf, "netinfo")) {
                     netface_diag_print();
                 } else if (streq(buf, "netrxdump")) {
@@ -147,7 +173,109 @@ void shell_run(void) {
                         int k = keyboard_poll_char();
                         if (k == 'q' || k == 'Q') { console_write("\n"); break; }
                         netface_poll_rx();
+                        cpuidle_idle();
                     }
+                } else if (buf[0]=='a' && buf[1]=='u' && buf[2]=='t' && buf[3]=='o' && buf[4]=='f' && buf[5]=='s' && (buf[6]==' ' || buf[6]==0)) {
+                    int i=6; while (buf[i]==' ') i++;
+                    if (!buf[i] || (buf[i]=='s')) { // show default or 'show'
+                        console_writeln("AutoFS devices (0..3):");
+                        for (int k=0;k<storage_count();k++){
+                            storage_info_t inf; if (!storage_get(k,&inf)) continue;
+                            console_write(" "); console_write_dec((uint32_t)k); console_write(": ");
+                            const char* slot = (inf.dev.io==CONFIG_ATA_PRIMARY_IO && !inf.dev.slave)?"PM":
+                                               (inf.dev.io==CONFIG_ATA_PRIMARY_IO &&  inf.dev.slave)?"PS":
+                                               (inf.dev.io==0x170 && !inf.dev.slave)?"SM":"SS";
+                            console_write(slot);
+                            if (!inf.present) { console_write("  (none)\n"); continue; }
+                            console_write("  ATA  ");
+                            if (inf.neelefs_found){ console_write("NeeleFS"); console_write(inf.neelefs_ver==2?"2":"1"); console_write(" @"); console_write_dec(inf.neelefs_lba); }
+                            else console_write("no-fs");
+                            if (inf.mounted) console_write("  [mounted]");
+                            console_write("\n");
+                        }
+                    } else if (buf[i]=='r') { // rescan
+                        storage_scan(); int m = storage_automount();
+                        if (m>=0) { console_write("mounted index "); console_write_dec((uint32_t)m); console_write("\n"); }
+                        else console_writeln("no mountable volumes");
+                    } else if (buf[i]=='m') { // mount <idx>
+                        i+=5; while (buf[i]==' ') i++;
+                        uint32_t n=0; int any=0; while (buf[i]>='0'&&buf[i]<='9'){ n=n*10+(buf[i]-'0'); i++; any=1; }
+                        if (!any) { console_writeln("usage: autofs mount <index>"); }
+                        else { if (!storage_mount_index((int)n)) console_writeln("mount failed"); else console_writeln("mounted"); }
+                    } else { console_writeln("usage: autofs [show|rescan|mount <n>]"); }
+                } else if (buf[0]=='i' && buf[1]=='p' && (buf[2]==0 || buf[2]==' ')) {
+                    int i=2; while (buf[i]==' ') i++;
+                    if (!buf[i]) { net_ipv4_print_config(); }
+                    else if (buf[i]=='s' && buf[i+1]=='e' && buf[i+2]=='t') {
+                        i+=3; while (buf[i]==' ') i++;
+                        // ip set <addr> <mask> [gw]
+                        char a[16]={0}, m[16]={0}, g[16]={0}; int j=0;
+                        while (buf[i] && buf[i]!=' ' && j<15){ a[j++]=buf[i++]; }
+                        while (buf[i]==' ') i++;
+                        j=0; while (buf[i] && buf[i]!=' ' && j<15){ m[j++]=buf[i++]; }
+                        while (buf[i]==' ') i++;
+                        j=0; while (buf[i] && buf[i]!=' ' && j<15){ g[j++]=buf[i++]; }
+                        const char* gp = (g[0]?g:0);
+                        if (!net_ipv4_set_from_strings(a,m,gp)) console_writeln("ip: bad address/mask/gw");
+                        else { net_ipv4_print_config(); console_status_set_left("ip: set"); }
+                    } else if (buf[i]=='p' && buf[i+1]=='i' && buf[i+2]=='n' && buf[i+3]=='g') {
+                        // ip ping <addr> [count]
+                        i+=4; while (buf[i]==' ') i++;
+                        char a[16]={0}; int j=0; while (buf[i] && buf[i]!=' ' && j<15){ a[j++]=buf[i++]; }
+                        while (buf[i]==' ') i++;
+                        uint32_t cnt=1; while (buf[i]>='0'&&buf[i]<='9'){ cnt=cnt*10+(uint32_t)(buf[i]-'0'); i++; }
+                        // parse dotted quad
+                        int okp=0; uint32_t ipbe=0; {
+                            const char* s=a; uint32_t acc=0; int part=0; uint32_t v=0; int d=0; okp=0;
+                            while (*s && part<4){ if (*s>='0'&&*s<='9'){ v=v*10+(*s-'0'); if (v>255) { okp=0; break; } d=1; }
+                                else if (*s=='.'){ if (!d){ okp=0; break; } acc=(acc<<8)|v; v=0; d=0; part++; }
+                                else { okp=0; break; } s++; }
+                            if (part==3 && d){ acc=(acc<<8)|v; ipbe = ((acc&0xFF)<<24)|((acc&0xFF00)<<8)|((acc&0xFF0000)>>8)|((acc>>24)&0xFF); okp=1; }
+                        }
+                        if (!okp) console_writeln("ip ping: bad address");
+                        else { net_icmp_ping(ipbe, (int)cnt, 1000); }
+                    } else { console_writeln("usage: ip [show|set <ip> <mask> [gw]|ping <ip> [count]]"); }
+                } else if (buf[0]=='t' && buf[1]=='i' && buf[2]=='m' && buf[3]=='e' && buf[4]=='r' && (buf[5]==' ' || buf[5]==0)) {
+                    int i=5; while (buf[i]==' ') i++;
+                    if (!buf[i] || (buf[i]=='s')) { // show
+                        console_write("timer: hz="); console_write_dec(platform_timer_get_hz()); console_write("\n");
+                    } else if (buf[i]=='h') { // hz N
+                        i+=2; while (buf[i]==' ') i++;
+                        uint32_t n=0; int any=0; while (buf[i]>='0'&&buf[i]<='9'){ n=n*10+(buf[i]-'0'); i++; any=1; }
+                        if (!any || n==0) { console_writeln("usage: timer hz <n>"); }
+                        else { platform_timer_set_hz(n); console_write("timer: hz="); console_write_dec(n); console_write("\n"); }
+                    } else if (buf[i]=='o' && buf[i+1]=='f' && buf[i+2]=='f') { // off
+                        platform_irq_set_mask(0,1); console_writeln("timer: off (IRQ0 masked)");
+                    } else if (buf[i]=='o' && buf[i+1]=='n') { // on
+                        platform_irq_set_mask(0,0); console_writeln("timer: on (IRQ0 unmasked)");
+                    } else { console_writeln("usage: timer <show|hz N|off|on>"); }
+                } else if (buf[0]=='h' && buf[1]=='t' && buf[2]=='t' && buf[3]=='p' && (buf[4]==0 || buf[4]==' ')) {
+                    extern void net_tcp_min_listen(uint16_t port);
+                    extern void net_tcp_min_stop(void);
+                    extern void net_tcp_min_status(void);
+                    extern void net_tcp_min_set_http_body(const char* body);
+                    extern void net_tcp_min_set_file_path(const char* path);
+                    extern void net_tcp_min_use_inline(void);
+                    int i=4; while (buf[i]==' ') i++;
+                    if (!buf[i] || (buf[i]=='s' && buf[i+1]=='t' && buf[i+2]=='a' && buf[i+3]=='t' && buf[i+4]=='u' && buf[i+5]=='s')) {
+                        net_tcp_min_status();
+                    } else if (buf[i]=='s' && buf[i+1]=='t' && buf[i+2]=='a' && buf[i+3]=='r' && buf[i+4]=='t') {
+                        i+=5; while (buf[i]==' ') i++;
+                        // Parse optional port; default to 80 when omitted
+                        uint32_t p=0; int any=0; while (buf[i]>='0'&&buf[i]<='9'){ p=p*10+(buf[i]-'0'); i++; any=1; }
+                        if (any && p>0 && p<65536) net_tcp_min_listen((uint16_t)p); else net_tcp_min_listen(80);
+                        console_writeln("http: listening");
+                    } else if (buf[i]=='s' && buf[i+1]=='t' && buf[i+2]=='o' && buf[i+3]=='p') {
+                        net_tcp_min_stop(); console_writeln("http: stopped");
+                    } else if (buf[i]=='b' && buf[i+1]=='o' && buf[i+2]=='d' && buf[i+3]=='y') {
+                        i+=4; while (buf[i]==' ') i++;
+                        if (!buf[i]) console_writeln("usage: http body <text>"); else { net_tcp_min_set_http_body(buf+i); console_writeln("http: body set"); }
+                    } else if (buf[i]=='f' && buf[i+1]=='i' && buf[i+2]=='l' && buf[i+3]=='e') {
+                        i+=4; while (buf[i]==' ') i++;
+                        if (!buf[i]) console_writeln("usage: http file </path>"); else { net_tcp_min_set_file_path(buf+i); console_writeln("http: file mode"); }
+                    } else if (buf[i]=='i' && buf[i+1]=='n' && buf[i+2]=='l' && buf[i+3]=='i' && buf[i+4]=='n' && buf[i+5]=='e') {
+                        net_tcp_min_use_inline(); console_writeln("http: inline mode");
+                    } else { console_writeln("usage: http [start [port]|stop|status|body <text>]"); }
                 } else if (buf[0]=='p' && buf[1]=='a' && buf[2]=='d' && (buf[3]==' ' || buf[3]==0)) {
                     int i=3; while (buf[i]==' ') i++;
                     if (!buf[i]) { console_write("usage: pad </path>\n"); }
@@ -155,8 +283,13 @@ void shell_run(void) {
                         // simple line-based editor
                         static char textbuf[4096]; uint32_t len=0; int modified=0;
                         // try to load existing
-                        if (!neelefs_read_text(buf+i, textbuf, sizeof(textbuf)-1, &len)) { len=0; textbuf[0]=0; }
+                        int had_crc_error = 0;
+                        if (!neelefs_read_text(buf+i, textbuf, sizeof(textbuf)-1, &len)) {
+                            had_crc_error = 1; len=0; textbuf[0]=0;
+                        }
                         console_clear();
+                        // update status bar after clear
+                        if (had_crc_error) console_status_set_left("pad: checksum mismatch"); else console_status_set_left("");
                         console_write("pad: "); console_write(buf+i); console_write("\n^S save  ^Q quit  (max 4K)\n\n");
                         // print current content
                         for (uint32_t k=0;k<len;k++){ char s[2]; s[0]=textbuf[k]?textbuf[k]:'.'; s[1]=0; console_write(s); }

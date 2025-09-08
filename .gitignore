@@ -235,3 +235,10 @@ pip-log.txt
 
 #Mr Developer
 .mr.developer.cfg
+ 
+#############
+## Local-only notes
+#############
+
+# AI helper notes (keep local)
+AI_HINTS.md

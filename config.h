@@ -46,6 +46,11 @@
 #define CONFIG_ARCH_SPARC 0
 #endif
 
+// System timer frequency (PIT IRQ0). Lower = fewer wakeups and lower host CPU load in QEMU.
+#ifndef CONFIG_TIMER_HZ
+#define CONFIG_TIMER_HZ 20
+#endif
+
 // ATA primary channel (QEMU default for -hda)
 #ifndef CONFIG_ATA_PRIMARY_IO
 #define CONFIG_ATA_PRIMARY_IO  0x1F0

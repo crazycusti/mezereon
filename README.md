@@ -23,6 +23,14 @@ Dependencies
 - SPARC: `sparc-elf-gcc`/`sparc-unknown-elf-gcc`, `sparc-elf-objcopy`, `qemu-system-sparc`, `mkisofs`/`genisoimage`
 Note: On some hosts you may need 32-bit development libraries to link with `-m32` (e.g. `gcc-multilib`).
 
+Performance / Power (QEMU)
+- Reduce guest timer interrupts: set `CONFIG_TIMER_HZ` (default 20) in `config.h`.
+- At runtime: `timer hz 10` or `timer off` (mask IRQ0) to minimize wakeups while idling; `timer on` to re-enable.
+- Enable hardware acceleration:
+  - macOS: `QEMU_ACCEL=hvf make run-x86-hdd`
+  - Linux: `QEMU_ACCEL=kvm make run-x86-hdd`
+  - Windows: `QEMU_ACCEL=whpx make run-x86-hdd`
+
 Storage Quickstart
 - ATA:
   - Scan/select device: `ata scan` → `ata use <0..3>` (0=PM,1=PS,2=SM,3=SS)
@@ -56,7 +64,7 @@ SPARC toolchain detection
 What’s in here
 - x86 path: BIOS bootloader (16-bit) → Protected Mode (`entry32.asm`) → C kernel (`kentry.c` → `main.c`)
 - Devices: VGA text console, PIT timer, PIC remap, PS/2 keyboard, NE2000 (ISA) minimal NIC, ATA PIO LBA28
-- FS: “NeeleFS” simple RO image (`tools/mkneelefs.py`)
+- FS: NeeleFS v1 (RO, `tools/mkneelefs.py`) and v2 (RW, up to 16 MiB)
 - SPARC: OpenFirmware OBP client program (prints banner, calls `kentry` SPARC branch)
  - Legacy SPARC docs moved to: `docs/legacy-sparc/`
 
@@ -65,16 +73,30 @@ Useful runtime commands (shell)
 - version: print kernel version string.
 - clear: clear the screen and reset cursor.
 - cpuinfo: show CPU vendor/family/model, features, brand.
+- ticks: print raw PIT tick counter (since boot).
+- wakeups: print cpuidle HLT wakeups (since init).
+- idle [n]: execute HLT once (or n times) to test CPU idle handling.
+- Status bar: top row, blue. Left shows status (e.g., pad errors), right shows timer.
 - ata: report if selected ATA device is present (ATA disk).
 - ata scan: scan PM/PS/SM/SS and print type per slot.
 - ata use <0..3>: select device slot (0=PM,1=PS,2=SM,3=SS).
 - atadump [lba]: hexdump up to 2KiB from LBA; Down/Enter/Space=next, PgDn=+16 lines, q=quit.
+- autofs [show|rescan|mount <n>]: storage auto-detect over ATA; lists devices and detected NeeleFS; automounts best match; mount a specific index.
 - neele mount [lba]: mount NeeleFS at LBA (default from CONFIG_NEELEFS_LBA).
 - neele ls: list files in NeeleFS root.
 - neele cat <name>: print file contents (non-printables as '.').
 - pad </path>: inline editor (Ctrl+S save, Ctrl+Q quit; v2 only).
+- neele verify [verbose] [path]: verify CRCs for a file or recursively from a directory/root (v2). With `verbose`, prints CRCs for OK files too. If used, place `verbose` before the path.
 - netinfo: network summary (driver, MAC, promisc, IO base).
 - netrxdump: verbose RX drain; press 'q' to quit.
+- ip: show IPv4 config. `ip set <addr> <mask> [gw]` to configure. `ip ping <addr> [count]` to send ICMP echo.
+- http: minimal HTTP server (single-connection, static)
+  - `http status` — show state and port (default 80)
+  - `http start [port]` — start listening
+  - `http stop` — stop server
+  - `http body <text>` — serve inline body (default mode)
+  - `http file </path>` — serve file from NeeleFS v2, e.g. `/www/index` (default)
+  - `http inline` — switch back to inline mode
 
 Changelog
 - Append quick notes: `make log MSG="keyword: short message"`
@@ -107,6 +129,20 @@ Examples
   - Manual: `qemu-system-i386 -drive file=disk.img,format=raw,if=ide -serial stdio -device ne2k_isa,netdev=n0,io=0x300,irq=3 -netdev user,id=n0`
   - In shell: `netinfo` (MAC/IO/promisc), `netrxdump` (press 'q' to quit)
   - Ensure IO/IRQ match `CONFIG_NE2000_IO/IRQ` (defaults 0x300/3)
+  - Host port forwarding (usernet): forward host port 8080 → guest 80 for HTTP
+    - `HTTP_HOST_PORT=8080 make run-x86-hdd-ne2k`
+    - Host: `curl http://127.0.0.1:8080/`
+    - Use `0.0.0.0` binding if you want to accept from LAN: run QEMU manually with `-netdev user,id=n0,hostfwd=tcp:0.0.0.0:8080-:80`
+
+- Serve a simple web page:
+  - In shell:
+    - `neele mkfs && neele mount`
+    - `neele mkdir /www`
+    - `neele write /www/index.html "<html><body><h1>Hello</h1></body></html>"`
+    - `ip set 10.0.2.15 255.255.255.0 10.0.2.2`
+    - `http file /www/index && http start 80` (default path is already `/www/index`)
+  - From host: `curl http://10.0.2.15:80/`
+  - More: `docs/net/http.md`
 
 - SPARC netboot (OpenBIOS):
   - Build: `make sparc-boot`

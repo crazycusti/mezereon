@@ -8,6 +8,9 @@ void platform_interrupts_init(void);
 
 // Initialize periodic timer to desired Hz (best-effort).
 void platform_timer_init(uint32_t hz);
+// Change timer frequency without altering IRQ masks
+void platform_timer_set_hz(uint32_t hz);
+uint32_t platform_timer_get_hz(void);
 
 // Mask/unmask specific IRQ line (PIC vector index on x86).
 void platform_irq_set_mask(uint8_t irq, int masked);
@@ -24,4 +27,3 @@ void platform_interrupts_disable(void);
 uint32_t platform_ticks_get(void);
 
 #endif // PLATFORM_H
-

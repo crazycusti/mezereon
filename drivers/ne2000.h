@@ -54,6 +54,8 @@ void ne2000_irq(void);
 // Diagnostics
 bool ne2000_get_mac(uint8_t mac[6]);
 bool ne2000_is_promisc(void);
+// Transmit a raw Ethernet frame (len >= 60, FCS appended by NIC). Returns true on success.
+bool ne2000_send(const uint8_t* frame, uint16_t len);
 
 // IRQ cooperation: latch NIC ISR bits seen in IRQ3
 void ne2000_isr_latch_or(uint8_t bits);

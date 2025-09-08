@@ -22,3 +22,22 @@
 2025-09-07 13:55:54 (master@8a3207b) - test: add headless test-x86-ne2k (display/monitor/serial none, 6s)
 2025-09-07 13:58:07 (master@8a3207b) - ci: add GitHub Actions workflow (build + headless smoke test); add Makefile 'test' alias
 2025-09-07 15:10:46 (master@fab2fe8) - docs: add ATA and NeeleFS docs; README storage quickstart
+2025-09-07 16:58:19 (master@b561b1e) - fs: NeeleFS2 superblock CRC verification on mount
+2025-09-07 16:58:19 (master@b561b1e) - fs: per-file CRC32 computed on write; verified on read (cat/read_text)
+2025-09-07 16:58:19 (master@b561b1e) - fs: add 'neele verify [verbose] [path]' (recursive, shows CRCs in verbose)
+2025-09-07 16:58:19 (master@b561b1e) - ui: add top-row blue status bar (left status text, right timer)
+2025-09-07 16:58:19 (master@b561b1e) - pad: show checksum mismatch in status bar on load failure; open empty buffer
+2025-09-07 16:58:19 (master@b561b1e) - kbd: add Ctrl support (Ctrl+S/Ctrl+Q) for pad; docs macOS 'stty -ixon' tip
+2025-09-07 16:58:19 (master@b561b1e) - docs: update README and docs/fs/neelefs.md; add docs/ui/statusbar.md
+2025-09-07 17:12:00 (master@b561b1e) - net: add rudimentary IPv4 stack (ARP reply, ICMP echo reply, simple ping)
+2025-09-07 17:12:00 (master@b561b1e) - net: expose raw send in NE2000 and route RX frames into net stack
+2025-09-07 17:12:00 (master@b561b1e) - shell: add `ip` command (show, set, ping)
+2025-09-07 17:35:00 (master@b561b1e) - net/http: add minimal HTTP/1.0 over TCP; serve inline body or NeeleFS file via `http` command
+2025-09-07 17:35:00 (master@b561b1e) - docs: add docs/net/http.md; update README with http usage and example
+2025-09-07 17:07:12 (master@b561b1e) - autofs: ATA scan + NeeleFS autodetect (LBA 2048/0), automount, and 'autofs' shell command
+2025-09-07 17:07:12 (master@b561b1e) - boot: print storage autodetect + mount result; show statusbar hint
+2025-09-07 17:07:13 (master@b561b1e) - docs: README + docs updated with autofs usage
+2025-09-07 17:14:20 (master@b561b1e) - cpu: add x86 cpuidle (HLT) and integrate in shell idle, atadump, netrxdump; docs added
+2025-09-07 17:24:16 (master@b561b1e) - cpuidle: add shell command 'idle [n]' and statusbar wakeups display
+2025-09-07 17:33:15 (master@b561b1e) - shell: add 'ticks' and 'wakeups' commands; README/docs updated
+2025-09-07 17:39:25 (master@b561b1e) - timer: add 'timer <show|hz N|off|on>' command; make CONFIG_TIMER_HZ; README QEMU accel + power tips

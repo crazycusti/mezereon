@@ -10,7 +10,7 @@ On‑Disk Layout (v2)
 - Superblock (block 0):
   - `magic[8]` = `NEELEFS2`, `version=2`, `block_size=512`, `total_blocks`.
   - `bitmap_start`: first bitmap block; `root_block`: first directory block.
-  - `super_csum`: crc32 over the 512B header with this field zero.
+  - `super_csum`: CRC32 over the 512B header with this field zero; verified on mount.
 - Bitmap (blocks `bitmap_start .. bitmap_start + ceil(total/4096) - 1`): 1 bit per block.
 - Directory blocks:
   - Header (16B): magic `'D2NE'` little‑endian, `next_block`, `entry_size=64`, `entries_per_blk`.
@@ -28,6 +28,8 @@ Shell Commands
 - `neele mkdir </path>`       → v2 only; creates a directory (grows parent dir if needed).
 - `neele write </path> <txt>` → v2 only; writes text into a new or existing file (contiguous allocation).
 - `pad </path>`               → Simple nano‑like inline editor (v2). Ctrl+S=save, Ctrl+Q=quit. Max ~4 KiB.
+- `neele verify [verbose] [</path>]` → Verify CRCs (single file or recursively). With `verbose`, prints CRCs for OK files too. If used, place `verbose` before the path.
+- `autofs [show|rescan|mount <n>]` → Auto-detect ATA devices (PM/PS/SM/SS), detect NeeleFS at LBA 2048 or 0, attempt automount; show inventory or mount chosen index.
 
 Pad Editor
 - Usage: `pad </path>` (v2 only). Mount v2 first via `neele mount`.
@@ -40,6 +42,8 @@ Pad Editor
 - macOS Terminal tip: if `Ctrl+S` appears ignored or freezes the screen,
   disable software flow control in the shell before starting QEMU: `stty -ixon`.
   Re‑enable later with `stty ixon` if desired.
+- CRC note: When a file's CRC fails verification during load, `pad` shows
+  `pad: checksum mismatch` in the status bar and opens with an empty buffer.
 
 Programming API (v2)
 - `bool neelefs_mkfs_16mb(uint32_t lba)` / `bool neelefs_mkfs_16mb_force(uint32_t lba)`
@@ -49,7 +53,7 @@ Programming API (v2)
 - `bool neelefs_read_text(const char* path, char* out, uint32_t out_max, uint32_t* out_len)`
 
 Error Handling (typische Meldungen)
-- Mount: `NeeleFS: bad magic` (kein FS); `NeeleFS2: bad super` (inkonsistent)
+- Mount: `NeeleFS: bad magic` (kein FS); `NeeleFS2: bad super` (inkonsistent); `NeeleFS2: bad super (csum)`
 - mkfs:
   - `NeeleFS2 already present; use 'neele mkfs force' to overwrite`
   - `NeeleFS1 volume detected (read-only); use 'neele mkfs force' to overwrite`
@@ -60,6 +64,7 @@ Error Handling (typische Meldungen)
   - `mkfs: root init failed`
 - Write ops on v1: `NeeleFS1 mounted (read-only); cannot write`
 - Generic: `bad path`, `exists`, `not found`, `no space`
+- File read: `checksum mismatch` (file CRC mismatch; read/cat aborts)
 
 Quickstart
 - Format & mount a v2 filesystem:
@@ -69,9 +74,13 @@ Quickstart
   - `neele write /docs/readme "Hello NeeleFS v2"`
   - `neele ls /docs` and `neele cat /docs/readme`
   - `pad /docs/readme`      (inline editor; Ctrl+S=save, Ctrl+Q=quit)
+  - `neele verify /docs`    (CRC check for files in /docs)
 
 Notes & Limits
 - Max region 16 MiB; block size fixed to 512B.
 - Files are contiguous (no fragmentation handling yet); directories can grow block by block.
 - Editor buffer limited (defaults to 4 KiB in shell); increase easily if needed.
 - v1 images built with `tools/mkneelefs.py` are read‑only and remain readable via `neele mount/ls/cat`.
+- Checksums: per‑file CRC32 is stored in each directory entry and recalculated on write. Reads verify CRC
+  before returning/printing data. No separate checksum partition is needed; a dedicated checksum database would
+  only be required for block‑level integrity or advanced features (journaling, dedup).
