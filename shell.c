@@ -11,7 +11,7 @@
 #include "interrupts.h"
 #include "net/ipv4.h"
 #include "drivers/pcspeaker.h"
-#include "snake.h"
+#include "mezapi.h"
 #include <stdint.h>
 
 static void print_prompt(void) {
@@ -44,7 +44,7 @@ void shell_run(void) {
                 } else if (streq(buf, "clear")) {
                     console_clear();
                 } else if (streq(buf, "help")) {
-                    console_write("Commands: version, clear, help, cpuinfo, ticks, wakeups, idle [n], timer <show|hz N|off|on>, ata, atadump [lba], autofs [show|rescan|mount <n>], ip [show|set <ip> <mask> [gw]|ping <ip> [count]], neele mount [lba], neele ls [path], neele cat <name|/path>, neele mkfs, neele mkdir </path>, neele write </path> <text>, neele verify [verbose] [path], pad </path>, netinfo, netrxdump, beep [freq] [ms], keymusic, snake, http [start [port]|stop|status|body <text>]\n");
+                    console_write("Commands: version, clear, help, cpuinfo, ticks, wakeups, idle [n], timer <show|hz N|off|on>, ata, atadump [lba], autofs [show|rescan|mount <n>], ip [show|set <ip> <mask> [gw]|ping <ip> [count]], neele mount [lba], neele ls [path], neele cat <name|/path>, neele mkfs, neele mkdir </path>, neele write </path> <text>, neele verify [verbose] [path], pad </path>, netinfo, netrxdump, beep [freq] [ms], keymusic, app [ls|run </path|name>], http [start [port]|stop|status|body <text>]\n");
                 } else if (streq(buf, "ata")) {
                     if (ata_present()) console_write("ATA present (selected device).\n");
                     else console_write("ATA not present.\n");
@@ -261,32 +261,42 @@ void shell_run(void) {
                     if (!pcspeaker_present()) console_writeln("beep: speaker not present");
                     else { pcspeaker_beep(anyf?f:880, anyms?ms:100); console_writeln("(beep)"); }
                 } else if (streq(buf, "keymusic")) {
-                    console_writeln("keymusic: C D E F G A H(B) — Ctrl+Q quits.");
-                    console_writeln("keys: c d e f g a h (b as alias)");
-                    for (;;) {
-                        int k = keyboard_poll_char();
-                        if (k < 0) { netface_poll(); cpuidle_idle(); continue; }
-                        if (k == 0x11) { // Ctrl+Q
-                            console_write("\n");
-                            break;
+                    extern int keymusic_app_main(const mez_api32_t*);
+                    (void)keymusic_app_main(mez_api_get());
+                } else if (buf[0]=='a' && buf[1]=='p' && buf[2]=='p' && (buf[3]==0 || buf[3]==' ')) {
+                    int i=3; while (buf[i]==' ') i++;
+                    if (!buf[i] || (buf[i]=='l' && buf[i+1]=='s')) {
+                        // app ls → list /apps (NeeleFS v2)
+                        if (!neelefs_ls_path("/apps")) console_writeln("app: list failed (mount NeeleFS v2)");
+                    } else if (buf[i]=='r' && buf[i+1]=='u' && buf[i+2]=='n') {
+                        i+=3; while (buf[i]==' ') i++;
+                        if (!buf[i]) { console_writeln("usage: app run </path|name>"); }
+                        else {
+                            // If '/': treat as file path; else: name
+                            char name[64]; name[0]=0;
+                            if (buf[i]=='/') {
+                                // Read file and parse first token as name (ASCII). CRC verified by neelefs_read_text.
+                                static char fbuf[1024]; uint32_t out_len=0;
+                                if (!neelefs_read_text(buf+i, fbuf, sizeof(fbuf)-1, &out_len)) { console_writeln("app: read failed"); }
+                                else {
+                                    fbuf[out_len]=0; // NUL-terminate
+                                    // Accept formats: "MEZCMD\n<name>" or just "<name>"
+                                    const char* p=fbuf;
+                                    if (p[0]=='M'&&p[1]=='E'&&p[2]=='Z'&&p[3]=='C'&&p[4]=='M'&&p[5]=='D'){ while (*p && *p!='\n') p++; if (*p=='\n') p++; }
+                                    int j=0; while (*p && *p!='\n' && j<63){ name[j++]=*p++; } name[j]=0;
+                                }
+                            } else {
+                                int j=0; while (buf[i] && buf[i]!=' ' && j<63){ name[j++]=buf[i++]; } name[j]=0;
+                            }
+                            if (name[0]==0){ console_writeln("app: no name"); }
+                            else if (name[0]=='k'&&name[1]=='e'&&name[2]=='y'&&name[3]=='m'&&name[4]=='u'&&name[5]=='s'&&name[6]=='i'&&name[7]=='c'&&name[8]==0){
+                                extern int keymusic_app_main(const mez_api32_t*);
+                                (void)keymusic_app_main(mez_api_get());
+                            } else {
+                                console_writeln("app: unknown name");
+                            }
                         }
-                        // Map letters to one octave (approx Hz)
-                        uint32_t f = 0;
-                        switch (k) {
-                            case 'c': case 'C': f = 262; break; // C4 ~261.63
-                            case 'd': case 'D': f = 294; break; // D4 ~293.66
-                            case 'e': case 'E': f = 330; break; // E4 ~329.63
-                            case 'f': case 'F': f = 349; break; // F4 ~349.23
-                            case 'g': case 'G': f = 392; break; // G4 ~392.00
-                            case 'a': case 'A': f = 440; break; // A4 440.00
-                            case 'h': case 'H': f = 494; break; // B4 ~493.88 (German H)
-                            case 'b': case 'B': f = 494; break; // alias for H
-                            default: break;
-                        }
-                        if (f) pcspeaker_beep(f, 150);
-                    }
-                } else if (streq(buf, "snake")) {
-                    snake_run();
+                    } else { console_writeln("usage: app [ls|run </path|name>]"); }
                 } else if (buf[0]=='h' && buf[1]=='t' && buf[2]=='t' && buf[3]=='p' && (buf[4]==0 || buf[4]==' ')) {
                     extern void net_tcp_min_listen(uint16_t port);
                     extern void net_tcp_min_stop(void);

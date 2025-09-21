@@ -41,3 +41,10 @@
 2025-09-07 17:24:16 (master@b561b1e) - cpuidle: add shell command 'idle [n]' and statusbar wakeups display
 2025-09-07 17:33:15 (master@b561b1e) - shell: add 'ticks' and 'wakeups' commands; README/docs updated
 2025-09-07 17:39:25 (master@b561b1e) - timer: add 'timer <show|hz N|off|on>' command; make CONFIG_TIMER_HZ; README QEMU accel + power tips
+2025-09-21 21:17:17 (master@6e7a5a0) - boot: chunked CHS loader, drop BIOS debug strings
+2025-09-21 21:17:20 (master@6e7a5a0) - build: ship mezapi.o + keymusic app into kernel payload
+2025-09-21 21:17:23 (master@6e7a5a0) - shell: add app launcher (ls/run) backed by MezAPI
+2025-09-21 21:17:25 (master@6e7a5a0) - docs: shell cheat-sheets, MezAPI reference, changelog workflow
+2025-09-21 21:17:29 (master@6e7a5a0) - tools: add neelefs2_put.py for in-place NeeleFS v2 updates
+2025-09-21 21:17:31 (master@6e7a5a0) - sparc: link via arch/sparc/link.ld with 4K pad section
+2025-09-21 21:17:35 (master@6e7a5a0) - snake: clamp status string writes before terminator

@@ -21,3 +21,4 @@ Notes & Limits
 - ARP cache is small (8 entries), no ageing policy yet.
 - ICMP Echo Reply is implemented; Echo Request sends are fire-and-forget with a basic wait loop.
 - Frames larger than 1600 bytes are ignored by the RX path.
+- Driver debug traces can be enabled at build time with `CONFIG_NET_RX_DEBUG=1` in `config.h` (prints RX verbs to the console).

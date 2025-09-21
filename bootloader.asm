@@ -23,41 +23,126 @@ start:
     mov sp, 0x7C00
     mov ds, ax
 
-    ; Begrüßung anzeigen
-    mov si, boot_msg
-    call print_string
+    ; (no banner to save space)
 
-    ; Kernel ab Sektor 2 laden (Sektor 1 ist Bootloader)
-    mov bx, 0x7E00     ; Zieladresse im RAM (ES:BX)
+    ; Kernel ab Sektor 2 laden (Sektor 1 ist Bootloader) — robust in Chunks
+    ; Ziel: ES:BX = 0x07E0:0x0000 (linear 0x0000:0x7E00)
+    mov bx, 0x0000
+    mov ax, 0x07E0
+    mov es, ax
+
+    ; Ermittele Geometrie (Sektoren/Spur, Köpfe)
+    push dx                ; Bootlaufwerk in DL sichern
+    mov ah, 0x08
+    int 0x13
+    pop dx
+    jc disk_error
+    mov byte [spt], cl     ; CL[5:0] = Sektoren/Spur
+    and byte [spt], 0x3F
+    mov byte [max_head], dh ; DH = max Head (0..n)
+
+    ; Initiale CHS
+    xor word [cyl], 0
+    xor byte [head], 0
+    mov byte [sect], 2     ; ab Sektor 2
+
+    ; Verbleibende Sektoren laden
+    mov word [remain], KERNEL_SECTORS
+
+.load_loop:
+    mov ax, [remain]
+    cmp ax, 0
+    je .load_done
+    ; Sektoren bis Trackende
+    xor bx, bx
+    mov bl, [spt]
+    xor cx, cx
+    mov cl, [sect]
+    mov si, bx
+    sub si, cx             ; si = spt - sect
+    inc si                 ; +1 inkl. current
+    ; Max pro Call: min(remain, track_left, 127)
+    mov di, si             ; di = track_left
+    cmp ax, di
+    jbe .use_remain
+    mov ax, di
+.use_remain:
+    cmp ax, 127
+    jbe .have_n
+    mov ax, 127
+.have_n:
+    ; AX = n_sectors
+    push ax
+    ; CHS in Register laden
+    ; CH = cyl[7:0], CL = (cyl[9:8]<<6)|sect
+    mov bx, [cyl]
+    mov ch, bl
+    mov cl, byte [sect]
+    and cl, 0x3F
+    mov bl, bh
+    and bl, 0x03
+    shl bl, 6
+    or  cl, bl
+    mov dh, [head]
+    ; AL = n, AH=0x02, ES:BX = Dest
+    pop ax                 ; AX = n
+    mov ah, 0x02           ; AH=function 02h, AL=sectors to read
+    xor bx, bx             ; BX=0 (ES holds destination segment)
+    int 0x13
+    jc disk_error
+    ; Nach Erfolg: Pointer und CHS fortsetzen
+    mov [last_n], al
+    ; ES += n * (512/16) = n * 32
     xor ax, ax
-    mov es, ax         ; ES = 0x0000
+    mov al, 32
+    mul byte [last_n]      ; AX = last_n * 32
+    mov bx, es
+    add bx, ax
+    mov es, bx
+    ; Update remain
+    ; Update remain with AL (sectors actually read)
+    xor bx, bx
+    mov bl, al
+    mov ax, [remain]
+    sub ax, bx
+    mov [remain], ax
+    ; Update sector/head/cyl: sect += n
+    xor si, si
+    mov si, 0
+    mov si, 0
+    mov bl, [sect]
+    mov si, bx
+    add si, bx
+    ; while sect > spt: sect -= spt; head++
+.sect_wrap:
+    xor di, di
+    mov dl, [spt]
+    mov di, dx
+    cmp si, di
+    jbe .set_sect
+    sub si, di
+    ; head++
+    mov al, [head]
+    inc al
+    cmp al, [max_head]
+    jbe .set_head
+    xor al, al
+    ; cyl++
+    inc word [cyl]
+.set_head:
+    mov [head], al
+    jmp .sect_wrap
+.set_sect:
+    mov ax, si
+    mov [sect], al
+    jmp .load_loop
 
-load_kernel:
-    mov ah, 0x02       ; BIOS: Sektor lesen
-    mov al, KERNEL_SECTORS ; Anzahl Sektoren
-    mov ch, 0x00       ; Cylinder 0
-    mov cl, 0x02       ; Sektor 2 (1 ist Bootsektor)
-    mov dh, 0x00       ; Head 0
-    ; DL enthält vom BIOS das Bootlaufwerk (0x00=Floppy, 0x80=HDD). Nicht überschreiben.
-    int 0x13           ; BIOS Disk Service
-    jc disk_error      ; Fehlerbehandlung
+.load_done:
 
-    mov si, success_msg
-    call print_string
-    mov si, after_load_msg
-    call print_string
+    ; load complete
 
     ; Prüfe ob mindestens i386 (vorerst übersprungen)
-    mov si, before_cpu_msg
-    call print_string
-    jmp short .skip_cpu_check
-    call check_cpu
-    jc cpu_error
-    mov si, cpu_ok_msg
-    call print_string
-    mov si, after_cpu_msg
-    call print_string
-.skip_cpu_check:
+    ; skip cpu check / prints to save space
 
     ; A20 Gate aktivieren
     call enable_a20
@@ -65,9 +150,7 @@ load_kernel:
     ; GDT vorbereiten (im Bootsektor, 3 Einträge: Null, Code, Data)
     cli
     lgdt [gdt_descriptor]
-    ; Letzter BIOS-Print vor Protected Mode
-    mov si, after_lgdt_msg
-    call print_string
+    ; (no print before protected mode)
 
     ; Protected Mode aktivieren
     mov eax, cr0
@@ -109,49 +192,7 @@ gdt_descriptor:
     dd gdt_start
 
 disk_error:
-    mov si, error_msg
-    call print_string
     jmp $
-
-print_string:
-    mov ah, 0x0E
-    cld
-.next_char:
-    lodsb
-    or al, al
-    jz .done
-    int 0x10
-    jmp .next_char
-.done:
-    ret
-
-
-error_msg db 'Disk Error!', 0
-success_msg db 'DEBUG Load OK', 0
-boot_msg db 'Mezereon Bootloader starting...', 13, 10, 0
-cpu_ok_msg db 'CPU check passed: i386+ detected', 13, 10, 0
-cpu_error_msg db 'Error: i386 or better CPU required!', 13, 10, 0
-
-; CPU-Check für i386
-check_cpu:
-    ; Völlig konservativer Stub: nur Debug-Prints, keine Privileg-OPs
-    mov si, testing_msg
-    call print_string
-    mov si, cr0_msg
-    call print_string
-    mov si, pe_msg
-    call print_string
-    clc                 ; Success
-    ret
-
-; Debug Messages
-testing_msg db 'CPU Test...', 13, 10, 0
-cr0_msg db 'CR0 Test OK...', 13, 10, 0
-pe_msg db 'PE Test OK...', 13, 10, 0
-before_cpu_msg db 'Before CPU check...', 13, 10, 0
-after_cpu_msg db 'After CPU check...', 13, 10, 0
-after_load_msg db 'After load...', 13, 10, 0
-after_lgdt_msg db 'After LGDT...', 13, 10, 0
 
 ; A20 Gate aktivieren
 enable_a20:
@@ -162,9 +203,16 @@ enable_a20:
     ret
 
 cpu_error:
-    mov si, cpu_error_msg
-    call print_string
     jmp $               ; Endlosschleife
+
+; --- Daten (müssen vor Signatur liegen) ---
+spt       db 0      ; sectors per track
+max_head  db 0      ; maximum head number
+sect      db 0      ; current sector (1-based)
+head      db 0      ; current head
+cyl       dw 0      ; current cylinder
+remain    dw 0      ; sectors left to read
+last_n    db 0      ; sectors read in last op
 
 times 510-($-$$) db 0
     dw 0xAA55

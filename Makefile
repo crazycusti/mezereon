@@ -82,6 +82,12 @@ net/ipv4.o: net/ipv4.c net/ipv4.h netface.h console.h platform.h
 net/tcp_min.o: net/tcp_min.c net/tcp_min.h net/ipv4.h console.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
+mezapi.o: mezapi.c mezapi.h console.h keyboard.h platform.h drivers/pcspeaker.h
+	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+
+apps/keymusic_app.o: apps/keymusic_app.c ./mezapi.h
+	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+
 platform.o: platform.c platform.h interrupts.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 drivers/ne2000.o: drivers/ne2000.c drivers/ne2000.h config.h
@@ -101,10 +107,7 @@ drivers/storage.o: drivers/storage.c drivers/storage.h drivers/ata.h drivers/fs/
 keyboard.o: keyboard.c keyboard.h config.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
-snake.o: snake.c snake.h config.h keyboard.h platform.h console.h drivers/pcspeaker.h
-	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
-
-shell.o: shell.c shell.h keyboard.h config.h main.h snake.h
+shell.o: shell.c shell.h keyboard.h config.h main.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
 cpu.o: cpu.c cpu.h console.h
@@ -113,7 +116,7 @@ cpu.o: cpu.c cpu.h console.h
 cpuidle.o: cpuidle.c cpuidle.h config.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
-kernel_payload.elf: entry32.o kentry.o isr.o idt.o interrupts.o platform.o main.o video.o console.o $(CONSOLE_BACKEND_OBJ) netface.o net/ipv4.o net/tcp_min.o drivers/ne2000.o drivers/pcspeaker.o drivers/ata.o drivers/fs/neelefs.o drivers/storage.o keyboard.o cpu.o cpuidle.o snake.o shell.o
+kernel_payload.elf: entry32.o kentry.o isr.o idt.o interrupts.o platform.o main.o video.o console.o $(CONSOLE_BACKEND_OBJ) netface.o net/ipv4.o net/tcp_min.o mezapi.o apps/keymusic_app.o drivers/ne2000.o drivers/pcspeaker.o drivers/ata.o drivers/fs/neelefs.o drivers/storage.o keyboard.o cpu.o cpuidle.o shell.o
 	$(LD) $(LDFLAGS) $^ -o $@
 
 # Erzeuge flaches Binary ohne führende 0x7E00-Lücke
@@ -292,7 +295,7 @@ endif
 SPARC_CFLAGS ?= -ffreestanding -nostdlib -Wall -Wextra -Os -mcpu=v8 -fno-pic -fno-pie -fno-builtin -mno-fpu -mflat -Wa,-Av8
 SPARC_CDEFS ?= -DCONFIG_ARCH_X86=0 -DCONFIG_ARCH_SPARC=1
 # Avoid external linker script; set entry + text base explicitly for -kernel and OF
-SPARC_LDFLAGS ?= -nostdlib -Wl,-N,-e,_start,-Ttext=0x4000
+SPARC_LDFLAGS ?= -ffreestanding -nostdlib -Wl,-Tarch/sparc/link.ld,-z,max-page-size=0x1000,-z,common-page-size=0x1000
 
 .PHONY: sparc-boot check-sparc-toolchain
 # Build SPARC client program variants (ELF for -kernel, a.out for OF, bin for manual)
@@ -318,7 +321,10 @@ arch/sparc/kentry.o: kentry.c bootinfo.h config.h
 arch/sparc/ministubs.o: arch/sparc/ministubs.c
 	$(SPARC_CC) $(SPARC_CFLAGS) $(SPARC_CDEFS) -c $< -o $@
 
-arch/sparc/boot.elf: arch/sparc/boot_sparc32.o arch/sparc/boot.o arch/sparc/kentry.o arch/sparc/ministubs.o
+arch/sparc/pad.o: arch/sparc/pad.S
+	$(SPARC_CC) -c $< -o $@
+
+arch/sparc/boot.elf: arch/sparc/pad.o arch/sparc/boot_sparc32.o arch/sparc/boot.o arch/sparc/kentry.o arch/sparc/ministubs.o
 	$(SPARC_CC) $(SPARC_CFLAGS) $(SPARC_LDFLAGS) $^ -o $@
 
 # Produce a.out SunOS big-endian client program variant (some OFs prefer this)

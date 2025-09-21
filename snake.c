@@ -165,8 +165,8 @@ void snake_run(void){
         for (int i=0; prefix[i] && i<40; i++) sbuf[sp++]=prefix[i];
         // score decimal
         uint32_t v=(uint32_t)score; char tmp[10]; int ti=0; if (v==0) tmp[ti++]='0'; else { while(v&&ti<10){ tmp[ti++]=(char)('0'+(v%10)); v/=10; } }
-        while (ti--) sbuf[sp++]=tmp[ti]; sbuf[sp]=0;
+        while (ti--) { if (sp < (int)sizeof(sbuf)-1) sbuf[sp++]=tmp[ti]; }
+        sbuf[sp]=0;
         console_status_set_left(sbuf);
     }
 }
-

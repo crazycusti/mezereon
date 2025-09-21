@@ -1,0 +1,43 @@
+#pragma once
+#include <stdint.h>
+
+// MezAPI v1 for 32-bit x86 (cdecl, little-endian)
+// Stable binary layout: new functions are appended; size guards compatibility.
+
+#define MEZ_ARCH_X86_32   0x00000001u
+#define MEZ_ABI32_V1      0x00010000u
+
+typedef struct mez_api32 {
+    // Header
+    uint32_t abi_version;   // e.g., MEZ_ABI32_V1
+    uint32_t size;          // sizeof(struct mez_api32) provided by kernel
+    uint32_t arch;          // MEZ_ARCH_* constant
+
+    // Console/Text output
+    void     (*console_write)(const char* s);
+    void     (*console_writeln)(const char* s);
+    void     (*console_clear)(void);
+
+    // Input (non-blocking; returns ASCII or special codes >255, -1 if none)
+    int      (*input_poll_key)(void);
+
+    // Time
+    uint32_t (*time_ticks_get)(void);
+    uint32_t (*time_timer_hz)(void);
+    void     (*time_sleep_ms)(uint32_t ms);
+
+    // Sound (PC speaker or backend)
+    void     (*sound_beep)(uint32_t hz, uint32_t ms);
+    void     (*sound_tone_on)(uint32_t hz);
+    void     (*sound_tone_off)(void);
+
+    // Text-mode drawing (hardware-agnostic API; backend may be VGA text)
+    void     (*text_put)(int x, int y, char ch, uint8_t attr);
+    void     (*text_fill_line)(int y, char ch, uint8_t attr);
+    void     (*status_left)(const char* s);
+    void     (*status_right)(const char* s, int len);
+} mez_api32_t;
+
+// Provider from kernel
+const mez_api32_t* mez_api_get(void);
+

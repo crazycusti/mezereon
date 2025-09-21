@@ -2,6 +2,7 @@ Mezereon — Minimal x86 OS path + SPARC OBP stub
 
 Quick start
 - Show available targets: `make help`
+- Shell command cheat-sheets: `docs/shell/README.md`
 - x86 (QEMU i386)
   - Build: `make`
   - Run (floppy, terminal/curses): `make run-x86-floppy`
@@ -76,33 +77,18 @@ Useful runtime commands (shell)
 - ticks: print raw PIT tick counter (since boot).
 - wakeups: print cpuidle HLT wakeups (since init).
 - idle [n]: execute HLT once (or n times) to test CPU idle handling.
-- Status bar: top row, blue. Left shows status (e.g., pad errors), right shows timer.
-- ata: report if selected ATA device is present (ATA disk).
-- ata scan: scan PM/PS/SM/SS and print type per slot.
-- ata use <0..3>: select device slot (0=PM,1=PS,2=SM,3=SS).
-- atadump [lba]: hexdump up to 2KiB from LBA; Down/Enter/Space=next, PgDn=+16 lines, q=quit.
-- autofs [show|rescan|mount <n>]: storage auto-detect over ATA; lists devices and detected NeeleFS; automounts best match; mount a specific index.
-- neele mount [lba]: mount NeeleFS at LBA (default from CONFIG_NEELEFS_LBA).
-- neele ls: list files in NeeleFS root.
-- neele cat <name>: print file contents (non-printables as '.').
-- pad </path>: inline editor (Ctrl+S save, Ctrl+Q quit; v2 only).
-- neele verify [verbose] [path]: verify CRCs for a file or recursively from a directory/root (v2). With `verbose`, prints CRCs for OK files too. If used, place `verbose` before the path.
-- netinfo: network summary (driver, MAC, promisc, IO base).
-- netrxdump: verbose RX drain; press 'q' to quit.
-- ip: show IPv4 config. `ip set <addr> <mask> [gw]` to configure. `ip ping <addr> [count]` to send ICMP echo.
-- http: minimal HTTP server (single-connection, static)
-  - beep: simple PC-speaker test. `beep [freq] [ms]`
-  - keymusic: interactive tones — press C/E, Ctrl+Q quits
-  - `http status` — show state and port (default 80)
-  - `http start [port]` — start listening
-  - `http stop` — stop server
-  - `http body <text>` — serve inline body (default mode)
-  - `http file </path>` — serve file from NeeleFS v2, e.g. `/www/index` (default)
-  - `http inline` — switch back to inline mode
+- Shell highlights (full cheat-sheets live in `docs/shell/`):
+  - Storage: `ata`, `autofs`, `atadump` (see `docs/shell/storage.md`).
+  - NeeleFS v2: `neele mount/ls/cat/mkfs/verify`, `pad` editor (`docs/shell/neelefs.md`).
+  - Network: `netinfo`, `netrxdump` (set `CONFIG_NET_RX_DEBUG=1` for verbose driver logs), `ip`, `http` (`docs/shell/network.md`, `docs/net/http.md`).
+  - Power/system: `version`, `idle`, `timer`, `ticks`, `wakeups` (`docs/shell/system.md`, `docs/shell/power.md`).
+  - Apps: `app ls`, `app run <name|/path>` for MezAPI-linked helpers such as `keymusic`; see `docs/shell/apps.md` and `docs/api/mezapi.md`.
+  - Audio quick test: `beep [freq] [ms]` (PC speaker ping).
 
 Changelog
 - Append quick notes: `make log MSG="keyword: short message"`
 - File: `CHANGELOG`
+- Workflow details: `docs/workflow/changelog.md`
 
 Cleanup
 - `make clean` removes build artifacts and images
@@ -125,6 +111,7 @@ Examples
   - Start QEMU with second IDE drive (manual):
     - `qemu-system-i386 -drive file=disk.img,format=raw,if=ide -drive file=neele.img,format=raw,if=ide,index=1 -net none -serial stdio`
   - In shell: `neele mount 2048` → `neele ls` → `neele cat hello.txt`
+  - Update an existing disk image in-place: `python3 tools/neelefs2_put.py disk.img ./host.txt /www/host.txt --lba 2048`
 
 - Enable NE2000 in QEMU (optional):
   - Quick: `make run-x86-hdd-ne2k`
@@ -148,7 +135,8 @@ Examples
 
 - SPARC netboot (OpenBIOS):
   - Build: `make sparc-boot`
-  - Run: `make run-sparc-tftp`
+  - Run: `make run-sparc-tftp` (preferred; closely mimics SS-5 firmware expectations)
+  - Run (direct kernel): `make run-sparc-kernel` (image is linked via `arch/sparc/link.ld` with a single PT_LOAD; OpenBIOS builds still vary in behaviour)
 
 CI / Automation
 - GitHub Actions workflow included (`.github/workflows/ci.yml`). It:
