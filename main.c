@@ -8,13 +8,42 @@
 #include "cpuidle.h"
 #include "net/ipv4.h"
 #include "drivers/pcspeaker.h"
+#include "display.h"
+#include "drivers/pci.h"
+#include "drivers/gpu/gpu.h"
+#include "version.h"
+#include <stddef.h>
 
 void kmain()
 {
+    display_manager_init(CONFIG_VIDEO_TARGET);
     console_init();
     console_writeln("Initializing Mezereon... Video initialized.");
+    display_manager_log_state();
     // Compact CPU info line
     cpu_bootinfo_print();
+
+    pci_init();
+    size_t pci_device_count = 0;
+    pci_get_devices(&pci_device_count);
+    console_write("PCI: detected ");
+    console_write_dec((uint32_t)pci_device_count);
+    console_writeln(" device(s).");
+
+    gpu_init();
+    gpu_log_summary();
+
+    if (CONFIG_VIDEO_TARGET != CONFIG_VIDEO_TARGET_TEXT) {
+        if (gpu_request_framebuffer_mode(640, 480, 8)) {
+            console_writeln("Display: Cirrus framebuffer 640x480@8 aktiv.");
+            display_manager_log_state();
+        } else if (CONFIG_VIDEO_TARGET == CONFIG_VIDEO_TARGET_FRAMEBUFFER) {
+            console_writeln("Display: Framebuffer angefordert, aber kein passender Adapter.");
+        }
+    }
+
+    console_status_set_right(GIT_REV);
+
     // Platform init: IDT/PIC remap, PIT 100Hz, unmask required IRQs and enable
     platform_interrupts_init();
     platform_timer_init(CONFIG_TIMER_HZ);
@@ -71,6 +100,7 @@ void kmain()
         netface_bootinfo_print();
     }
     console_writeln("Welcome to Mezereon.");
+    console_status_set_right(GIT_REV);
     keyboard_init();
     shell_run();
 }

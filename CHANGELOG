@@ -48,3 +48,8 @@
 2025-09-21 21:17:29 (master@6e7a5a0) - tools: add neelefs2_put.py for in-place NeeleFS v2 updates
 2025-09-21 21:17:31 (master@6e7a5a0) - sparc: link via arch/sparc/link.ld with 4K pad section
 2025-09-21 21:17:35 (master@6e7a5a0) - snake: clamp status string writes before terminator
+2025-09-21 21:41:04 (master@4aaa05c) - boot: fix chunked loader math + CHS advance
+2025-09-21 22:17:52 (master@4aaa05c) - boot: use int13 LBA fallback for HDD geometry quirks
+2025-09-21 22:18:01 (master@4aaa05c) - build: truncate kernel payload to 512-byte sectors before cat
+2025-09-21 23:20:41 (master@4aaa05c) - pci: add config space scanner and device table
+2025-09-21 23:20:48 (master@4aaa05c) - gpu: detect cirrus gd5446, add gpuinfo command

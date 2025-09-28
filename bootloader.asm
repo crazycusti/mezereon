@@ -23,13 +23,13 @@ start:
     mov sp, 0x7C00
     mov ds, ax
 
-    ; (no banner to save space)
+    mov [boot_drive], dl
 
     ; Kernel ab Sektor 2 laden (Sektor 1 ist Bootloader) — robust in Chunks
     ; Ziel: ES:BX = 0x07E0:0x0000 (linear 0x0000:0x7E00)
-    mov bx, 0x0000
     mov ax, 0x07E0
     mov es, ax
+    xor bx, bx
 
     ; Ermittele Geometrie (Sektoren/Spur, Köpfe)
     push dx                ; Bootlaufwerk in DL sichern
@@ -40,101 +40,138 @@ start:
     mov byte [spt], cl     ; CL[5:0] = Sektoren/Spur
     and byte [spt], 0x3F
     mov byte [max_head], dh ; DH = max Head (0..n)
-
     ; Initiale CHS
-    xor word [cyl], 0
-    xor byte [head], 0
+    xor ax, ax
+    mov [cyl], ax
+    mov byte [head], 0
     mov byte [sect], 2     ; ab Sektor 2
 
     ; Verbleibende Sektoren laden
-    mov word [remain], KERNEL_SECTORS
+    mov ax, KERNEL_SECTORS
+    mov [remain], ax
+
+    ; Versuche BIOS LBA-Erweiterung (EDD)
+    mov byte [use_lba], 0
+    mov word [lba_lo], 1
+    mov word [lba_hi], 0
+    mov word [dap+12], 0
+    mov word [dap+14], 0
+    mov ah, 0x41
+    mov bx, 0x55AA
+    mov dl, [boot_drive]
+    int 0x13
+    jc .lba_check_done
+    cmp bx, 0xAA55
+    jne .lba_check_done
+    test cx, 1
+    jz .lba_check_done
+    mov byte [use_lba], 1
+.lba_check_done:
 
 .load_loop:
     mov ax, [remain]
     cmp ax, 0
     je .load_done
-    ; Sektoren bis Trackende
-    xor bx, bx
-    mov bl, [spt]
-    xor cx, cx
-    mov cl, [sect]
-    mov si, bx
-    sub si, cx             ; si = spt - sect
-    inc si                 ; +1 inkl. current
-    ; Max pro Call: min(remain, track_left, 127)
-    mov di, si             ; di = track_left
-    cmp ax, di
-    jbe .use_remain
-    mov ax, di
-.use_remain:
-    cmp ax, 127
-    jbe .have_n
-    mov ax, 127
-.have_n:
-    ; AX = n_sectors
-    push ax
-    ; CHS in Register laden
-    ; CH = cyl[7:0], CL = (cyl[9:8]<<6)|sect
+
+    ; Sektoren bis Trackende (track_left = spt - sect + 1)
+    movzx bx, byte [spt]
+    movzx cx, byte [sect]
+    sub bx, cx
+    inc bx
+    mov dx, bx                    ; dx = track_left
+
+    ; n = min(remain, track_left, 127)
+    mov ax, [remain]
+    cmp ax, dx
+    jbe .after_track_limit
+    mov ax, dx
+.after_track_limit:
+    cmp ax, 32
+    jbe .count_ready
+    mov ax, 32
+.count_ready:
+    mov [n_sectors], ax           ; remember sectors for this call
+
+    cmp byte [use_lba], 0
+    jne .use_lba_path
+
+    ; CHS vorbereiten
     mov bx, [cyl]
-    mov ch, bl
+    mov ch, bl                    ; CH = cyl low byte
     mov cl, byte [sect]
     and cl, 0x3F
-    mov bl, bh
+    mov dh, [head]
+    mov dl, [boot_drive]
+    mov bl, bh                    ; cyl high bits -> CL[7:6]
     and bl, 0x03
     shl bl, 6
     or  cl, bl
-    mov dh, [head]
-    ; AL = n, AH=0x02, ES:BX = Dest
-    pop ax                 ; AX = n
-    mov ah, 0x02           ; AH=function 02h, AL=sectors to read
-    xor bx, bx             ; BX=0 (ES holds destination segment)
+
+    mov ah, 0x02                  ; BIOS: Sektor lesen
+    mov al, byte [n_sectors]
+    xor bx, bx                    ; Zieloffset 0 (ES trägt Segment)
     int 0x13
     jc disk_error
-    ; Nach Erfolg: Pointer und CHS fortsetzen
-    mov [last_n], al
-    ; ES += n * (512/16) = n * 32
-    xor ax, ax
-    mov al, 32
-    mul byte [last_n]      ; AX = last_n * 32
+    jmp .after_read
+
+.use_lba_path:
+    mov ax, [n_sectors]
+    mov [dap+2], ax               ; sectors to read
+    mov word [dap+4], 0           ; buffer offset
+    mov word [dap+6], es          ; buffer segment
+    mov ax, [lba_lo]
+    mov [dap+8], ax
+    mov ax, [lba_hi]
+    mov [dap+10], ax
+    mov ah, 0x42
+    mov dl, [boot_drive]
+    mov si, dap
+    int 0x13
+    jc disk_error
+    xor dx, dx
+    mov ax, [n_sectors]
+    add [lba_lo], ax
+    adc [lba_hi], dx
+
+.after_read:
+
+    ; Zeiger und Rest aktualisieren
+    mov ax, [remain]
+    sub ax, [n_sectors]
+    mov [remain], ax
+
+    mov ax, [n_sectors]
+    shl ax, 5                     ; n * (512/16)
     mov bx, es
     add bx, ax
     mov es, bx
-    ; Update remain
-    ; Update remain with AL (sectors actually read)
-    xor bx, bx
-    mov bl, al
-    mov ax, [remain]
+
+    ; Nächste CHS Position berechnen
+    cmp byte [use_lba], 0
+    jne .skip_chs_update
+    movzx ax, byte [sect]
+    add ax, [n_sectors]
+
+.wrap_check:
+    movzx bx, byte [spt]
+    cmp ax, bx
+    jbe .store_sect
     sub ax, bx
-    mov [remain], ax
-    ; Update sector/head/cyl: sect += n
-    xor si, si
-    mov si, 0
-    mov si, 0
-    mov bl, [sect]
-    mov si, bx
-    add si, bx
-    ; while sect > spt: sect -= spt; head++
-.sect_wrap:
-    xor di, di
-    mov dl, [spt]
-    mov di, dx
-    cmp si, di
-    jbe .set_sect
-    sub si, di
-    ; head++
-    mov al, [head]
-    inc al
-    cmp al, [max_head]
-    jbe .set_head
-    xor al, al
-    ; cyl++
+    mov bl, [head]
+    inc bl
+    cmp bl, [max_head]
+    jbe .store_head
+    mov bl, 0
     inc word [cyl]
-.set_head:
-    mov [head], al
-    jmp .sect_wrap
-.set_sect:
-    mov ax, si
+.store_head:
+    mov [head], bl
+    jmp .wrap_check
+
+.store_sect:
     mov [sect], al
+    jmp .load_loop
+
+.skip_chs_update:
     jmp .load_loop
 
 .load_done:
@@ -190,8 +227,8 @@ gdt_end:
 gdt_descriptor:
     dw gdt_end - gdt_start - 1
     dd gdt_start
-
 disk_error:
+    mov [disk_err_status], ah
     jmp $
 
 ; A20 Gate aktivieren
@@ -206,13 +243,24 @@ cpu_error:
     jmp $               ; Endlosschleife
 
 ; --- Daten (müssen vor Signatur liegen) ---
-spt       db 0      ; sectors per track
-max_head  db 0      ; maximum head number
-sect      db 0      ; current sector (1-based)
-head      db 0      ; current head
-cyl       dw 0      ; current cylinder
-remain    dw 0      ; sectors left to read
-last_n    db 0      ; sectors read in last op
+boot_drive db 0     ; BIOS drive number (from DL)
+spt        db 0     ; sectors per track
+max_head   db 0     ; maximum head number
+sect       db 0     ; current sector (1-based)
+head       db 0     ; current head
+cyl        dw 0     ; current cylinder
+remain     dw 0     ; sectors left to read
+n_sectors  dw 0     ; sectors read in last op
+disk_err_status db 0 ; last BIOS error code
+use_lba    db 0
+lba_lo     dw 1
+lba_hi     dw 0
+dap:        db 0x10, 0x00
+            dw 0      ; sector count
+            dw 0      ; buffer offset
+            dw 0      ; buffer segment
+            dw 0, 0   ; LBA low dword (initial zero; set at runtime)
+            dw 0, 0   ; LBA high dword (unused)
 
 times 510-($-$$) db 0
     dw 0xAA55

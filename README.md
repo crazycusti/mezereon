@@ -81,6 +81,8 @@ Useful runtime commands (shell)
   - Storage: `ata`, `autofs`, `atadump` (see `docs/shell/storage.md`).
   - NeeleFS v2: `neele mount/ls/cat/mkfs/verify`, `pad` editor (`docs/shell/neelefs.md`).
   - Network: `netinfo`, `netrxdump` (set `CONFIG_NET_RX_DEBUG=1` for verbose driver logs), `ip`, `http` (`docs/shell/network.md`, `docs/net/http.md`).
+  - GPU/Pci: `gpuinfo [detail]` prüft PCI-Grafikgeräte; `detail` zeigt Register-Dumps. `fbtest` schaltet testweise den Cirrus-Framebuffer (Bildspeicher) auf 640×480 und zeigt Farbbalken.
+  - Grafikmodus: `CONFIG_VIDEO_TARGET=text|auto|framebuffer` (Default `auto`). Bei Cirrus wird automatisch auf Framebuffer umgestellt; die Statusleiste zeigt einen dunklen Regenbogen-Hintergrund und den aktuellen Modus (`gfx: framebuffer`/`text`).
   - Power/system: `version`, `idle`, `timer`, `ticks`, `wakeups` (`docs/shell/system.md`, `docs/shell/power.md`).
   - Apps: `app ls`, `app run <name|/path>` for MezAPI-linked helpers such as `keymusic`; see `docs/shell/apps.md` and `docs/api/mezapi.md`.
   - Audio quick test: `beep [freq] [ms]` (PC speaker ping).

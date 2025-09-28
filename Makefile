@@ -48,7 +48,7 @@ endif
 
 all: disk.img
 
-bootloader.bin: bootloader.asm kernel_payload.bin
+bootloader.bin: bootloader.asm kernel_payload.bin version.h
 	ks=$$((($$(wc -c < kernel_payload.bin)+511)/512)); \
 	$(AS) -f bin -D KERNEL_SECTORS=$$ks $< -o $@
 
@@ -58,10 +58,10 @@ entry32.o: entry32.asm
 isr.o: isr.asm
 	$(AS) -f elf32 $< -o $@
 
-main.o: main.c main.h config.h
+main.o: main.c main.h config.h display.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
-video.o: video.c main.h config.h
+video.o: video.c main.h config.h display.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
 console.o: console.c console.h config.h
@@ -88,11 +88,29 @@ mezapi.o: mezapi.c mezapi.h console.h keyboard.h platform.h drivers/pcspeaker.h
 apps/keymusic_app.o: apps/keymusic_app.c ./mezapi.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
+apps/fbtest_color.o: apps/fbtest_color.c apps/fbtest_color.h display.h console.h drivers/gpu/gpu.h keyboard.h cpuidle.h netface.h
+	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+
+fonts/font8x16.o: fonts/font8x16.c fonts/font8x16.h fonts/font8x16.inc
+	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+
 platform.o: platform.c platform.h interrupts.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 drivers/ne2000.o: drivers/ne2000.c drivers/ne2000.h config.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 drivers/pcspeaker.o: drivers/pcspeaker.c drivers/pcspeaker.h arch/x86/io.h platform.h
+	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+
+drivers/pci.o: drivers/pci.c drivers/pci.h config.h
+	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+
+drivers/gpu/gpu.o: drivers/gpu/gpu.c drivers/gpu/gpu.h drivers/gpu/cirrus.h drivers/pci.h
+	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+
+drivers/gpu/cirrus.o: drivers/gpu/cirrus.c drivers/gpu/cirrus.h drivers/gpu/gpu.h drivers/pci.h
+	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+
+drivers/gpu/vga_hw.o: drivers/gpu/vga_hw.c drivers/gpu/vga_hw.h config.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
 drivers/ata.o: drivers/ata.c drivers/ata.h config.h main.h keyboard.h
@@ -116,15 +134,21 @@ cpu.o: cpu.c cpu.h console.h
 cpuidle.o: cpuidle.c cpuidle.h config.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
-kernel_payload.elf: entry32.o kentry.o isr.o idt.o interrupts.o platform.o main.o video.o console.o $(CONSOLE_BACKEND_OBJ) netface.o net/ipv4.o net/tcp_min.o mezapi.o apps/keymusic_app.o drivers/ne2000.o drivers/pcspeaker.o drivers/ata.o drivers/fs/neelefs.o drivers/storage.o keyboard.o cpu.o cpuidle.o shell.o
+kernel_payload.elf: entry32.o kentry.o isr.o idt.o interrupts.o platform.o main.o video.o console.o display.o fonts/font8x16.o $(CONSOLE_BACKEND_OBJ) netface.o net/ipv4.o net/tcp_min.o mezapi.o apps/keymusic_app.o apps/fbtest_color.o drivers/ne2000.o drivers/pcspeaker.o drivers/pci.o drivers/gpu/gpu.o drivers/gpu/cirrus.o drivers/gpu/vga_hw.o drivers/ata.o drivers/fs/neelefs.o drivers/storage.o keyboard.o cpu.o cpuidle.o shell.o
 	$(LD) $(LDFLAGS) $^ -o $@
 
 # Erzeuge flaches Binary ohne führende 0x7E00-Lücke
 kernel_payload.bin: kernel_payload.elf
 	$(OBJCOPY) -O binary --change-addresses -0x7E00 $< $@
+	truncate -s %512 $@
 
 disk.img: bootloader.bin kernel_payload.bin
 	cat $^ > $@
+
+version.h:
+	@printf "#define GIT_REV \\\"%s\\\"\n" "$(shell git describe --always --dirty 2>/dev/null || git rev-parse --short HEAD)" > $@
+
+main.o: version.h
 
 ## --- QEMU run helpers (x86) ---
 .PHONY: run-x86-floppy run-x86-hdd
@@ -399,3 +423,5 @@ arch/sparc/boot.iso: arch/sparc/boot.aout
 	  test -f $@ || mv $@.cdr $@)
 
 .PHONY: all clean
+display.o: display.c display.h console.h
+	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@

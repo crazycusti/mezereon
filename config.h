@@ -22,6 +22,15 @@
 #define CONFIG_VGA_WIDTH 80
 #define CONFIG_VGA_HEIGHT 25
 
+// Wunschmodus für die Anzeige: 0=Text, 1=Automatik, 2=Framebuffer bevorzugen
+#define CONFIG_VIDEO_TARGET_TEXT        0
+#define CONFIG_VIDEO_TARGET_AUTO        1
+#define CONFIG_VIDEO_TARGET_FRAMEBUFFER 2
+
+#ifndef CONFIG_VIDEO_TARGET
+#define CONFIG_VIDEO_TARGET CONFIG_VIDEO_TARGET_AUTO
+#endif
+
 // Kernel version string
 #ifndef CONFIG_KERNEL_VERSION
 #define CONFIG_KERNEL_VERSION "0.01-prealpha"

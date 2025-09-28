@@ -11,6 +11,8 @@
 #include "interrupts.h"
 #include "net/ipv4.h"
 #include "drivers/pcspeaker.h"
+#include "drivers/gpu/gpu.h"
+#include "apps/fbtest_color.h"
 #include "mezapi.h"
 #include <stdint.h>
 
@@ -44,7 +46,7 @@ void shell_run(void) {
                 } else if (streq(buf, "clear")) {
                     console_clear();
                 } else if (streq(buf, "help")) {
-                    console_write("Commands: version, clear, help, cpuinfo, ticks, wakeups, idle [n], timer <show|hz N|off|on>, ata, atadump [lba], autofs [show|rescan|mount <n>], ip [show|set <ip> <mask> [gw]|ping <ip> [count]], neele mount [lba], neele ls [path], neele cat <name|/path>, neele mkfs, neele mkdir </path>, neele write </path> <text>, neele verify [verbose] [path], pad </path>, netinfo, netrxdump, beep [freq] [ms], keymusic, app [ls|run </path|name>], http [start [port]|stop|status|body <text>]\n");
+                    console_write("Commands: version, clear, help, cpuinfo, ticks, wakeups, idle [n], timer <show|hz N|off|on>, ata, atadump [lba], autofs [show|rescan|mount <n>], ip [show|set <ip> <mask> [gw]|ping <ip> [count]], neele mount [lba], neele ls [path], neele cat <name|/path>, neele mkfs, neele mkdir </path>, neele write </path> <text>, neele verify [verbose] [path], pad </path>, netinfo, netrxdump, gpuinfo, fbtest, beep [freq] [ms], keymusic, app [ls|run </path|name>], http [start [port]|stop|status|body <text>]\n");
                 } else if (streq(buf, "ata")) {
                     if (ata_present()) console_write("ATA present (selected device).\n");
                     else console_write("ATA not present.\n");
@@ -263,6 +265,17 @@ void shell_run(void) {
                 } else if (streq(buf, "keymusic")) {
                     extern int keymusic_app_main(const mez_api32_t*);
                     (void)keymusic_app_main(mez_api_get());
+                } else if (streq(buf, "fbtest")) {
+                    fbtest_run();
+                } else if (buf[0]=='g' && buf[1]=='p' && buf[2]=='u' && buf[3]=='i' && buf[4]=='n' && buf[5]=='f' && buf[6]=='o' && (buf[7]==0 || buf[7]==' ')) {
+                    int i=7; while (buf[i]==' ') i++;
+                    if (!buf[i]) {
+                        gpu_log_summary();
+                    } else if (buf[i]=='d' && buf[i+1]=='e' && buf[i+2]=='t' && buf[i+3]=='a' && buf[i+4]=='i' && buf[i+5]=='l' && (buf[i+6]==0 || buf[i+6]==' ')) {
+                        gpu_dump_details();
+                    } else {
+                        console_writeln("usage: gpuinfo [detail]");
+                    }
                 } else if (buf[0]=='a' && buf[1]=='p' && buf[2]=='p' && (buf[3]==0 || buf[3]==' ')) {
                     int i=3; while (buf[i]==' ') i++;
                     if (!buf[i] || (buf[i]=='l' && buf[i+1]=='s')) {
