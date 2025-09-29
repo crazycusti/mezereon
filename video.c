@@ -45,6 +45,10 @@ static char status_left[128];
 static int  status_left_len = 0;
 static char status_right[64];
 static int  status_right_len = 0;
+static uint8_t g_cursor_fb_visible = 1;
+static uint32_t g_cursor_fb_last_toggle = 0;
+static void video_cursor_refresh_fb(void);
+static void video_cursor_hide_current_fb(void);
 
 void video_print(const char* str);
 
@@ -94,6 +98,7 @@ static void video_draw_cell_fb(int row, int col, const text_cell_t* cell) {
     uint8_t fg = attr_fg(cell->attr);
     uint8_t bg = attr_bg(cell->attr);
     const uint8_t* glyph = font8x16_get(cell->ch);
+    int is_cursor = (row == g_row && col == g_col);
 
     for (int y = 0; y < CHAR_HEIGHT; y++) {
         uint8_t bits = glyph[y];
@@ -102,16 +107,32 @@ static void video_draw_cell_fb(int row, int col, const text_cell_t* cell) {
             uint8_t mask = (uint8_t)(0x80u >> x);
             uint8_t color = bg;
             if (row == 0) {
-        uint32_t denom = (g_fb_width > 1) ? (g_fb_width - 1) : 1;
-        uint32_t step = ((uint32_t)(px + x) * 16u) / denom;
-        color = (uint8_t)(240 + (step & 0x0F));
-        if (bits & mask) color = 15;
-        } else {
-            if (bits & mask) color = fg;
+                uint32_t denom = (g_fb_width > 1) ? (g_fb_width - 1) : 1;
+                uint32_t step = ((uint32_t)(px + x) * 16u) / denom;
+                color = (uint8_t)(240 + (step & 0x0F));
+                if (bits & mask) color = 15;
+            } else if (bits & mask) {
+                color = fg;
+            }
+            if (is_cursor && g_cursor_fb_visible && y >= CHAR_HEIGHT - 2) {
+                color = 15;
+            }
+            line[x] = color;
         }
-        line[x] = color;
     }
-    }
+}
+
+static void video_cursor_refresh_fb(void) {
+    if (g_target != VIDEO_TARGET_FB) return;
+    if (g_row < 0 || g_row >= TEXT_ROWS || g_col < 0 || g_col >= TEXT_COLS) return;
+    video_draw_cell_fb(g_row, g_col, &g_cells[g_row][g_col]);
+}
+
+static void video_cursor_hide_current_fb(void) {
+    if (g_target != VIDEO_TARGET_FB) return;
+    if (g_row < 0 || g_row >= TEXT_ROWS || g_col < 0 || g_col >= TEXT_COLS) return;
+    g_cursor_fb_visible = 0;
+    video_draw_cell_fb(g_row, g_col, &g_cells[g_row][g_col]);
 }
 
 static void video_sync_cell(int row, int col) {
@@ -192,6 +213,7 @@ static void video_status_redraw(void) {
 }
 
 static void video_scroll(void) {
+    video_cursor_hide_current_fb();
     for (int y = 2; y < TEXT_ROWS; y++) {
         for (int x = 0; x < TEXT_COLS; x++) {
             g_cells[y - 1][x] = g_cells[y][x];
@@ -206,6 +228,8 @@ static void video_scroll(void) {
     g_row = TEXT_ROWS - 1;
     g_col = 0;
     vga_hw_cursor_update_internal();
+    g_cursor_fb_visible = 1;
+    video_cursor_refresh_fb();
 }
 
 void video_status_set_right(const char* buf, int len) {
@@ -271,6 +295,7 @@ void video_init() {
 }
 
 void video_clear() {
+    video_cursor_hide_current_fb();
     for (int y = 1; y < TEXT_ROWS; y++) {
         for (int x = 0; x < TEXT_COLS; x++) {
             g_cells[y][x].ch = ' ';
@@ -282,6 +307,8 @@ void video_clear() {
     video_redraw_range(1, TEXT_ROWS);
     video_status_redraw();
     vga_hw_cursor_update_internal();
+    g_cursor_fb_visible = 1;
+    video_cursor_refresh_fb();
 }
 
 void video_print_hex16(uint16_t v) {
@@ -323,6 +350,7 @@ void video_print_dec(uint32_t v) {
 void video_print(const char* str) {
     while (*str) {
         char c = *str++;
+        video_cursor_hide_current_fb();
         if (c == '\n') {
             g_row++;
             g_col = 0;
@@ -338,6 +366,8 @@ void video_print(const char* str) {
                 g_col++;
             }
         }
+        g_cursor_fb_visible = 1;
+        video_cursor_refresh_fb();
     }
     vga_hw_cursor_update_internal();
 }
@@ -348,16 +378,21 @@ void video_println(const char* str) {
 }
 
 void video_putc(char c) {
+    video_cursor_hide_current_fb();
     if (c == '\n') {
         g_row++;
         g_col = 0;
         if (g_row >= TEXT_ROWS) video_scroll();
         vga_hw_cursor_update_internal();
+        g_cursor_fb_visible = 1;
+        video_cursor_refresh_fb();
         return;
     }
     if (c == '\r') {
         g_col = 0;
         vga_hw_cursor_update_internal();
+        g_cursor_fb_visible = 1;
+        video_cursor_refresh_fb();
         return;
     }
     if (c == '\b') {
@@ -366,6 +401,8 @@ void video_putc(char c) {
             video_put_cell(g_row, g_col, ' ', 0x07);
         }
         vga_hw_cursor_update_internal();
+        g_cursor_fb_visible = 1;
+        video_cursor_refresh_fb();
         return;
     }
     if (g_col >= TEXT_COLS) {
@@ -378,6 +415,8 @@ void video_putc(char c) {
         g_col++;
     }
     vga_hw_cursor_update_internal();
+    g_cursor_fb_visible = 1;
+    video_cursor_refresh_fb();
 }
 
 void video_switch_to_framebuffer(const display_mode_info_t* mode) {
@@ -393,6 +432,9 @@ void video_switch_to_framebuffer(const display_mode_info_t* mode) {
 
     vga_dac_load_default_palette();
     video_redraw_framebuffer();
+    g_cursor_fb_visible = 1;
+    g_cursor_fb_last_toggle = platform_ticks_get();
+    video_cursor_refresh_fb();
 }
 
 void video_switch_to_text(void) {
@@ -406,4 +448,15 @@ void video_switch_to_text(void) {
     video_redraw_textmode();
     video_status_redraw();
     vga_hw_cursor_update_internal();
+    g_cursor_fb_visible = 1;
+}
+
+void video_cursor_tick(void) {
+    if (g_target != VIDEO_TARGET_FB) return;
+    uint32_t now = platform_ticks_get();
+    if ((now - g_cursor_fb_last_toggle) >= 10u) {
+        g_cursor_fb_last_toggle = now;
+        g_cursor_fb_visible = (uint8_t)!g_cursor_fb_visible;
+        video_cursor_refresh_fb();
+    }
 }

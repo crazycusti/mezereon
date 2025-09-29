@@ -13,6 +13,7 @@
 #include "drivers/pcspeaker.h"
 #include "drivers/gpu/gpu.h"
 #include "apps/fbtest_color.h"
+#include "video_fb.h"
 #include "mezapi.h"
 #include <stdint.h>
 
@@ -31,6 +32,7 @@ void shell_run(void) {
     print_prompt();
 
     for (;;) {
+        video_cursor_tick();
         int ch = keyboard_poll_char();
         if (ch < 0) { netface_poll(); cpuidle_idle(); continue; }
 

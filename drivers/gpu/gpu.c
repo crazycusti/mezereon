@@ -77,6 +77,32 @@ static void log_device(const gpu_info_t* gpu) {
         log_size(gpu->framebuffer_size);
         console_writeln("");
     }
+
+    if (gpu->type == GPU_TYPE_CIRRUS) {
+        size_t mode_count = 0;
+        const cirrus_mode_desc_t* modes = cirrus_get_modes(&mode_count);
+        uint32_t vram = gpu->framebuffer_size;
+        console_write("      modes:");
+        int printed = 0;
+        for (size_t i = 0; i < mode_count; i++) {
+            const cirrus_mode_desc_t* mode = &modes[i];
+            uint32_t required = cirrus_mode_vram_required(mode);
+            if (required > 0 && required <= vram) {
+                if (!printed) console_write(" ");
+                else console_write(", ");
+                console_write_dec((uint32_t)mode->width);
+                console_write("x");
+                console_write_dec((uint32_t)mode->height);
+                console_write("x");
+                console_write_dec((uint32_t)mode->bpp);
+                printed = 1;
+            }
+        }
+        if (!printed) {
+            console_write(" none");
+        }
+        console_writeln("");
+    }
 }
 
 static gpu_info_t g_gpu_infos[GPU_MAX_DEVICES];

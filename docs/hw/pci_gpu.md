@@ -21,7 +21,7 @@ Shell usage
 -----------
 - `gpuinfo` — dumps every supported adapter with bus/device/function, vendor/device IDs, BAR information, and capability flags.
 - `gpuinfo detail` — includes Cirrus register snapshots (Sequencer, CRTC, Graphics, Attribute) to aid bring-up and debugging.
-- Boot-Log-Zeilen spiegeln die `gpuinfo`-Kurzfassung wider. Steht `CONFIG_VIDEO_TARGET` auf `auto` oder `framebuffer`, wechselt der Kernel bei Cirrus auf 640×480×8, zeichnet die Shell direkt auf den Framebuffer und färbt die Statusleiste mit einem dunklen Regenbogenhintergrund (`gfx: framebuffer`).
+- Boot-Log-Zeilen spiegeln die `gpuinfo`-Kurzfassung wider. Steht `CONFIG_VIDEO_TARGET` auf `auto` oder `framebuffer`, wechselt der Kernel bei Cirrus auf 640×480×8, zeichnet die Shell direkt auf den Framebuffer und färbt die Statusleiste mit einem dunklen Regenbogenhintergrund (`gfx: framebuffer`). `gpuinfo` listet zudem alle bekannten Cirrus-Modi (Auflösung × Farbtiefe), gefiltert nach der erkannten VRAM-Größe.
 
 Architecture considerations
 ---------------------------
