@@ -11,6 +11,8 @@ extern void video_print_dec(uint32_t v);
 extern void video_putc(char c);
 extern void video_status_set_right(const char* buf, int len);
 extern void video_status_set_left(const char* buf, int len);
+extern int video_fb_active(void);
+extern const void* video_fb_get_info(uint32_t* pitch, uint16_t* width, uint16_t* height, uint8_t* bpp);
 
 #include "console_backend.h"
 
@@ -24,3 +26,7 @@ void cback_write_hex32(uint32_t v)     { video_print_hex32(v); }
 void cback_write_dec(uint32_t v)       { video_print_dec(v); }
 void cback_draw_status_right(const char* buf, int len) { video_status_set_right(buf, len); }
 void cback_status_set_left(const char* buf, int len) { video_status_set_left(buf, len); }
+int cback_fb_active(void) { return video_fb_active(); }
+const void* cback_fb_get_info(uint32_t* pitch, uint16_t* width, uint16_t* height, uint8_t* bpp) {
+    return video_fb_get_info(pitch, width, height, bpp);
+}

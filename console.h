@@ -15,5 +15,7 @@ void console_draw_status_right(const char* buf, int len);
 // Set left-aligned status text in the top status bar.
 void console_status_set_left(const char* s);
 void console_status_set_right(const char* s);
+int  console_fb_active(void);
+const void* console_fb_get_info(uint32_t* pitch, uint16_t* width, uint16_t* height, uint8_t* bpp);
 
 #endif // CONSOLE_H

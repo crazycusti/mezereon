@@ -7,6 +7,19 @@
 #define MEZ_ARCH_X86_32   0x00000001u
 #define MEZ_ABI32_V1      0x00010000u
 
+#define MEZ_CAP_VIDEO_FB  (1u << 0)
+
+typedef struct {
+    uint16_t width;
+    uint16_t height;
+    uint32_t pitch;
+    uint8_t  bpp;
+    uint8_t  reserved0;
+    uint8_t  reserved1;
+    uint8_t  reserved2;
+    const void* framebuffer;
+} mez_fb_info32_t;
+
 typedef struct mez_api32 {
     // Header
     uint32_t abi_version;   // e.g., MEZ_ABI32_V1
@@ -36,8 +49,10 @@ typedef struct mez_api32 {
     void     (*text_fill_line)(int y, char ch, uint8_t attr);
     void     (*status_left)(const char* s);
     void     (*status_right)(const char* s, int len);
+
+    uint32_t capabilities;
+    const mez_fb_info32_t* (*video_fb_get_info)(void);
 } mez_api32_t;
 
 // Provider from kernel
 const mez_api32_t* mez_api_get(void);
-

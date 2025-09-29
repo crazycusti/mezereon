@@ -20,3 +20,11 @@ void console_status_set_right(const char* s) {
     int len = 0; while (s[len] && len < 255) len++;
     cback_draw_status_right(s, len);
 }
+
+int console_fb_active(void) {
+    return cback_fb_active();
+}
+
+const void* console_fb_get_info(uint32_t* pitch, uint16_t* width, uint16_t* height, uint8_t* bpp) {
+    return cback_fb_get_info(pitch, width, height, bpp);
+}

@@ -4,8 +4,9 @@
 #include "video_fb.h"
 #include "drivers/gpu/vga_hw.h"
 #include "fonts/font8x16.h"
+#include "platform.h"
 #include <stdint.h>
-#include <string.h>
+#include <stddef.h>
 #include "arch/x86/io.h"
 
 #define VIDEO_MEMORY 0xB8000
@@ -459,4 +460,17 @@ void video_cursor_tick(void) {
         g_cursor_fb_visible = (uint8_t)!g_cursor_fb_visible;
         video_cursor_refresh_fb();
     }
+}
+
+int video_fb_active(void) {
+    return (g_target == VIDEO_TARGET_FB && g_fb_ptr != NULL);
+}
+
+const void* video_fb_get_info(uint32_t* pitch, uint16_t* width, uint16_t* height, uint8_t* bpp) {
+    if (!video_fb_active()) return NULL;
+    if (pitch) *pitch = g_fb_pitch;
+    if (width) *width = g_fb_width;
+    if (height) *height = g_fb_height;
+    if (bpp) *bpp = g_fb_bpp;
+    return (const void*)g_fb_ptr;
 }

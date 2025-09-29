@@ -10,6 +10,7 @@ Provided services
 - Timing: `time_ticks_get()`, `time_timer_hz()`, `time_sleep_ms()`
 - Sound: `sound_beep(hz, ms)`, `sound_tone_on(hz)`, `sound_tone_off()`
 - Text mode helpers: `text_put(x,y,ch,attr)`, `text_fill_line(y,ch,attr)`, `status_left(text)`, `status_right(text,len)`
+- Framebuffer: `capabilities` bitmask (`MEZ_CAP_VIDEO_FB`), `video_fb_get_info()` → returns `NULL` oder `mez_fb_info32_t` (Breite, Höhe, Pitch, bpp, `framebuffer`).
 
 Usage pattern
 1. Call `mez_api_get()` and verify `abi_version >= MEZ_ABI32_V1` and `arch == MEZ_ARCH_X86_32`.
@@ -29,6 +30,18 @@ int sample_app(const mez_api32_t* api) {
         if (ch >= 0) api->sound_beep(440, 100);
     }
     return 0;
+}
+```
+
+Framebuffer usage
+```c
+const mez_fb_info32_t* fb = api->video_fb_get_info ? api->video_fb_get_info() : NULL;
+if (fb && fb->bpp == 8) {
+    uint8_t* ptr = (uint8_t*)fb->framebuffer;
+    // draw a horizontal line
+    for (uint16_t x = 0; x < fb->width; x++) {
+        ptr[10 * fb->pitch + x] = 0x4F; // palette index
+    }
 }
 ```
 
