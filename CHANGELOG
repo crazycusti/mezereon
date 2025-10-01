@@ -13,6 +13,11 @@
 2025-09-07 13:00:14 (master@a942e91) - docs: add workflow examples (atadump, NeeleFS, NE2000) to README
 2025-09-07 13:01:40 (master@a942e91) - qemu: add run-x86-hdd-ne2k target; docs updated
 2025-09-07 13:04:16 (master@a942e91) - build: simplify to host gcc/ld/objcopy; remove macOS cross-toolchain checks
+2025-09-29 07:05:00 (master@HEAD) - gpu: add Cirrus framebuffer BitBLT fill acceleration and generic fb_accel helper
+2025-09-29 07:05:00 (master@HEAD) - mezapi: expose video_fb_fill_rect + MEZ_CAP_VIDEO_FB_ACCEL; docs describe accelerated path
+2025-09-29 07:25:00 (master@HEAD) - apps: add rotcube MezAPI framebuffer demo (rotating cube, uses acceleration when available)
+2025-09-29 07:25:00 (master@HEAD) - docs: mention rotcube MezAPI demo and updated app listings
+2025-09-29 07:45:00 (master@HEAD) - sound: add SB16 legacy detection, expose MezAPI sound_get_info + MEZ_CAP_SOUND_SB16
 2025-09-07 13:07:28 (master@a942e91) - build: robust SPARC toolchain detection (native sparc or cross; /home/wynton scan)
 2025-09-07 13:14:44 (master@a942e91) - build: add crosstool-NG x-tools path scan (~/. x-tools, /opt, /usr/local) for SPARC
 2025-09-07 13:21:25 (master@a942e91) - build: generic PATH scan for sparc-*-elf-{gcc,objcopy}; docs updated

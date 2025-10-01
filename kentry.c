@@ -4,7 +4,7 @@
 
 #if CONFIG_ARCH_X86
 // Legacy kernel main (no bootinfo)
-extern void kmain(void);
+extern void kmain(const boot_info_t* info);
 #endif
 
 #if CONFIG_ARCH_SPARC
@@ -44,7 +44,12 @@ static int ofw_write(ofw_entry_t ofw, uint32_t ih, const void* buf, int len) {
 // New arch-neutral entry point.
 void kentry(void* bi) {
 #if CONFIG_ARCH_X86
-    (void)bi; kmain();
+    const boot_info_t* info = (const boot_info_t*)bi;
+    if (!info) {
+        static boot_info_t fallback;
+        info = &fallback;
+    }
+    kmain(info);
 #elif CONFIG_ARCH_SPARC
     boot_info_t* info = (boot_info_t*)bi;
     ofw_entry_t ofw = (info && info->prom) ? (ofw_entry_t)info->prom : (ofw_entry_t)0;

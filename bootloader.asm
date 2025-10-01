@@ -8,6 +8,28 @@
 %define TARGET_I686    3   ; i686+ (für später)
 %define TARGET_CPU TARGET_386
 
+%define ENABLE_BOOTINFO 1
+%define DEBUG_BOOT 0
+%define ENABLE_A20_KBC 0
+%define WAIT_BEFORE_PM 0
+%define DEBUG_PM_STUB 0
+
+%define BOOTINFO_ADDR             0x5000
+%define BOOTINFO_ARCH_OFF         (BOOTINFO_ADDR + 0)
+%define BOOTINFO_MACHINE_OFF      (BOOTINFO_ADDR + 4)
+%define BOOTINFO_CONSOLE_OFF      (BOOTINFO_ADDR + 8)
+%define BOOTINFO_FLAGS_OFF        (BOOTINFO_ADDR + 12)
+%define BOOTINFO_PROM_OFF         (BOOTINFO_ADDR + 16)
+%define BOOTINFO_MEM_COUNT_OFF    (BOOTINFO_ADDR + 20)
+%define BOOTINFO_MEM_ENTRIES_OFF  (BOOTINFO_ADDR + 24)
+%define BOOTINFO_SEG              (BOOTINFO_ADDR >> 4)
+%define BOOTINFO_BIAS             (BOOTINFO_ADDR & 0x0F)
+%define BOOTINFO_MEM_ENTRIES_BIAS (BOOTINFO_MEM_ENTRIES_OFF - BOOTINFO_ADDR)
+%define BOOTINFO_MEM_ENTRY_SIZE   24
+%define BOOTINFO_MEM_MAX          32
+%define SMAP_SIGNATURE            0x534D4150
+%define BI_ARCH_X86               1
+
 ; Anzahl zu ladender Sektoren wird vom Build gesetzt
 %ifndef KERNEL_SECTORS
 %define KERNEL_SECTORS 10
@@ -23,168 +45,176 @@ start:
     mov sp, 0x7C00
     mov ds, ax
 
+    ; Boot-Drive speichern
     mov [boot_drive], dl
 
-    ; Kernel ab Sektor 2 laden (Sektor 1 ist Bootloader) — robust in Chunks
-    ; Ziel: ES:BX = 0x07E0:0x0000 (linear 0x0000:0x7E00)
+    ; Boot-Info einrichten
+    call setup_bootinfo
+
+    ; Lade-Ziel: 0x7E00 (direkt nach Bootloader)
     mov ax, 0x07E0
-    mov es, ax
+    mov es, ax          ; ES:BX = 0x07E0:0x0000 = 0x7E00
     xor bx, bx
-
-    ; Ermittele Geometrie (Sektoren/Spur, Köpfe)
-    push dx                ; Bootlaufwerk in DL sichern
-    mov ah, 0x08
-    int 0x13
-    pop dx
-    jc disk_error
-    mov byte [spt], cl     ; CL[5:0] = Sektoren/Spur
-    and byte [spt], 0x3F
-    mov byte [max_head], dh ; DH = max Head (0..n)
-    ; Initiale CHS
-    xor ax, ax
-    mov [cyl], ax
-    mov byte [head], 0
-    mov byte [sect], 2     ; ab Sektor 2
-
-    ; Verbleibende Sektoren laden
+    
+    ; Anzahl zu ladender Sektoren
     mov ax, KERNEL_SECTORS
     mov [remain], ax
 
-    ; Versuche BIOS LBA-Erweiterung (EDD)
-    mov byte [use_lba], 0
-    mov word [lba_lo], 1
-    mov word [lba_hi], 0
-    mov word [dap+12], 0
-    mov word [dap+14], 0
-    mov ah, 0x41
-    mov bx, 0x55AA
+    ; Disk zurücksetzen und rekalibrieren
+    mov ah, 0x00          ; Reset Disk System
     mov dl, [boot_drive]
     int 0x13
-    jc .lba_check_done
-    cmp bx, 0xAA55
-    jne .lba_check_done
-    test cx, 1
-    jz .lba_check_done
-    mov byte [use_lba], 1
-.lba_check_done:
+    jc disk_error
+
+    ; Bei Floppy zusätzliche Rekalibrierung
+    cmp dl, 0x80
+    jae .get_params       ; Bei HDD direkt Parameter holen
+    
+    mov ah, 0x02          ; Sektor lesen zum Rekalibrieren
+    mov al, 1             ; Ein Sektor
+    mov ch, 0             ; Cylinder 0
+    mov cl, 1             ; Sektor 1
+    mov dh, 0             ; Head 0
+    mov dl, [boot_drive]
+    push es               ; ES:BX sichern
+    push bx
+    push ax               ; Temporärer Buffer
+    mov ax, ss
+    mov es, ax
+    mov bx, sp
+    int 0x13              ; Ignoriere Fehler hier
+    pop ax
+    pop bx
+    pop es
+
+.get_params:
+    mov ah, 0x08
+    mov dl, [boot_drive]
+    int 0x13
+    jc .use_defaults
+    
+    mov [max_head], dh
+    mov [spt], cl
+    and byte [spt], 0x3F
+    jmp .init_params
+
+.use_defaults:
+    ; Standard Floppy Parameter
+    mov byte [spt], 18
+    mov byte [max_head], 1
+
+.init_params:
+    ; Parameter validieren
+    mov al, [max_head]
+    or al, al
+    jnz .check_spt
+    mov byte [max_head], 1  ; Mindestens 2 Köpfe (0-1)
+.check_spt:
+    mov al, [spt]
+    or al, al
+    jnz .init_pos
+    mov byte [spt], 18      ; Mindestens 18 Sektoren/Spur
+
+.init_pos:
+    mov ah, 0
+    mov dl, [boot_drive]
+    int 0x13
+    jc disk_error
+    test dl, 0x80
+    jnz .no_spin
+    mov cx, 0x1000
+.spin:
+    loop .spin
+.no_spin:
+    xor ax, ax
+    mov [cyl], ax
+    mov [head], al
+    mov byte [sect], 2
 
 .load_loop:
-    mov ax, [remain]
-    cmp ax, 0
+    cmp word [remain], 0    ; Alle Sektoren geladen?
     je .load_done
 
-    ; Sektoren bis Trackende (track_left = spt - sect + 1)
-    movzx bx, byte [spt]
-    movzx cx, byte [sect]
-    sub bx, cx
-    inc bx
-    mov dx, bx                    ; dx = track_left
+    ; CHS Parameter vorbereiten
+    mov ch, [cyl]          ; CH = Low 8 bits von Cylinder
+    mov cl, [sect]         ; CL[5:0] = Sektor
+    mov dh, [head]         ; DH = Head
+    mov dl, [boot_drive]   ; DL = Drive
+    
+    mov bl, [cyl+1]        ; Obere Cylinder-Bits
+    and bl, 0x03           ; Nur Bits 8-9
+    shl bl, 6              ; Nach Position 6-7
+    or cl, bl              ; In CL[7:6]
 
-    ; n = min(remain, track_left, 127)
-    mov ax, [remain]
-    cmp ax, dx
-    jbe .after_track_limit
-    mov ax, dx
-.after_track_limit:
-    cmp ax, 32
-    jbe .count_ready
-    mov ax, 32
-.count_ready:
-    mov [n_sectors], ax           ; remember sectors for this call
-
-    cmp byte [use_lba], 0
-    jne .use_lba_path
-
-    ; CHS vorbereiten
-    mov bx, [cyl]
-    mov ch, bl                    ; CH = cyl low byte
-    mov cl, byte [sect]
-    and cl, 0x3F
-    mov dh, [head]
-    mov dl, [boot_drive]
-    mov bl, bh                    ; cyl high bits -> CL[7:6]
-    and bl, 0x03
-    shl bl, 6
-    or  cl, bl
-
-    mov ah, 0x02                  ; BIOS: Sektor lesen
-    mov al, byte [n_sectors]
-    xor bx, bx                    ; Zieloffset 0 (ES trägt Segment)
+        ; Sektor lesen (3 Versuche)
+    mov cx, 3
+.retry:
+    mov ah, 0x02
+    mov al, 1
+    mov bx, 0
+    push cx
     int 0x13
-    jc disk_error
-    jmp .after_read
-
-.use_lba_path:
-    mov ax, [n_sectors]
-    mov [dap+2], ax               ; sectors to read
-    mov word [dap+4], 0           ; buffer offset
-    mov word [dap+6], es          ; buffer segment
-    mov ax, [lba_lo]
-    mov [dap+8], ax
-    mov ax, [lba_hi]
-    mov [dap+10], ax
-    mov ah, 0x42
-    mov dl, [boot_drive]
-    mov si, dap
+    pop cx
+    jnc .ok
+    
+    push ax
+    mov ah, 0
     int 0x13
-    jc disk_error
-    xor dx, dx
-    mov ax, [n_sectors]
-    add [lba_lo], ax
-    adc [lba_hi], dx
+    mov cx, 0x800
+.wait:
+    loop .wait
+    pop ax
+    loop .retry
+    jmp disk_error
+.ok:
 
-.after_read:
+.read_ok:
+    ; Buffer für nächsten Sektor vorbereiten
+    mov ax, es
+    add ax, 0x20         ; 512 Bytes weiter
+    mov es, ax
+    dec word [remain]
 
-    ; Zeiger und Rest aktualisieren
-    mov ax, [remain]
-    sub ax, [n_sectors]
-    mov [remain], ax
-
-    mov ax, [n_sectors]
-    shl ax, 5                     ; n * (512/16)
-    mov bx, es
-    add bx, ax
-    mov es, bx
-
-    ; Nächste CHS Position berechnen
-    cmp byte [use_lba], 0
-    jne .skip_chs_update
-    movzx ax, byte [sect]
-    add ax, [n_sectors]
-
-.wrap_check:
-    movzx bx, byte [spt]
-    cmp ax, bx
-    jbe .store_sect
-    sub ax, bx
+    mov al, [sect]
+    inc al
+    cmp al, [spt]
+    jbe .chs_store_sect
+    mov al, 1
     mov bl, [head]
     inc bl
     cmp bl, [max_head]
-    jbe .store_head
+    jbe .chs_store_head
     mov bl, 0
     inc word [cyl]
-.store_head:
+.chs_store_head:
     mov [head], bl
-    jmp .wrap_check
-
-.store_sect:
+.chs_store_sect:
     mov [sect], al
     jmp .load_loop
 
-.skip_chs_update:
-    jmp .load_loop
-
 .load_done:
-
-    ; load complete
-
-    ; Prüfe ob mindestens i386 (vorerst übersprungen)
-    ; skip cpu check / prints to save space
-
     ; A20 Gate aktivieren
     call enable_a20
+%if DEBUG_BOOT
+    mov al, 'P'
+    call print_char
+%endif
 
     ; GDT vorbereiten (im Bootsektor, 3 Einträge: Null, Code, Data)
+%if DEBUG_BOOT
+    mov al, 'T'
+    call print_char
+%endif
+
+%if WAIT_BEFORE_PM
+%if DEBUG_BOOT
+    mov al, 'W'
+    call print_char
+%endif
+.wait_pm_loop:
+    hlt
+    jmp .wait_pm_loop
+%endif
     cli
     lgdt [gdt_descriptor]
     ; (no print before protected mode)
@@ -195,7 +225,85 @@ start:
     mov cr0, eax
 
     ; Weitsprung in 32-Bit Protected Mode (CS: 0x08)
-    jmp 0x08:protected_mode_entry
+jmp 0x08:protected_mode_entry
+
+%if DEBUG_BOOT
+print_char:
+    push ax
+    push bx
+    mov ah, 0x0E
+    mov bh, 0
+    mov bl, 0x07
+    int 0x10
+    pop bx
+    pop ax
+    ret
+
+print_dec_byte:
+    push ax
+    push bx
+    xor ah, ah
+    mov bl, 10
+    div bl
+    cmp al, 0
+    je .skip_high
+    add al, '0'
+    call print_char
+.skip_high:
+    mov al, ah
+    add al, '0'
+    call print_char
+    pop bx
+    pop ax
+    ret
+%endif
+
+%if ENABLE_BOOTINFO
+; --- Boot info helpers ---
+setup_bootinfo:
+    xor ax, ax
+    mov ds, ax
+    mov es, ax
+    xor eax, eax
+    mov dword [BOOTINFO_MACHINE_OFF], eax
+    mov dword [BOOTINFO_CONSOLE_OFF], eax
+    mov dword [BOOTINFO_FLAGS_OFF], eax
+    mov dword [BOOTINFO_PROM_OFF], eax
+    mov dword [BOOTINFO_MEM_COUNT_OFF], eax
+    mov eax, BI_ARCH_X86
+    mov dword [BOOTINFO_ARCH_OFF], eax
+    cmp byte [boot_drive], 0x80
+    jb .skip_detect
+    call detect_memory
+.skip_detect:
+    ret
+
+detect_memory:
+    xor ebx, ebx
+    mov di, BOOTINFO_MEM_ENTRIES_BIAS
+    xor si, si
+
+.detect_loop:
+    mov ax, BOOTINFO_SEG
+    mov es, ax
+    mov eax, 0xE820
+    mov edx, SMAP_SIGNATURE
+    mov ecx, BOOTINFO_MEM_ENTRY_SIZE
+    int 0x15
+    jc .done
+    cmp eax, SMAP_SIGNATURE
+    jne .done
+    cmp si, BOOTINFO_MEM_MAX
+    jae .done
+    inc si
+    add di, BOOTINFO_MEM_ENTRY_SIZE
+.skip:
+    cmp ebx, 0
+    jne .detect_loop
+.done:
+    mov word [BOOTINFO_MEM_COUNT_OFF], si
+    ret
+%endif
 
 ; -----------------------------
 ; 32-Bit Protected Mode Code
@@ -211,8 +319,19 @@ protected_mode_entry:
     mov ss, ax
     mov esp, 0x9FC00    ; Stack (z.B. unterhalb 640K)
 
+%if DEBUG_PM_STUB
+    mov ebx, 0xB8000
+    mov word [ebx], 0x0744         ; 'D'
+    mov word [ebx+2], 0x0742       ; 'B'
+    mov word [ebx+4], 0x0747       ; 'G'
+    mov word [ebx+6], 0x0758       ; 'X'
+.pm_debug_loop:
+    hlt
+    jmp .pm_debug_loop
+%else
     ; Sprung zum Kernel-Einsprungspunkt (0x7E00, 32-bit Entry in payload)
     jmp 0x7E00
+%endif
 
 ; -----------------------------
 ; GDT (im Bootsektor)
@@ -228,39 +347,87 @@ gdt_descriptor:
     dw gdt_end - gdt_start - 1
     dd gdt_start
 disk_error:
-    mov [disk_err_status], ah
+%if DEBUG_BOOT
+    mov al, 'E'
+    call print_char
+%endif
     jmp $
 
 ; A20 Gate aktivieren
 enable_a20:
+    push ax
     ; Schneller Versuch über Port 0x92 (PS/2)
     in al, 0x92
     or al, 2
     out 0x92, al
+%if ENABLE_A20_KBC
+    in al, 0x92
+    test al, 2
+    jnz .done
+    call enable_a20_kbc
+%endif
+.done:
+    pop ax
     ret
+
+%if ENABLE_A20_KBC
+enable_a20_kbc:
+    push ax
+    call enable_a20_wait_ibf_clear
+    mov al, 0xAD
+    out 0x64, al
+    call enable_a20_wait_ibf_clear
+    mov al, 0xD0
+    out 0x64, al
+    call enable_a20_wait_obf_set
+    in al, 0x60
+    or al, 2
+    mov ah, al
+    call enable_a20_wait_ibf_clear
+    mov al, 0xD1
+    out 0x64, al
+    call enable_a20_wait_ibf_clear
+    mov al, ah
+    out 0x60, al
+    call enable_a20_wait_ibf_clear
+    mov al, 0xAE
+    out 0x64, al
+    call enable_a20_wait_ibf_clear
+    pop ax
+    ret
+
+enable_a20_wait_ibf_clear:
+    in al, 0x64
+    test al, 2
+    jnz enable_a20_wait_ibf_clear
+    ret
+
+enable_a20_wait_obf_set:
+    in al, 0x64
+    test al, 1
+    jz enable_a20_wait_obf_set
+    ret
+%endif
 
 cpu_error:
     jmp $               ; Endlosschleife
 
 ; --- Daten (müssen vor Signatur liegen) ---
+; Disk Parameter Block
+disk_info:
 boot_drive db 0     ; BIOS drive number (from DL)
-spt        db 0     ; sectors per track
-max_head   db 0     ; maximum head number
-sect       db 0     ; current sector (1-based)
-head       db 0     ; current head
-cyl        dw 0     ; current cylinder
 remain     dw 0     ; sectors left to read
-n_sectors  dw 0     ; sectors read in last op
-disk_err_status db 0 ; last BIOS error code
-use_lba    db 0
-lba_lo     dw 1
-lba_hi     dw 0
-dap:        db 0x10, 0x00
-            dw 0      ; sector count
-            dw 0      ; buffer offset
-            dw 0      ; buffer segment
-            dw 0, 0   ; LBA low dword (initial zero; set at runtime)
-            dw 0, 0   ; LBA high dword (unused)
+retry_count db 3    ; maximale Leseversuche
+disk_error_code db 0 ; letzter Fehlercode
+spt        db 0     ; Sektoren pro Spur
+max_head   db 0     ; Maximale Head-Nummer (Köpfe - 1)
+sect       db 0     ; Aktueller Sektor
+head       db 0     ; Aktueller Head
+cyl        dw 0     ; Aktueller Cylinder
+
+; Temporäre Speicherung für ES:BX
+save_es    dw 0     ; Segment sichern
+save_bx    dw 0     ; Offset sichern
 
 times 510-($-$$) db 0
     dw 0xAA55

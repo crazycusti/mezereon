@@ -3,6 +3,7 @@
 #include "display.h"
 #include "video_fb.h"
 #include "drivers/gpu/vga_hw.h"
+#include "drivers/gpu/fb_accel.h"
 #include "fonts/font8x16.h"
 #include "platform.h"
 #include <stdint.h>
@@ -100,6 +101,14 @@ static void video_draw_cell_fb(int row, int col, const text_cell_t* cell) {
     uint8_t bg = attr_bg(cell->attr);
     const uint8_t* glyph = font8x16_get(cell->ch);
     int is_cursor = (row == g_row && col == g_col);
+    int gradient_row = (row == 0);
+
+    int accelerated = (!gradient_row && fb_accel_available());
+    if (accelerated) {
+        if (!fb_accel_fill_rect((uint16_t)px, (uint16_t)py, CHAR_WIDTH, CHAR_HEIGHT, bg)) {
+            accelerated = 0;
+        }
+    }
 
     for (int y = 0; y < CHAR_HEIGHT; y++) {
         uint8_t bits = glyph[y];
@@ -107,20 +116,35 @@ static void video_draw_cell_fb(int row, int col, const text_cell_t* cell) {
         for (int x = 0; x < CHAR_WIDTH; x++) {
             uint8_t mask = (uint8_t)(0x80u >> x);
             uint8_t color = bg;
-            if (row == 0) {
+            int write_pixel = 0;
+
+            if (gradient_row) {
                 uint32_t denom = (g_fb_width > 1) ? (g_fb_width - 1) : 1;
                 uint32_t step = ((uint32_t)(px + x) * 16u) / denom;
                 color = (uint8_t)(240 + (step & 0x0F));
                 if (bits & mask) color = 15;
-            } else if (bits & mask) {
-                color = fg;
+                write_pixel = 1;
+            } else {
+                if (bits & mask) {
+                    color = fg;
+                    write_pixel = 1;
+                }
             }
             if (is_cursor && g_cursor_fb_visible && y >= CHAR_HEIGHT - 2) {
                 color = 15;
+                write_pixel = 1;
             }
-            line[x] = color;
+            if (!accelerated && !write_pixel) {
+                color = bg;
+                write_pixel = 1;
+            }
+            if (write_pixel) {
+                line[x] = color;
+            }
         }
     }
+    fb_accel_mark_dirty((uint16_t)px, (uint16_t)py, CHAR_WIDTH, CHAR_HEIGHT);
+    fb_accel_sync();
 }
 
 static void video_cursor_refresh_fb(void) {
@@ -445,6 +469,8 @@ void video_switch_to_text(void) {
     g_fb_width = 0;
     g_fb_height = 0;
     g_fb_bpp = 0;
+
+    fb_accel_reset();
 
     video_redraw_textmode();
     video_status_redraw();

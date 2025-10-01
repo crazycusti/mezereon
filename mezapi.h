@@ -7,7 +7,13 @@
 #define MEZ_ARCH_X86_32   0x00000001u
 #define MEZ_ABI32_V1      0x00010000u
 
-#define MEZ_CAP_VIDEO_FB  (1u << 0)
+#define MEZ_CAP_VIDEO_FB        (1u << 0)
+#define MEZ_CAP_VIDEO_FB_ACCEL  (1u << 1)
+#define MEZ_CAP_SOUND_SB16      (1u << 2)
+
+#define MEZ_SOUND_BACKEND_NONE    0u
+#define MEZ_SOUND_BACKEND_PCSPK   (1u << 0)
+#define MEZ_SOUND_BACKEND_SB16    (1u << 1)
 
 typedef struct {
     uint16_t width;
@@ -19,6 +25,18 @@ typedef struct {
     uint8_t  reserved2;
     const void* framebuffer;
 } mez_fb_info32_t;
+
+typedef struct {
+    uint32_t backends;      // Bitmask of MEZ_SOUND_BACKEND_* flags
+    uint16_t sb16_base_port;
+    uint8_t  sb16_irq;
+    uint8_t  sb16_dma8;
+    uint8_t  sb16_dma16;
+    uint8_t  sb16_version_major;
+    uint8_t  sb16_version_minor;
+    uint8_t  reserved0;
+    uint8_t  reserved1;
+} mez_sound_info32_t;
 
 typedef struct mez_api32 {
     // Header
@@ -52,6 +70,10 @@ typedef struct mez_api32 {
 
     uint32_t capabilities;
     const mez_fb_info32_t* (*video_fb_get_info)(void);
+    void     (*video_fb_fill_rect)(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint8_t color);
+
+    // Sound stack metadata (legacy + PCM pipelines)
+    const mez_sound_info32_t* (*sound_get_info)(void);
 } mez_api32_t;
 
 // Provider from kernel

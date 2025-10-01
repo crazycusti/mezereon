@@ -5,7 +5,7 @@ AS = nasm
 LD ?= ld
 # Robust objcopy detection (host first)
 OBJCOPY := $(shell command -v objcopy 2>/dev/null || command -v gobjcopy 2>/dev/null || echo objcopy)
-CFLAGS ?= -ffreestanding -m32 -Wall -Wextra -nostdlib -fno-builtin -fno-stack-protector -fno-pic -fno-pie
+CFLAGS ?= -ffreestanding -m32 -march=i386 -mtune=i386 -mno-mmx -mno-sse -mno-sse2 -mno-3dnow -mno-avx -fno-if-conversion -fno-if-conversion2 -Wall -Wextra -nostdlib -fno-builtin -fno-stack-protector -fno-pic -fno-pie
 LDFLAGS ?= -Ttext 0x7E00 -m elf_i386
 
 # Optional QEMU acceleration: set QEMU_ACCEL=kvm|hvf|whpx to enable hardware acceleration and host CPU model
@@ -48,17 +48,33 @@ endif
 
 all: disk.img
 
-bootloader.bin: bootloader.asm kernel_payload.bin version.h
+BOOTINFO ?= 1
+DEBUG_BOOT ?= 0
+A20_KBC ?= $(DEBUG_BOOT)
+WAIT_PM ?= 0
+DEBUG_PM_STUB ?= 0
+ENTRY32_DEBUG ?= 0
+
+stage1.bin: stage1.asm
+	$(AS) -f bin $< -o $@
+
+stage2.bin: stage2.asm kernel_payload.bin version.h
 	ks=$$((($$(wc -c < kernel_payload.bin)+511)/512)); \
-	$(AS) -f bin -D KERNEL_SECTORS=$$ks $< -o $@
+	$(AS) -f bin -D KERNEL_SECTORS=$$ks -D ENABLE_BOOTINFO=$(BOOTINFO) -D DEBUG_BOOT=$(DEBUG_BOOT) -D ENABLE_A20_KBC=$(A20_KBC) -D WAIT_BEFORE_PM=$(WAIT_PM) -D DEBUG_PM_STUB=$(DEBUG_PM_STUB) $< -o $@
+
+bootloader.bin: stage1.bin stage2.bin
+	cat stage1.bin stage2.bin > bootloader.bin
 
 entry32.o: entry32.asm
-	$(AS) -f elf32 $< -o $@
+	$(AS) -f elf32 -D DEBUG_ENTRY32=$(ENTRY32_DEBUG) -D ENABLE_BOOTINFO=$(BOOTINFO) $< -o $@
 
 isr.o: isr.asm
 	$(AS) -f elf32 $< -o $@
 
 main.o: main.c main.h config.h display.h
+	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+
+memory.o: memory.c memory.h bootinfo.h console.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
 video.o: video.c main.h config.h display.h
@@ -82,10 +98,13 @@ net/ipv4.o: net/ipv4.c net/ipv4.h netface.h console.h platform.h
 net/tcp_min.o: net/tcp_min.c net/tcp_min.h net/ipv4.h console.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
-mezapi.o: mezapi.c mezapi.h console.h keyboard.h platform.h drivers/pcspeaker.h
+mezapi.o: mezapi.c mezapi.h console.h keyboard.h platform.h drivers/pcspeaker.h drivers/sb16.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
 apps/keymusic_app.o: apps/keymusic_app.c ./mezapi.h
+	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+
+apps/rotcube_app.o: apps/rotcube_app.c ./mezapi.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
 apps/fbtest_color.o: apps/fbtest_color.c apps/fbtest_color.h display.h console.h drivers/gpu/gpu.h keyboard.h cpuidle.h netface.h
@@ -101,6 +120,9 @@ drivers/ne2000.o: drivers/ne2000.c drivers/ne2000.h config.h
 drivers/pcspeaker.o: drivers/pcspeaker.c drivers/pcspeaker.h arch/x86/io.h platform.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
+drivers/sb16.o: drivers/sb16.c drivers/sb16.h config.h arch/x86/io.h
+	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+
 drivers/pci.o: drivers/pci.c drivers/pci.h config.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
@@ -108,6 +130,15 @@ drivers/gpu/gpu.o: drivers/gpu/gpu.c drivers/gpu/gpu.h drivers/gpu/cirrus.h driv
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
 drivers/gpu/cirrus.o: drivers/gpu/cirrus.c drivers/gpu/cirrus.h drivers/gpu/gpu.h drivers/pci.h
+	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+
+drivers/gpu/cirrus_accel.o: drivers/gpu/cirrus_accel.c drivers/gpu/cirrus_accel.h drivers/gpu/fb_accel.h drivers/gpu/vga_hw.h display.h config.h
+	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+
+drivers/gpu/fb_accel.o: drivers/gpu/fb_accel.c drivers/gpu/fb_accel.h
+	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+
+drivers/gpu/et4000.o: drivers/gpu/et4000.c drivers/gpu/et4000.h drivers/gpu/gpu.h drivers/gpu/vga_hw.h drivers/gpu/fb_accel.h config.h display.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
 drivers/gpu/vga_hw.o: drivers/gpu/vga_hw.c drivers/gpu/vga_hw.h config.h
@@ -134,7 +165,7 @@ cpu.o: cpu.c cpu.h console.h
 cpuidle.o: cpuidle.c cpuidle.h config.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
-kernel_payload.elf: entry32.o kentry.o isr.o idt.o interrupts.o platform.o main.o video.o console.o display.o fonts/font8x16.o $(CONSOLE_BACKEND_OBJ) netface.o net/ipv4.o net/tcp_min.o mezapi.o apps/keymusic_app.o apps/fbtest_color.o drivers/ne2000.o drivers/pcspeaker.o drivers/pci.o drivers/gpu/gpu.o drivers/gpu/cirrus.o drivers/gpu/vga_hw.o drivers/ata.o drivers/fs/neelefs.o drivers/storage.o keyboard.o cpu.o cpuidle.o shell.o
+kernel_payload.elf: entry32.o kentry.o isr.o idt.o interrupts.o platform.o main.o memory.o video.o console.o display.o fonts/font8x16.o $(CONSOLE_BACKEND_OBJ) netface.o net/ipv4.o net/tcp_min.o mezapi.o apps/keymusic_app.o apps/rotcube_app.o apps/fbtest_color.o drivers/ne2000.o drivers/pcspeaker.o drivers/sb16.o drivers/pci.o drivers/gpu/gpu.o drivers/gpu/cirrus.o drivers/gpu/cirrus_accel.o drivers/gpu/et4000.o drivers/gpu/fb_accel.o drivers/gpu/vga_hw.o drivers/ata.o drivers/fs/neelefs.o drivers/storage.o keyboard.o cpu.o cpuidle.o shell.o
 	$(LD) $(LDFLAGS) $^ -o $@
 
 # Erzeuge flaches Binary ohne führende 0x7E00-Lücke

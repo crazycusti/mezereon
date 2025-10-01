@@ -1,0 +1,429 @@
+     1                                  ; bootloader.asm - i386 Protected Mode Bootloader
+     2                                  ; Lädt den Kernel und schaltet in den 32-Bit Protected Mode
+     3                                  
+     4                                  ; Ziel-CPU ist erstmal fest i386
+     5                                  %define TARGET_8086    0   ; 8086/8088 Real Mode (für später)
+     6                                  %define TARGET_286     1   ; 286 Protected Mode (für später)
+     7                                  %define TARGET_386     2   ; 386+ Protected Mode mit Paging
+     8                                  %define TARGET_I686    3   ; i686+ (für später)
+     9                                  %define TARGET_CPU TARGET_386
+    10                                  
+    11                                  %define ENABLE_BOOTINFO 1
+    12                                  %define DEBUG_BOOT 0
+    13                                  %define ENABLE_A20_KBC 0
+    14                                  %define WAIT_BEFORE_PM 0
+    15                                  %define DEBUG_PM_STUB 0
+    16                                  
+    17                                  %define BOOTINFO_ADDR             0x5000
+    18                                  %define BOOTINFO_ARCH_OFF         (BOOTINFO_ADDR + 0)
+    19                                  %define BOOTINFO_MACHINE_OFF      (BOOTINFO_ADDR + 4)
+    20                                  %define BOOTINFO_CONSOLE_OFF      (BOOTINFO_ADDR + 8)
+    21                                  %define BOOTINFO_FLAGS_OFF        (BOOTINFO_ADDR + 12)
+    22                                  %define BOOTINFO_PROM_OFF         (BOOTINFO_ADDR + 16)
+    23                                  %define BOOTINFO_MEM_COUNT_OFF    (BOOTINFO_ADDR + 20)
+    24                                  %define BOOTINFO_MEM_ENTRIES_OFF  (BOOTINFO_ADDR + 24)
+    25                                  %define BOOTINFO_SEG              (BOOTINFO_ADDR >> 4)
+    26                                  %define BOOTINFO_BIAS             (BOOTINFO_ADDR & 0x0F)
+    27                                  %define BOOTINFO_MEM_ENTRIES_BIAS (BOOTINFO_MEM_ENTRIES_OFF - BOOTINFO_ADDR)
+    28                                  %define BOOTINFO_MEM_ENTRY_SIZE   24
+    29                                  %define BOOTINFO_MEM_MAX          32
+    30                                  %define SMAP_SIGNATURE            0x534D4150
+    31                                  %define BI_ARCH_X86               1
+    32                                  
+    33                                  ; Anzahl zu ladender Sektoren wird vom Build gesetzt
+    34                                  %ifndef KERNEL_SECTORS
+    35                                  %define KERNEL_SECTORS 10
+    36                                  %endif
+    37                                  
+    38                                  BITS 16
+    39                                  ORG 0x7C00
+    40                                  
+    41                                  start:
+    42                                      ; Stack einrichten
+    43 00000000 31C0                        xor ax, ax
+    44 00000002 8ED0                        mov ss, ax
+    45 00000004 BC007C                      mov sp, 0x7C00
+    46 00000007 8ED8                        mov ds, ax
+    47                                  
+    48                                      ; Boot-Drive speichern
+    49 00000009 8816[E201]                  mov [boot_drive], dl
+    50                                  
+    51                                      ; Boot-Info einrichten
+    52 0000000D E81601                      call setup_bootinfo
+    53                                  
+    54                                      ; Lade-Ziel: 0x7E00 (direkt nach Bootloader)
+    55 00000010 B8E007                      mov ax, 0x07E0
+    56 00000013 8EC0                        mov es, ax          ; ES:BX = 0x07E0:0x0000 = 0x7E00
+    57 00000015 31DB                        xor bx, bx
+    58                                      
+    59                                      ; Anzahl zu ladender Sektoren
+    60 00000017 B80A00                      mov ax, KERNEL_SECTORS
+    61 0000001A A3[E301]                    mov [remain], ax
+    62                                  
+    63                                      ; Disk zurücksetzen und rekalibrieren
+    64 0000001D B400                        mov ah, 0x00          ; Reset Disk System
+    65 0000001F 8A16[E201]                  mov dl, [boot_drive]
+    66 00000023 CD13                        int 0x13
+    67 00000025 0F82A401                    jc disk_error
+    68                                  
+    69                                      ; Bei Floppy zusätzliche Rekalibrierung
+    70 00000029 80FA80                      cmp dl, 0x80
+    71 0000002C 731C                        jae .get_params       ; Bei HDD direkt Parameter holen
+    72                                      
+    73 0000002E B402                        mov ah, 0x02          ; Sektor lesen zum Rekalibrieren
+    74 00000030 B001                        mov al, 1             ; Ein Sektor
+    75 00000032 B500                        mov ch, 0             ; Cylinder 0
+    76 00000034 B101                        mov cl, 1             ; Sektor 1
+    77 00000036 B600                        mov dh, 0             ; Head 0
+    78 00000038 8A16[E201]                  mov dl, [boot_drive]
+    79 0000003C 06                          push es               ; ES:BX sichern
+    80 0000003D 53                          push bx
+    81 0000003E 50                          push ax               ; Temporärer Buffer
+    82 0000003F 8CD0                        mov ax, ss
+    83 00000041 8EC0                        mov es, ax
+    84 00000043 89E3                        mov bx, sp
+    85 00000045 CD13                        int 0x13              ; Ignoriere Fehler hier
+    86 00000047 58                          pop ax
+    87 00000048 5B                          pop bx
+    88 00000049 07                          pop es
+    89                                  
+    90                                  .get_params:
+    91 0000004A B408                        mov ah, 0x08
+    92 0000004C 8A16[E201]                  mov dl, [boot_drive]
+    93 00000050 CD13                        int 0x13
+    94 00000052 720F                        jc .use_defaults
+    95                                      
+    96 00000054 8836[E801]                  mov [max_head], dh
+    97 00000058 880E[E701]                  mov [spt], cl
+    98 0000005C 8026[E701]3F                and byte [spt], 0x3F
+    99 00000061 EB0A                        jmp .init_params
+   100                                  
+   101                                  .use_defaults:
+   102                                      ; Standard Floppy Parameter
+   103 00000063 C606[E701]12                mov byte [spt], 18
+   104 00000068 C606[E801]01                mov byte [max_head], 1
+   105                                  
+   106                                  .init_params:
+   107                                      ; Parameter validieren
+   108 0000006D A0[E801]                    mov al, [max_head]
+   109 00000070 08C0                        or al, al
+   110 00000072 7505                        jnz .check_spt
+   111 00000074 C606[E801]01                mov byte [max_head], 1  ; Mindestens 2 Köpfe (0-1)
+   112                                  .check_spt:
+   113 00000079 A0[E701]                    mov al, [spt]
+   114 0000007C 08C0                        or al, al
+   115 0000007E 7505                        jnz .init_pos
+   116 00000080 C606[E701]12                mov byte [spt], 18      ; Mindestens 18 Sektoren/Spur
+   117                                  
+   118                                  .init_pos:
+   119                                      ; Startposition: Cylinder 0, Head 0, Sektor 2
+   120 00000085 31C0                        xor ax, ax
+   121 00000087 A3[EB01]                    mov [cyl], ax          ; Cylinder 0
+   122 0000008A C606[EA01]00                mov byte [head], 0     ; Head 0
+   123 0000008F C606[E901]02                mov byte [sect], 2     ; Sektor 2 (nach Bootsektor)
+   124                                  
+   125                                  .load_loop:
+   126 00000094 833E[E301]00                cmp word [remain], 0    ; Alle Sektoren geladen?
+   127 00000099 7473                        je .load_done
+   128                                  
+   129                                      ; CHS Parameter vorbereiten
+   130 0000009B 8A2E[EB01]                  mov ch, [cyl]          ; CH = Low 8 bits von Cylinder
+   131 0000009F 8A0E[E901]                  mov cl, [sect]         ; CL[5:0] = Sektor
+   132 000000A3 8A36[EA01]                  mov dh, [head]         ; DH = Head
+   133 000000A7 8A16[E201]                  mov dl, [boot_drive]   ; DL = Drive
+   134                                      
+   135 000000AB 8A1E[EC01]                  mov bl, [cyl+1]        ; Obere Cylinder-Bits
+   136 000000AF 80E303                      and bl, 0x03           ; Nur Bits 8-9
+   137 000000B2 C0E306                      shl bl, 6              ; Nach Position 6-7
+   138 000000B5 08D9                        or cl, bl              ; In CL[7:6]
+   139                                  
+   140                                      ; Leseversuch mit bis zu 3 Wiederholungen
+   141 000000B7 C606[E601]03                mov byte [retry_count], 3
+   142                                  
+   143                                  .retry_read:
+   144 000000BC B402                        mov ah, 0x02          ; Funktion 02h = Read Sectors
+   145 000000BE B001                        mov al, 1             ; Ein Sektor
+   146 000000C0 06                          push es               ; ES:BX sichern
+   147 000000C1 53                          push bx
+   148 000000C2 BB0000                      mov bx, 0            ; ES:BX = Buffer
+   149 000000C5 CD13                        int 0x13
+   150 000000C7 5B                          pop bx
+   151 000000C8 07                          pop es
+   152 000000C9 7310                        jnc .read_ok         ; Kein Fehler -> weiter
+   153                                      
+   154 000000CB FE0E[E601]                  dec byte [retry_count]
+   155 000000CF 0F84FA00                    jz disk_error        ; Keine Versuche mehr -> Fehler
+   156                                      
+   157                                      ; Disk zurücksetzen und neu versuchen
+   158 000000D3 50                          push ax
+   159 000000D4 B400                        mov ah, 0x00
+   160 000000D6 CD13                        int 0x13
+   161 000000D8 58                          pop ax
+   162 000000D9 EBE1                        jmp .retry_read
+   163                                  
+   164                                  .read_ok:
+   165                                      ; Buffer für nächsten Sektor vorbereiten
+   166 000000DB 8CC0                        mov ax, es
+   167 000000DD 83C020                      add ax, 0x20         ; 512 Bytes weiter
+   168 000000E0 8EC0                        mov es, ax
+   169 000000E2 FF0E[E301]                  dec word [remain]
+   170                                  
+   171 000000E6 A0[E901]                    mov al, [sect]
+   172 000000E9 FEC0                        inc al
+   173 000000EB 3A06[E701]                  cmp al, [spt]
+   174 000000EF 7618                        jbe .chs_store_sect
+   175 000000F1 B001                        mov al, 1
+   176 000000F3 8A1E[EA01]                  mov bl, [head]
+   177 000000F7 FEC3                        inc bl
+   178 000000F9 3A1E[E801]                  cmp bl, [max_head]
+   179 000000FD 7606                        jbe .chs_store_head
+   180 000000FF B300                        mov bl, 0
+   181 00000101 FF06[EB01]                  inc word [cyl]
+   182                                  .chs_store_head:
+   183 00000105 881E[EA01]                  mov [head], bl
+   184                                  .chs_store_sect:
+   185 00000109 A2[E901]                    mov [sect], al
+   186 0000010C EB86                        jmp .load_loop
+   187                                  
+   188                                  .load_done:
+   189                                      ; A20 Gate aktivieren
+   190 0000010E E8C400                      call enable_a20
+   191                                  %if DEBUG_BOOT
+   192                                      mov al, 'P'
+   193                                      call print_char
+   194                                  %endif
+   195                                  
+   196                                      ; GDT vorbereiten (im Bootsektor, 3 Einträge: Null, Code, Data)
+   197                                  %if DEBUG_BOOT
+   198                                      mov al, 'T'
+   199                                      call print_char
+   200                                  %endif
+   201                                  
+   202                                  %if WAIT_BEFORE_PM
+   203                                  %if DEBUG_BOOT
+   204                                      mov al, 'W'
+   205                                      call print_char
+   206                                  %endif
+   207                                  .wait_pm_loop:
+   208                                      hlt
+   209                                      jmp .wait_pm_loop
+   210                                  %endif
+   211 00000111 FA                          cli
+   212 00000112 0F0116[C701]                lgdt [gdt_descriptor]
+   213                                      ; (no print before protected mode)
+   214                                  
+   215                                      ; Protected Mode aktivieren
+   216 00000117 0F20C0                      mov eax, cr0
+   217 0000011A 6683C801                    or eax, 1
+   218 0000011E 0F22C0                      mov cr0, eax
+   219                                  
+   220                                      ; Weitsprung in 32-Bit Protected Mode (CS: 0x08)
+   221 00000121 EA[9701]0800            jmp 0x08:protected_mode_entry
+   222                                  
+   223                                  %if DEBUG_BOOT
+   224                                  print_char:
+   225                                      push ax
+   226                                      push bx
+   227                                      mov ah, 0x0E
+   228                                      mov bh, 0
+   229                                      mov bl, 0x07
+   230                                      int 0x10
+   231                                      pop bx
+   232                                      pop ax
+   233                                      ret
+   234                                  
+   235                                  print_dec_byte:
+   236                                      push ax
+   237                                      push bx
+   238                                      xor ah, ah
+   239                                      mov bl, 10
+   240                                      div bl
+   241                                      cmp al, 0
+   242                                      je .skip_high
+   243                                      add al, '0'
+   244                                      call print_char
+   245                                  .skip_high:
+   246                                      mov al, ah
+   247                                      add al, '0'
+   248                                      call print_char
+   249                                      pop bx
+   250                                      pop ax
+   251                                      ret
+   252                                  %endif
+   253                                  
+   254                                  %if ENABLE_BOOTINFO
+   255                                  ; --- Boot info helpers ---
+   256                                  setup_bootinfo:
+   257 00000126 31C0                        xor ax, ax
+   258 00000128 8ED8                        mov ds, ax
+   259 0000012A 8EC0                        mov es, ax
+   260 0000012C 6631C0                      xor eax, eax
+   261 0000012F 66A30450                    mov dword [BOOTINFO_MACHINE_OFF], eax
+   262 00000133 66A30850                    mov dword [BOOTINFO_CONSOLE_OFF], eax
+   263 00000137 66A30C50                    mov dword [BOOTINFO_FLAGS_OFF], eax
+   264 0000013B 66A31050                    mov dword [BOOTINFO_PROM_OFF], eax
+   265 0000013F 66A31450                    mov dword [BOOTINFO_MEM_COUNT_OFF], eax
+   266 00000143 66B801000000                mov eax, BI_ARCH_X86
+   267 00000149 66A30050                    mov dword [BOOTINFO_ARCH_OFF], eax
+   268 0000014D 803E[E201]80                cmp byte [boot_drive], 0x80
+   269 00000152 7203                        jb .skip_detect
+   270 00000154 E80100                      call detect_memory
+   271                                  .skip_detect:
+   272 00000157 C3                          ret
+   273                                  
+   274                                  detect_memory:
+   275 00000158 6631DB                      xor ebx, ebx
+   276 0000015B BF1800                      mov di, BOOTINFO_MEM_ENTRIES_BIAS
+   277 0000015E 31F6                        xor si, si
+   278                                  
+   279                                  .detect_loop:
+   280 00000160 B80005                      mov ax, BOOTINFO_SEG
+   281 00000163 8EC0                        mov es, ax
+   282 00000165 66B820E80000                mov eax, 0xE820
+   283 0000016B 66BA50414D53                mov edx, SMAP_SIGNATURE
+   284 00000171 66B918000000                mov ecx, BOOTINFO_MEM_ENTRY_SIZE
+   285 00000177 CD15                        int 0x15
+   286 00000179 7217                        jc .done
+   287 0000017B 663D50414D53                cmp eax, SMAP_SIGNATURE
+   288 00000181 750F                        jne .done
+   289 00000183 83FE20                      cmp si, BOOTINFO_MEM_MAX
+   290 00000186 730A                        jae .done
+   291 00000188 46                          inc si
+   292 00000189 83C718                      add di, BOOTINFO_MEM_ENTRY_SIZE
+   293                                  .skip:
+   294 0000018C 6683FB00                    cmp ebx, 0
+   295 00000190 75CE                        jne .detect_loop
+   296                                  .done:
+   297 00000192 89361450                    mov word [BOOTINFO_MEM_COUNT_OFF], si
+   298 00000196 C3                          ret
+   299                                  %endif
+   300                                  
+   301                                  ; -----------------------------
+   302                                  ; 32-Bit Protected Mode Code
+   303                                  ; -----------------------------
+   304                                  
+   305                                  BITS 32
+   306                                  protected_mode_entry:
+   307 00000197 66B81000                    mov ax, 0x10        ; Data Segment Selector
+   308 0000019B 8ED8                        mov ds, ax
+   309 0000019D 8EC0                        mov es, ax
+   310 0000019F 8EE0                        mov fs, ax
+   311 000001A1 8EE8                        mov gs, ax
+   312 000001A3 8ED0                        mov ss, ax
+   313 000001A5 BC00FC0900                  mov esp, 0x9FC00    ; Stack (z.B. unterhalb 640K)
+   314                                  
+   315                                  %if DEBUG_PM_STUB
+   316                                      mov ebx, 0xB8000
+   317                                      mov word [ebx], 0x0744         ; 'D'
+   318                                      mov word [ebx+2], 0x0742       ; 'B'
+   319                                      mov word [ebx+4], 0x0747       ; 'G'
+   320                                      mov word [ebx+6], 0x0758       ; 'X'
+   321                                  .pm_debug_loop:
+   322                                      hlt
+   323                                      jmp .pm_debug_loop
+   324                                  %else
+   325                                      ; Sprung zum Kernel-Einsprungspunkt (0x7E00, 32-bit Entry in payload)
+   326 000001AA E9(007E0000)                jmp 0x7E00
+   327                                  %endif
+   328                                  
+   329                                  ; -----------------------------
+   330                                  ; GDT (im Bootsektor)
+   331                                  ; -----------------------------
+   332                                  
+   333                                  gdt_start:
+   334 000001AF 0000000000000000            dq 0x0000000000000000      ; Null-Deskriptor
+   335 000001B7 FFFF0000009ACF00            dq 0x00CF9A000000FFFF      ; Code-Deskriptor (Basis 0, Limit 4GB, 32bit, RX)
+   336 000001BF FFFF00000092CF00            dq 0x00CF92000000FFFF      ; Data-Deskriptor (Basis 0, Limit 4GB, 32bit, RW)
+   337                                  gdt_end:
+   338                                  
+   339                                  gdt_descriptor:
+   340 000001C7 1700                        dw gdt_end - gdt_start - 1
+   341 000001C9 [AF010000]                  dd gdt_start
+   342                                  disk_error:
+   343 000001CD 8825[E5010000]              mov [disk_err_status], ah
+   344                                  %if DEBUG_BOOT
+   345                                      mov al, 'E'
+   346                                      call print_char
+   347                                  %endif
+   348 000001D3 EBFE                        jmp $
+   349                                  
+   350                                  ; A20 Gate aktivieren
+   351                                  enable_a20:
+   352 000001D5 6650                        push ax
+   353                                      ; Schneller Versuch über Port 0x92 (PS/2)
+   354 000001D7 E492                        in al, 0x92
+   355 000001D9 0C02                        or al, 2
+   356 000001DB E692                        out 0x92, al
+   357                                  %if ENABLE_A20_KBC
+   358                                      in al, 0x92
+   359                                      test al, 2
+   360                                      jnz .done
+   361                                      call enable_a20_kbc
+   362                                  %endif
+   363                                  .done:
+   364 000001DD 6658                        pop ax
+   365 000001DF C3                          ret
+   366                                  
+   367                                  %if ENABLE_A20_KBC
+   368                                  enable_a20_kbc:
+   369                                      push ax
+   370                                      call enable_a20_wait_ibf_clear
+   371                                      mov al, 0xAD
+   372                                      out 0x64, al
+   373                                      call enable_a20_wait_ibf_clear
+   374                                      mov al, 0xD0
+   375                                      out 0x64, al
+   376                                      call enable_a20_wait_obf_set
+   377                                      in al, 0x60
+   378                                      or al, 2
+   379                                      mov ah, al
+   380                                      call enable_a20_wait_ibf_clear
+   381                                      mov al, 0xD1
+   382                                      out 0x64, al
+   383                                      call enable_a20_wait_ibf_clear
+   384                                      mov al, ah
+   385                                      out 0x60, al
+   386                                      call enable_a20_wait_ibf_clear
+   387                                      mov al, 0xAE
+   388                                      out 0x64, al
+   389                                      call enable_a20_wait_ibf_clear
+   390                                      pop ax
+   391                                      ret
+   392                                  
+   393                                  enable_a20_wait_ibf_clear:
+   394                                      in al, 0x64
+   395                                      test al, 2
+   396                                      jnz enable_a20_wait_ibf_clear
+   397                                      ret
+   398                                  
+   399                                  enable_a20_wait_obf_set:
+   400                                      in al, 0x64
+   401                                      test al, 1
+   402                                      jz enable_a20_wait_obf_set
+   403                                      ret
+   404                                  %endif
+   405                                  
+   406                                  cpu_error:
+   407 000001E0 EBFE                        jmp $               ; Endlosschleife
+   408                                  
+   409                                  ; --- Daten (müssen vor Signatur liegen) ---
+   410 000001E2 00                      boot_drive db 0     ; BIOS drive number (from DL)
+   411 000001E3 0000                    remain     dw 0     ; sectors left to read
+   412 000001E5 00                      disk_err_status db 0 ; last BIOS error code
+   413 000001E6 00                      retry_count db 0    ; Anzahl verbleibender Leseversuche
+   414 000001E7 00                      spt        db 0     ; Sektoren pro Spur
+   415 000001E8 00                      max_head   db 0     ; Maximale Head-Nummer (Köpfe - 1)
+   416 000001E9 00                      sect       db 0     ; Aktueller Sektor
+   417 000001EA 00                      head       db 0     ; Aktueller Head
+   418 000001EB 0000                    cyl        dw 0     ; Aktueller Cylinder
+   419 000001ED 0100                    lba_lo     dw 1
+   420 000001EF 1000                    dap:        db 0x10, 0x00
+   421 000001F1 0100                                dw 1      ; sector count
+   422 000001F3 0000                                dw 0      ; buffer offset
+   423 000001F5 0000                                dw 0      ; buffer segment
+   424 000001F7 00000000                            dw 0, 0   ; LBA low dword (initial zero; set at runtime)
+   425 000001FB 00000000                            dw 0, 0   ; LBA high dword (unused)
+   426                                  
+   427                                  times 510-($-$$) db 0
+   427          ******************       error: TIMES value -1 is negative
+   428 000001FF 55AA                        dw 0xAA55

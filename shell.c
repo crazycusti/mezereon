@@ -15,6 +15,7 @@
 #include "apps/fbtest_color.h"
 #include "video_fb.h"
 #include "mezapi.h"
+#include "memory.h"
 #include <stdint.h>
 
 static void print_prompt(void) {
@@ -24,6 +25,21 @@ static void print_prompt(void) {
 static int streq(const char* a, const char* b) {
     while (*a && *b) { if (*a != *b) return 0; a++; b++; }
     return *a == 0 && *b == 0;
+}
+
+static void shell_write_u64_hex(uint64_t v) {
+    uint32_t hi = (uint32_t)(v >> 32);
+    uint32_t lo = (uint32_t)v;
+    if (hi) {
+        console_write_hex32(hi);
+        console_write_hex32(lo);
+    } else {
+        console_write_hex32(lo);
+    }
+}
+
+static uint32_t shell_clamp_u64_to_u32(uint64_t v) {
+    return (v > 0xFFFFFFFFu) ? 0xFFFFFFFFu : (uint32_t)v;
 }
 
 void shell_run(void) {
@@ -48,7 +64,7 @@ void shell_run(void) {
                 } else if (streq(buf, "clear")) {
                     console_clear();
                 } else if (streq(buf, "help")) {
-                    console_write("Commands: version, clear, help, cpuinfo, ticks, wakeups, idle [n], timer <show|hz N|off|on>, ata, atadump [lba], autofs [show|rescan|mount <n>], ip [show|set <ip> <mask> [gw]|ping <ip> [count]], neele mount [lba], neele ls [path], neele cat <name|/path>, neele mkfs, neele mkdir </path>, neele write </path> <text>, neele verify [verbose] [path], pad </path>, netinfo, netrxdump, gpuinfo, fbtest, beep [freq] [ms], keymusic, app [ls|run </path|name>], http [start [port]|stop|status|body <text>]\n");
+                    console_write("Commands: version, clear, help, cpuinfo, meminfo, ticks, wakeups, idle [n], timer <show|hz N|off|on>, ata, atadump [lba], autofs [show|rescan|mount <n>], ip [show|set <ip> <mask> [gw]|ping <ip> [count]], neele mount [lba], neele ls [path], neele cat <name|/path>, neele mkfs, neele mkdir </path>, neele write </path> <text>, neele verify [verbose] [path], pad </path>, netinfo, netrxdump, gpuinfo, fbtest, beep [freq] [ms], keymusic, rotcube, app [ls|run </path|name>], http [start [port]|stop|status|body <text>]\n");
                 } else if (streq(buf, "ata")) {
                     if (ata_present()) console_write("ATA present (selected device).\n");
                     else console_write("ATA not present.\n");
@@ -155,6 +171,40 @@ void shell_run(void) {
                         else { if (!neelefs_verify("/", verbose)) console_write("verify failed.\n"); }
                     } else {
                         console_write("usage: neele <mount|ls|cat> ...\n");
+                    }
+                } else if (streq(buf, "meminfo")) {
+                    uint64_t total_kib = memory_total_bytes() >> 10;
+                    uint64_t usable_kib = memory_usable_bytes() >> 10;
+                    uint64_t alloc_kib = memory_allocated_bytes() >> 10;
+                    console_write("mem: total=");
+                    console_write_dec(shell_clamp_u64_to_u32(total_kib));
+                    console_write(" KiB usable=");
+                    console_write_dec(shell_clamp_u64_to_u32(usable_kib));
+                    console_write(" KiB allocated=");
+                    console_write_dec(shell_clamp_u64_to_u32(alloc_kib));
+                    console_write(" KiB\n");
+                    size_t regions = memory_region_count();
+                    for (size_t ri = 0; ri < regions; ri++) {
+                        const bootinfo_memory_range_t* r = memory_region_at(ri);
+                        if (!r) {
+                            continue;
+                        }
+                        console_write(" ");
+                        console_write_dec((uint32_t)ri);
+                        console_write(": base=0x");
+                        shell_write_u64_hex(r->base);
+                        console_write(" len=0x");
+                        shell_write_u64_hex(r->length);
+                        console_write(" (");
+                        console_write_dec(shell_clamp_u64_to_u32(r->length >> 10));
+                        console_write(" KiB)");
+                        console_write(" type=");
+                        console_write_dec(r->type);
+                        if (r->attr) {
+                            console_write(" attr=0x");
+                            console_write_hex32(r->attr);
+                        }
+                        console_write("\n");
                     }
                 } else if (streq(buf, "cpuinfo")) {
                     cpuinfo_print();
@@ -267,6 +317,9 @@ void shell_run(void) {
                 } else if (streq(buf, "keymusic")) {
                     extern int keymusic_app_main(const mez_api32_t*);
                     (void)keymusic_app_main(mez_api_get());
+                } else if (streq(buf, "rotcube")) {
+                    extern int rotcube_app_main(const mez_api32_t*);
+                    (void)rotcube_app_main(mez_api_get());
                 } else if (streq(buf, "fbtest")) {
                     fbtest_run();
                 } else if (buf[0]=='g' && buf[1]=='p' && buf[2]=='u' && buf[3]=='i' && buf[4]=='n' && buf[5]=='f' && buf[6]=='o' && (buf[7]==0 || buf[7]==' ')) {
@@ -307,6 +360,9 @@ void shell_run(void) {
                             else if (name[0]=='k'&&name[1]=='e'&&name[2]=='y'&&name[3]=='m'&&name[4]=='u'&&name[5]=='s'&&name[6]=='i'&&name[7]=='c'&&name[8]==0){
                                 extern int keymusic_app_main(const mez_api32_t*);
                                 (void)keymusic_app_main(mez_api_get());
+                            } else if (name[0]=='r'&&name[1]=='o'&&name[2]=='t'&&name[3]=='c'&&name[4]=='u'&&name[5]=='b'&&name[6]=='e'&&name[7]==0){
+                                extern int rotcube_app_main(const mez_api32_t*);
+                                (void)rotcube_app_main(mez_api_get());
                             } else {
                                 console_writeln("app: unknown name");
                             }

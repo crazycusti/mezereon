@@ -11,6 +11,31 @@
 #define CONFIG_NE2000_SCAN 1
 #endif
 
+// Sound Blaster 16 (SB16) legacy ISA defaults
+#ifndef CONFIG_SB16_ENABLE
+#define CONFIG_SB16_ENABLE 1
+#endif
+
+#ifndef CONFIG_SB16_IO
+#define CONFIG_SB16_IO 0x220
+#endif
+
+#ifndef CONFIG_SB16_IRQ
+#define CONFIG_SB16_IRQ 5
+#endif
+
+#ifndef CONFIG_SB16_DMA8
+#define CONFIG_SB16_DMA8 1
+#endif
+
+#ifndef CONFIG_SB16_DMA16
+#define CONFIG_SB16_DMA16 5
+#endif
+
+#ifndef CONFIG_SB16_SCAN
+#define CONFIG_SB16_SCAN 1
+#endif
+
 // NE2000 PIO width selection
 // 1 = use 16-bit PIO (outw/inw) with DCR.WTS=1
 // 0 = use 8-bit PIO (outb/inb) with DCR.WTS=0

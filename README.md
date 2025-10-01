@@ -84,7 +84,7 @@ Useful runtime commands (shell)
   - GPU/Pci: `gpuinfo [detail]` prüft PCI-Grafikgeräte; `detail` zeigt Register-Dumps. `gpuinfo` listet verfügbare Auflösungen/Farbtiefen (basierend auf erkanntem VRAM). `fbtest` schaltet testweise den Cirrus-Framebuffer auf 640×480 und zeigt Farbbalken.
   - Grafikmodus: `CONFIG_VIDEO_TARGET=text|auto|framebuffer` (Default `auto`). Bei Cirrus wird automatisch auf Framebuffer umgestellt; die Statusleiste zeigt einen dunklen Regenbogen-Hintergrund und den aktuellen Modus (`gfx: framebuffer`/`text`).
   - Power/system: `version`, `idle`, `timer`, `ticks`, `wakeups` (`docs/shell/system.md`, `docs/shell/power.md`).
-  - Apps: `app ls`, `app run <name|/path>` for MezAPI-linked helpers such as `keymusic`; see `docs/shell/apps.md` and `docs/api/mezapi.md`.
+  - Apps: `app ls`, `app run <name|/path>` for MezAPI-linked helpers such as `keymusic` or `rotcube`; see `docs/shell/apps.md`, `docs/api/mezapi.md`, `docs/api/graphics_fb.md`.
   - Audio quick test: `beep [freq] [ms]` (PC speaker ping).
 
 Changelog

@@ -13,7 +13,7 @@ Cirrus Logic GD5446 notes
 - BAR0 exposes the linear framebuffer (size is calculated from the BAR mask at runtime); BAR1 exposes MMIO registers when present.
 - Reported capabilities:
   - `linear-fb` — 32-bit accessible framebuffer aperture
-  - `2d-accel` — BitBLT engine is present (not yet programmed)
+  - `2d-accel` — BitBLT engine verfügbar (Kernel nutzt es für rechteckige Füllungen im Framebuffer)
   - `hw-cursor` — hardware cursor support is available
 - The driver currently provides detection/logging only; programming the accelerator/LFB is planned for later phases.
 

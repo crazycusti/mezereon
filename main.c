@@ -8,20 +8,24 @@
 #include "cpuidle.h"
 #include "net/ipv4.h"
 #include "drivers/pcspeaker.h"
+#include "drivers/sb16.h"
 #include "display.h"
 #include "drivers/pci.h"
 #include "drivers/gpu/gpu.h"
 #include "version.h"
 #include <stddef.h>
+#include "memory.h"
 
-void kmain()
+void kmain(const boot_info_t* bootinfo)
 {
     display_manager_init(CONFIG_VIDEO_TARGET);
     console_init();
+    memory_init(bootinfo);
     console_writeln("Initializing Mezereon... Video initialized.");
     display_manager_log_state();
     // Compact CPU info line
     cpu_bootinfo_print();
+    memory_log_summary();
 
     pci_init();
     size_t pci_device_count = 0;
@@ -85,6 +89,26 @@ void kmain()
     console_write(spk?"present":"not present");
     console_write("\n");
     if (spk) { pcspeaker_beep(880, 60); }
+
+    sb16_init();
+    if (sb16_present()) {
+        const sb16_info_t* info = sb16_get_info();
+        console_write("audio: sb16 @0x");
+        console_write_hex16(info->base_port);
+        console_write(", irq=");
+        console_write_dec((uint32_t)info->irq);
+        console_write(", dma=");
+        console_write_dec((uint32_t)info->dma8);
+        console_write("/");
+        console_write_dec((uint32_t)info->dma16);
+        console_write(", dsp=");
+        console_write_dec((uint32_t)info->version_major);
+        console_putc('.');
+        console_write_dec((uint32_t)info->version_minor);
+        console_write("\n");
+    } else {
+        console_writeln("audio: sb16 not detected");
+    }
 
     if (netface_init()) {
         net_ipv4_init();

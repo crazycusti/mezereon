@@ -1,8 +1,10 @@
 #include "gpu.h"
 #include "cirrus.h"
+#include "et4000.h"
 #include "../../console.h"
 #include "../../display.h"
 #include "../../video_fb.h"
+#include "cirrus_accel.h"
 #include <stdint.h>
 #include <stddef.h>
 
@@ -135,6 +137,13 @@ void gpu_init(void) {
             continue;
         }
     }
+
+    if (g_gpu_count < GPU_MAX_DEVICES) {
+        gpu_info_t info;
+        if (et4000_detect(&info)) {
+            g_gpu_infos[g_gpu_count++] = info;
+        }
+    }
 }
 
 const gpu_info_t* gpu_get_devices(size_t* count) {
@@ -190,6 +199,19 @@ int gpu_request_framebuffer_mode(uint16_t width, uint16_t height, uint8_t bpp) {
                 if (cirrus_set_mode_640x480x8(&gpu->pci, &mode, gpu)) {
                     display_manager_set_framebuffer_candidate("cirrus-lfb", &mode);
                     display_manager_activate_framebuffer();
+                    cirrus_accel_enable(&mode);
+                    video_switch_to_framebuffer(&mode);
+                    g_active_fb_gpu = gpu;
+                    g_framebuffer_active = 1;
+                    return 1;
+                }
+            }
+        } else if (gpu->type == GPU_TYPE_ET4000) {
+            if (width == 640 && height == 480 && bpp == 8) {
+                display_mode_info_t mode;
+                if (et4000_set_mode_640x480x8(gpu, &mode)) {
+                    display_manager_set_framebuffer_candidate("et4000", &mode);
+                    display_manager_activate_framebuffer();
                     video_switch_to_framebuffer(&mode);
                     g_active_fb_gpu = gpu;
                     g_framebuffer_active = 1;
@@ -206,6 +228,14 @@ void gpu_restore_text_mode(void) {
 
     if (g_active_fb_gpu && g_active_fb_gpu->type == GPU_TYPE_CIRRUS) {
         cirrus_restore_text_mode(&g_active_fb_gpu->pci);
+        g_active_fb_gpu->framebuffer_ptr = NULL;
+        g_active_fb_gpu->framebuffer_width = 0;
+        g_active_fb_gpu->framebuffer_height = 0;
+        g_active_fb_gpu->framebuffer_pitch = 0;
+        g_active_fb_gpu->framebuffer_bpp = 0;
+        cirrus_accel_disable();
+    } else if (g_active_fb_gpu && g_active_fb_gpu->type == GPU_TYPE_ET4000) {
+        et4000_restore_text_mode();
         g_active_fb_gpu->framebuffer_ptr = NULL;
         g_active_fb_gpu->framebuffer_width = 0;
         g_active_fb_gpu->framebuffer_height = 0;

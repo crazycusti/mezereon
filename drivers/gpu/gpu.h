@@ -10,6 +10,7 @@
 typedef enum {
     GPU_TYPE_UNKNOWN = 0,
     GPU_TYPE_CIRRUS,
+    GPU_TYPE_ET4000,
 } gpu_type_t;
 
 #define GPU_CAP_LINEAR_FB   (1u << 0)
