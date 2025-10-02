@@ -20,6 +20,18 @@ void kmain(const boot_info_t* bootinfo)
 {
     display_manager_init(CONFIG_VIDEO_TARGET);
     console_init();
+    if (bootinfo) {
+        console_write("Boot: BIOS dev=0x");
+        console_write_hex16((uint16_t)(bootinfo->boot_device & 0xFFu));
+        if (bootinfo->flags & BOOTINFO_FLAG_BOOT_DEVICE_IS_HDD) {
+            console_write(" (hdd)");
+        } else {
+            console_write(" (floppy/legacy)");
+        }
+        console_write("\n");
+    } else {
+        console_writeln("Boot: legacy entry (no bootinfo)");
+    }
     memory_init(bootinfo);
     console_writeln("Initializing Mezereon... Video initialized.");
     display_manager_log_state();

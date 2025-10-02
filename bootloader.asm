@@ -14,21 +14,7 @@
 %define WAIT_BEFORE_PM 0
 %define DEBUG_PM_STUB 0
 
-%define BOOTINFO_ADDR             0x5000
-%define BOOTINFO_ARCH_OFF         (BOOTINFO_ADDR + 0)
-%define BOOTINFO_MACHINE_OFF      (BOOTINFO_ADDR + 4)
-%define BOOTINFO_CONSOLE_OFF      (BOOTINFO_ADDR + 8)
-%define BOOTINFO_FLAGS_OFF        (BOOTINFO_ADDR + 12)
-%define BOOTINFO_PROM_OFF         (BOOTINFO_ADDR + 16)
-%define BOOTINFO_MEM_COUNT_OFF    (BOOTINFO_ADDR + 20)
-%define BOOTINFO_MEM_ENTRIES_OFF  (BOOTINFO_ADDR + 24)
-%define BOOTINFO_SEG              (BOOTINFO_ADDR >> 4)
-%define BOOTINFO_BIAS             (BOOTINFO_ADDR & 0x0F)
-%define BOOTINFO_MEM_ENTRIES_BIAS (BOOTINFO_MEM_ENTRIES_OFF - BOOTINFO_ADDR)
-%define BOOTINFO_MEM_ENTRY_SIZE   24
-%define BOOTINFO_MEM_MAX          32
-%define SMAP_SIGNATURE            0x534D4150
-%define BI_ARCH_X86               1
+%include "boot_shared.inc"
 
 ; Anzahl zu ladender Sektoren wird vom Build gesetzt
 %ifndef KERNEL_SECTORS
@@ -264,18 +250,39 @@ setup_bootinfo:
     xor ax, ax
     mov ds, ax
     mov es, ax
+    mov ax, BOOTINFO_SEG
+    mov es, ax
+    xor di, di
+    xor ax, ax
+    mov cx, BOOTINFO_CLEAR_WORDS
+    cld
+    rep stosw
+
+    xor ax, ax
+    mov ds, ax
+    mov es, ax
+
     xor eax, eax
     mov dword [BOOTINFO_MACHINE_OFF], eax
     mov dword [BOOTINFO_CONSOLE_OFF], eax
     mov dword [BOOTINFO_FLAGS_OFF], eax
     mov dword [BOOTINFO_PROM_OFF], eax
+    mov dword [BOOTINFO_BOOTDEV_OFF], eax
     mov dword [BOOTINFO_MEM_COUNT_OFF], eax
+
     mov eax, BI_ARCH_X86
     mov dword [BOOTINFO_ARCH_OFF], eax
+
+    movzx eax, byte [boot_drive]
+    mov dword [BOOTINFO_BOOTDEV_OFF], eax
+
     cmp byte [boot_drive], 0x80
-    jb .skip_detect
+    jb .no_hdd_flag
+    mov eax, BOOTINFO_FLAG_BOOT_DEVICE_IS_HDD
+    mov dword [BOOTINFO_FLAGS_OFF], eax
+.no_hdd_flag:
+
     call detect_memory
-.skip_detect:
     ret
 
 detect_memory:
