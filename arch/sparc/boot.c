@@ -74,7 +74,7 @@ void sparc_boot_main(void* ofw) {
     // If no OF entry was provided (e.g., -kernel), skip all OF calls and go straight to kentry
     if (!entry) {
         boot_info_t bi; memset(&bi, 0, sizeof(bi));
-        bi.arch = BI_ARCH_SPARC; bi.machine = 0; bi.console = 0; bi.flags = 0; bi.prom = 0;
+        bi.arch = BI_ARCH_SPARC; bi.machine = 0; bi.console = 0; bi.flags = 0; bi.prom = 0; bi.boot_device = 0;
         kentry(&bi);
         for(;;) { /* spin */ }
     }
@@ -117,6 +117,7 @@ void sparc_boot_main(void* ofw) {
     bi.console = c_backend;
     bi.flags = 0;
     bi.prom  = ofw;
+    bi.boot_device = 0;
 
     kentry(&bi);
 

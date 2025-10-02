@@ -1,5 +1,5 @@
 [BITS 32]
-%define BOOTINFO_ADDR 0x00005000
+%include "boot_shared.inc"
 %ifndef DEBUG_ENTRY32
 %define DEBUG_ENTRY32 0
 %endif

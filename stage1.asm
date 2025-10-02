@@ -2,6 +2,8 @@
 BITS 16
 ORG 0x7C00
 
+%include "boot_shared.inc"
+
 %define DEBUG_BOOT 1
 
 start:
@@ -10,6 +12,7 @@ start:
     mov ax, 0
     mov ss, ax
     mov sp, 0x7C00
+    mov ds, ax
     sti
 
 %if DEBUG_BOOT
@@ -78,6 +81,7 @@ print_char:
     ret
 
 ; Variablen
+times BOOT_DRIVE_OFFSET - ($-$$) db 0
 boot_drive: db 0
 
 ; Boot-Signatur
