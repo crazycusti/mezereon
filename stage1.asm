@@ -39,7 +39,7 @@ start:
     mov cl, 2        ; Sektor 2
     mov dh, 0        ; Head 0
     mov dl, [boot_drive]
-    mov cx, 3        ; 3 Versuche
+    mov si, 3        ; 3 Versuche
 
 .retry:
     pusha
@@ -48,7 +48,7 @@ start:
     jnc .read_ok
 
     ; Reset und neu versuchen
-    dec cx
+    dec si
     jz error
     push ax
     xor ax, ax
