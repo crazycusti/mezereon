@@ -16,6 +16,9 @@
 
 #define BOOTINFO_MEMORY_MAX_RANGES 32
 
+// Generic boot flags shared across architectures
+#define BOOTINFO_FLAG_BOOT_DEVICE_IS_HDD 0x00000001u
+
 typedef struct bootinfo_memory_range {
     uint64_t base;
     uint64_t length;
@@ -33,8 +36,9 @@ typedef struct boot_info {
     uint32_t arch;        // BI_ARCH_*
     uint32_t machine;     // optional machine id/platform
     const char* console;  // backend name, e.g. "vga_text"
-    uint32_t flags;       // arch-specific flags
+    uint32_t flags;       // arch-specific flags (see BOOTINFO_FLAG_*)
     void*    prom;        // firmware/prom vector (e.g. SPARC OBP)
+    uint32_t boot_device; // BIOS/firmware provided boot device identifier
     bootinfo_memory_map_t memory;
 } boot_info_t;
 

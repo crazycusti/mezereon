@@ -6,7 +6,7 @@ LD ?= ld
 # Robust objcopy detection (host first)
 OBJCOPY := $(shell command -v objcopy 2>/dev/null || command -v gobjcopy 2>/dev/null || echo objcopy)
 CFLAGS ?= -ffreestanding -m32 -march=i386 -mtune=i386 -mno-mmx -mno-sse -mno-sse2 -mno-3dnow -mno-avx -fno-if-conversion -fno-if-conversion2 -Wall -Wextra -nostdlib -fno-builtin -fno-stack-protector -fno-pic -fno-pie
-LDFLAGS ?= -Ttext 0x7E00 -m elf_i386
+LDFLAGS ?= -Ttext 0x8000 -m elf_i386
 
 # Optional QEMU acceleration: set QEMU_ACCEL=kvm|hvf|whpx to enable hardware acceleration and host CPU model
 ifeq ($(QEMU_ACCEL),kvm)
@@ -168,9 +168,9 @@ cpuidle.o: cpuidle.c cpuidle.h config.h
 kernel_payload.elf: entry32.o kentry.o isr.o idt.o interrupts.o platform.o main.o memory.o video.o console.o display.o fonts/font8x16.o $(CONSOLE_BACKEND_OBJ) netface.o net/ipv4.o net/tcp_min.o mezapi.o apps/keymusic_app.o apps/rotcube_app.o apps/fbtest_color.o drivers/ne2000.o drivers/pcspeaker.o drivers/sb16.o drivers/pci.o drivers/gpu/gpu.o drivers/gpu/cirrus.o drivers/gpu/cirrus_accel.o drivers/gpu/et4000.o drivers/gpu/fb_accel.o drivers/gpu/vga_hw.o drivers/ata.o drivers/fs/neelefs.o drivers/storage.o keyboard.o cpu.o cpuidle.o shell.o
 	$(LD) $(LDFLAGS) $^ -o $@
 
-# Erzeuge flaches Binary ohne führende 0x7E00-Lücke
+# Erzeuge flaches Binary ohne führende 0x8000-Lücke
 kernel_payload.bin: kernel_payload.elf
-	$(OBJCOPY) -O binary --change-addresses -0x7E00 $< $@
+	$(OBJCOPY) -O binary --change-addresses -0x8000 $< $@
 	truncate -s %512 $@
 
 disk.img: bootloader.bin kernel_payload.bin

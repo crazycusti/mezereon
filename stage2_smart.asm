@@ -25,7 +25,7 @@ stage2_start:
     mov byte [current_sector], 3
     mov byte [current_head], 0
     mov word [current_cylinder], 0
-    mov word [sectors_remaining], 200  ; Reduziert aber funktional
+    mov word [sectors_remaining], 150  ; Reduziert aber funktional
 
     mov al, 'K'
     call print_char
@@ -88,7 +88,7 @@ stage2_start:
     or al, 2
     out 0x92, al
 
-    mov al, 'S'
+    mov al, 'P'
     call print_char
 
     ; Protected Mode

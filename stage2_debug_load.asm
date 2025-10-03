@@ -1,8 +1,13 @@
-; stage2_smart.asm - Intelligentes progressives Loading
+; stage2_debug_load.asm - Debug Version mit begrenztem Loading
 BITS 16
 ORG 0x10000
 
 %include "boot_shared.inc"
+
+; Fixed limits für Debug
+%define DEBUG_BOOT 1
+%define KERNEL_SECTORS_LIMIT 50    ; Nur 50 Sektoren zum Testen
+%define ENABLE_BOOTINFO 1
 
 stage2_start:
     cli
@@ -19,22 +24,24 @@ stage2_start:
     mov dl, [BOOT_DRIVE_ADDR]
     mov [boot_drive], dl
 
-    ; Lade genug vom Kernel für Funktionalität (ca. 150 Sektoren)
+    ; Kernel-Position
     mov word [load_segment], 0x0800
     mov word [load_offset], 0
-    mov byte [current_sector], 3
-    mov byte [current_head], 0
-    mov word [current_cylinder], 0
-    mov word [sectors_remaining], 200  ; Reduziert aber funktional
+
+    ; Einfache Parameter
+    mov byte [sect], 3
+    mov byte [head], 0
+    mov word [cyl], 0
+
+    ; Begrenzte Sektoren für Test
+    mov word [remain], KERNEL_SECTORS_LIMIT
 
     mov al, 'K'
     call print_char
 
-    ; Progressives Loading mit Feedback
-    mov word [progress_counter], 0
-
+    ; Einfache Loading-Schleife (single sector)
 .load_loop:
-    cmp word [sectors_remaining], 0
+    cmp word [remain], 0
     je .load_done
 
     ; Lade einen Sektor
@@ -43,53 +50,46 @@ stage2_start:
     mov bx, [load_offset]
 
     mov ah, 0x02
-    mov al, 1
-    mov ch, [current_cylinder]
-    mov cl, [current_sector]
-    mov dh, [current_head]
+    mov al, 1        ; Ein Sektor
+    mov ch, [cyl]
+    mov cl, [sect]
+    mov dh, [head]
     mov dl, [boot_drive]
     int 0x13
-    jc .load_done  ; Bei Fehler: Stoppen
-
-    ; Progress
-    inc word [progress_counter]
-    mov ax, [progress_counter]
-    test ax, 15  ; Alle 16 Sektoren
-    jnz .no_progress
-    mov al, '.'
-    call print_char
-.no_progress:
+    jc .load_error
 
     ; Update
-    dec word [sectors_remaining]
+    dec word [remain]
     add word [load_offset], 512
-    jnc .advance_chs
+    jnc .advance_pos
     add word [load_segment], 0x1000
     mov word [load_offset], 0
 
-.advance_chs:
-    inc byte [current_sector]
-    cmp byte [current_sector], 18
+.advance_pos:
+    inc byte [sect]
+    cmp byte [sect], 18
     jbe .load_loop
-    mov byte [current_sector], 1
-    inc byte [current_head]
-    cmp byte [current_head], 2
+    mov byte [sect], 1
+    inc byte [head]
+    cmp byte [head], 2
     jb .load_loop
-    mov byte [current_head], 0
-    inc word [current_cylinder]
+    mov byte [head], 0
+    inc word [cyl]
     jmp .load_loop
 
+.load_error:
+    mov al, 'E'
+    call print_char
+    jmp .load_done
+
 .load_done:
-    mov al, 'L'
+    mov al, 'P'
     call print_char
 
     ; A20 aktivieren
     in al, 0x92
     or al, 2
     out 0x92, al
-
-    mov al, 'S'
-    call print_char
 
     ; Protected Mode
     cli
@@ -120,19 +120,27 @@ protected_mode:
     mov ss, ax
     mov esp, 0x9FC00
 
-    ; Sprung zum Kernel (das sollte jetzt funktionieren)
+    ; VGA Success Indicator
+    mov ebx, 0xB8000
+    mov word [ebx+0], 0x2F53    ; 'S' gelb auf grün
+    mov word [ebx+2], 0x2F54    ; 'T'
+    mov word [ebx+4], 0x2F41    ; 'A'
+    mov word [ebx+6], 0x2F52    ; 'R'
+    mov word [ebx+8], 0x2F54    ; 'T'
+
+    ; Sprung zum Kernel
     jmp 0x8000
 
 ; Variablen
-boot_drive:         db 0
-load_offset:        dw 0
-load_segment:       dw 0
-current_sector:     db 0
-current_head:       db 0
-current_cylinder:   dw 0
-sectors_remaining:  dw 0
-progress_counter:   dw 0
+boot_drive:   db 0
+load_offset:  dw 0
+load_segment: dw 0
+sect:         db 0
+head:         db 0
+cyl:          dw 0
+remain:       dw 0
 
+; GDT
 align 4
 gdt_start:
     dq 0x0000000000000000
