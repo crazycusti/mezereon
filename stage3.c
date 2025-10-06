@@ -8,6 +8,7 @@
 static volatile uint16_t* const VGA_TEXT = (uint16_t*)0xB8000;
 static uint32_t g_vga_pos = 0;
 static const char g_console_name[] = "vga_text";
+static const char HEX_DIGITS[] = "0123456789ABCDEF";
 
 static void *stage3_memset(void *dst, int value, size_t n) {
     uint8_t *d = (uint8_t *)dst;
@@ -31,6 +32,17 @@ static void stage3_console_putc(char c) {
 static void stage3_console_write(const char *s) {
     while (s && *s) {
         stage3_console_putc(*s++);
+    }
+}
+
+static void stage3_print_hex8(uint8_t value) {
+    stage3_console_putc(HEX_DIGITS[(value >> 4) & 0x0Fu]);
+    stage3_console_putc(HEX_DIGITS[value & 0x0Fu]);
+}
+
+static void stage3_print_hex32(uint32_t value) {
+    for (int shift = 28; shift >= 0; shift -= 4) {
+        stage3_console_putc(HEX_DIGITS[(value >> shift) & 0x0Fu]);
     }
 }
 
@@ -180,6 +192,11 @@ static bool stage3_load_kernel(const stage3_params_t *params) {
 
     while (remaining > 0) {
         uint8_t chunk = (remaining > 4u) ? 4u : (uint8_t)remaining;
+        stage3_console_write("kernel LBA=0x");
+        stage3_print_hex32(lba);
+        stage3_console_write(" count=0x");
+        stage3_print_hex8(chunk);
+        stage3_console_write("\n");
         if (!ata_read_lba28(lba, chunk, dest)) {
             return false;
         }
@@ -224,11 +241,24 @@ void stage3_main(stage3_params_t *params, boot_info_t *bootinfo) {
         stage3_panic("param");
     }
 
+    stage3_console_write("S3: drive=0x");
+    stage3_print_hex8((uint8_t)params->boot_drive);
+    stage3_console_write(" stage3_lba=0x");
+    stage3_print_hex32(params->stage3_lba);
+    stage3_console_write(" stage3_secs=0x");
+    stage3_print_hex32(params->stage3_sectors);
+    stage3_console_write(" kernel_lba=0x");
+    stage3_print_hex32(params->kernel_lba);
+    stage3_console_write(" kernel_secs=0x");
+    stage3_print_hex32(params->kernel_sectors);
+    stage3_console_write("\n");
+
     if (params->boot_drive < 0x80u) {
         stage3_panic("flpy");
     }
 
     ata_select_device((uint8_t)params->boot_drive);
+    stage3_console_write("ATA selected\n");
 
     if ((uint32_t)(uintptr_t)bootinfo != params->bootinfo_ptr) {
         stage3_panic("bi");
@@ -239,6 +269,7 @@ void stage3_main(stage3_params_t *params, boot_info_t *bootinfo) {
         stage3_panic("load");
     }
     stage3_console_putc('k');
+    stage3_console_write("S3: kernel loaded, jumping\n");
 
     stage3_build_bootinfo(params, bootinfo);
 

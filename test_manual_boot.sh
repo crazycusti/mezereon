@@ -18,6 +18,8 @@ Options:
   --timeout    Override timeout (seconds) when --headless is supplied (default: ${TIMEOUT:-10})
   --help       Show this message
   --           Remaining arguments are passed to QEMU
+
+Debug builds: set STAGE1_VERBOSE_DEBUG=1 STAGE2_VERBOSE_DEBUG=1 (and optionally STAGE2_FORCE_CHS=1) before invoking.
 USAGE
 }
 

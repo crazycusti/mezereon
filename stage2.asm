@@ -52,6 +52,14 @@ start:
     je load_complete
 
 load_loop:
+%if STAGE2_VERBOSE_DEBUG
+    mov si, msg_load_loop
+    call debug_print_str
+    mov ax, [remaining_sectors]
+    call debug_print_hex16
+    mov si, msg_newline
+    call debug_print_str
+%endif
     movzx eax, word [remaining_sectors]
     test eax, eax
     je load_complete
@@ -98,8 +106,49 @@ load_complete:
     call debug_char
 %endif
 
+%if STAGE2_VERBOSE_DEBUG
+    mov si, msg_stage2_done
+    call debug_print_str
+    mov si, msg_newline
+    call debug_print_str
+%endif
+
     call collect_e820
     call populate_stage3_params
+
+%if STAGE2_VERBOSE_DEBUG
+    mov si, msg_params_drive
+    call debug_print_str
+    mov al, [stage3_params + STAGE3_PARAM_BOOT_DRIVE]
+    call debug_print_hex8
+    mov si, msg_params_lba
+    call debug_print_str
+    mov ax, [stage3_params + STAGE3_PARAM_STAGE3_LBA]
+    mov dx, [stage3_params + STAGE3_PARAM_STAGE3_LBA + 2]
+    call debug_print_hex32
+    mov si, msg_params_stage3
+    call debug_print_str
+    mov ax, [stage3_params + STAGE3_PARAM_STAGE3_SECTORS]
+    mov dx, [stage3_params + STAGE3_PARAM_STAGE3_SECTORS + 2]
+    call debug_print_hex32
+    mov si, msg_params_kernel_l
+    call debug_print_str
+    mov ax, [stage3_params + STAGE3_PARAM_KERNEL_LBA]
+    mov dx, [stage3_params + STAGE3_PARAM_KERNEL_LBA + 2]
+    call debug_print_hex32
+    mov si, msg_params_kernel_s
+    call debug_print_str
+    mov ax, [stage3_params + STAGE3_PARAM_KERNEL_SECTORS]
+    mov dx, [stage3_params + STAGE3_PARAM_KERNEL_SECTORS + 2]
+    call debug_print_hex32
+    mov si, msg_params_flags
+    call debug_print_str
+    mov ax, [stage3_params + STAGE3_PARAM_FLAGS]
+    mov dx, [stage3_params + STAGE3_PARAM_FLAGS + 2]
+    call debug_print_hex32
+    mov si, msg_newline
+    call debug_print_str
+%endif
 
     ; Prepare registers for Stage 3 hand-off
     mov esi, dword [stage3_params_ptr]
@@ -135,6 +184,65 @@ debug_char:
     int 0x10
     pop bx
     pop ax
+    ret
+
+; Print ASCIIZ string at DS:SI
+debug_print_str:
+    push ax
+    push si
+.next_char:
+    lodsb
+    test al, al
+    jz .done
+    call debug_char
+    jmp .next_char
+.done:
+    pop si
+    pop ax
+    ret
+
+debug_print_hex_digit:
+    push ax
+    push bx
+    xor bh, bh
+    mov bl, al
+    and bl, 0x0F
+    mov al, [hex_digits + bx]
+    call debug_char
+    pop bx
+    pop ax
+    ret
+
+; Expect value in AL
+debug_print_hex8:
+    push ax
+    mov ah, al
+    shr al, 4
+    call debug_print_hex_digit
+    mov al, ah
+    and al, 0x0F
+    call debug_print_hex_digit
+    pop ax
+    ret
+
+; Expect value in AX
+debug_print_hex16:
+    push ax
+    mov al, ah
+    call debug_print_hex8
+    pop ax
+    call debug_print_hex8
+    ret
+
+; Expect value in DX:AX (DX high word, AX low word)
+debug_print_hex32:
+    push ax
+    push dx
+    mov ax, dx
+    call debug_print_hex16
+    pop dx
+    pop ax
+    call debug_print_hex16
     ret
 
 ; Detect INT 13h extensions (LBA support)
@@ -234,6 +342,14 @@ collect_e820:
 .done:
     pop es
     popad
+%if STAGE2_VERBOSE_DEBUG
+    mov si, msg_e820_prefix
+    call debug_print_str
+    mov al, [e820_entry_count]
+    call debug_print_hex8
+    mov si, msg_newline
+    call debug_print_str
+%endif
     ret
 
 ; Ensure chunk does not cross a track boundary (CHS mode), SI holds chunk
@@ -341,6 +457,27 @@ read_chunk_chs:
     mov byte [chs_reg_cl], cl
     mov byte [chs_reg_dh], dh
 
+%if STAGE2_VERBOSE_DEBUG
+    mov si, msg_chs_prefix
+    call debug_print_str
+    mov ax, [chs_cylinder]
+    call debug_print_hex16
+    mov si, msg_chs_head
+    call debug_print_str
+    mov al, [chs_head]
+    call debug_print_hex8
+    mov si, msg_chs_sector
+    call debug_print_str
+    mov al, [chs_sector]
+    call debug_print_hex8
+    mov si, msg_count_prefix
+    call debug_print_str
+    mov al, [chunk_size]
+    call debug_print_hex8
+    mov si, msg_newline
+    call debug_print_str
+%endif
+
     mov bp, 3
 .read_retry:
     mov bx, [transfer_offset]
@@ -384,6 +521,19 @@ read_chunk_lba:
     mov eax, [current_lba]
     mov [dap_packet + 8], eax
     mov dword [dap_packet + 12], 0
+%if STAGE2_VERBOSE_DEBUG
+    mov si, msg_lba_prefix
+    call debug_print_str
+    mov ax, [current_lba]
+    mov dx, [current_lba + 2]
+    call debug_print_hex32
+    mov si, msg_count_prefix
+    call debug_print_str
+    mov al, [chunk_size]
+    call debug_print_hex8
+    mov si, msg_newline
+    call debug_print_str
+%endif
     mov bp, 3
 .retry:
     mov dl, [boot_drive]
@@ -452,11 +602,46 @@ populate_stage3_params:
     mov [stage3_params_ptr], eax
     ret
 
-; Ensure A20 gate enabled via Fast A20 toggle
+; Ensure A20 gate enabled via Fast A20 toggle with keyboard controller fallback
 ensure_a20:
+    push ax
+    push dx
+    call enable_a20_fast
+    call check_a20
+    test al, 0x02
+    jnz .done
+    call enable_a20_kbc
+    call check_a20
+.done:
+    pop dx
+    pop ax
+    ret
+
+enable_a20_fast:
     in al, 0x92
     or al, 0x02
     out 0x92, al
+    ret
+
+enable_a20_kbc:
+    push ax
+.wait_input_clear:
+    in al, 0x64
+    test al, 0x02
+    jne .wait_input_clear
+    mov al, 0xD1
+    out 0x64, al
+.wait_input_clear2:
+    in al, 0x64
+    test al, 0x02
+    jne .wait_input_clear2
+    mov al, 0xDF
+    out 0x60, al
+    pop ax
+    ret
+
+check_a20:
+    in al, 0x92
     ret
 
 ; Load GDT descriptor with runtime base
@@ -470,6 +655,23 @@ load_gdt:
 ; -----------------------------------------------------------------------------
 ; Data
 ; -----------------------------------------------------------------------------
+
+hex_digits:          db '0123456789ABCDEF'
+msg_load_loop:       db 'Loading stage3 chunk, remaining=',0
+msg_chs_prefix:      db 'CHS C=',0
+msg_chs_head:        db ' H=',0
+msg_chs_sector:      db ' S=',0
+msg_count_prefix:    db ' count=',0
+msg_lba_prefix:      db 'LBA=',0
+msg_stage2_done:     db 'Stage2 loaded stage3',0
+msg_e820_prefix:     db 'E820 entries=',0
+msg_params_drive:    db 'S3 params: drive=',0
+msg_params_lba:      db ' LBA=',0
+msg_params_stage3:   db ' stage3_secs=',0
+msg_params_kernel_l: db ' kernel_lba=',0
+msg_params_kernel_s: db ' kernel_secs=',0
+msg_params_flags:    db ' flags=',0
+msg_newline:         db 0x0D,0x0A,0
 
 boot_drive:           db 0
 use_lba:              db 0

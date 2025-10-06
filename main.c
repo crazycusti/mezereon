@@ -20,6 +20,7 @@ void kmain(const boot_info_t* bootinfo)
 {
     display_manager_init(CONFIG_VIDEO_TARGET);
     console_init();
+    console_writeln("kmain: entering");
     if (bootinfo) {
         console_write("Boot: BIOS dev=0x");
         console_write_hex16((uint16_t)(bootinfo->boot_device & 0xFFu));

@@ -12,6 +12,8 @@ STAGE2_START_SECTOR := 2
 STAGE3_LINK_ADDR    := 0x00020000
 KERNEL_LOAD_LINEAR  := 0x00008000
 STAGE2_FORCE_CHS    ?= 0
+STAGE1_VERBOSE_DEBUG ?= 1
+STAGE2_VERBOSE_DEBUG ?= 1
 
 # Optional QEMU acceleration: set QEMU_ACCEL=kvm|hvf|whpx to enable hardware acceleration and host CPU model
 ifeq ($(QEMU_ACCEL),kvm)
@@ -62,18 +64,18 @@ ENTRY32_DEBUG ?= 0
 
 stage1.bin: stage1.asm stage2.bin
 	s2s=$$(expr \( $$(wc -c < stage2.bin) + 511 \) / 512); \
-	$(AS) -f bin -D STAGE2_SECTORS=$$s2s $< -o $@
+	$(AS) -f bin -D STAGE2_SECTORS=$$s2s -D STAGE1_VERBOSE_DEBUG=$(STAGE1_VERBOSE_DEBUG) $< -o $@
 
 stage2.bin: stage2.asm stage3.bin kernel_payload.bin version.h
 	s3s=$$(expr \( $$(wc -c < stage3.bin) + 511 \) / 512); \
 	ks=$$(expr \( $$(wc -c < kernel_payload.bin) + 511 \) / 512); \
 	s3start_guess=$$(expr $(STAGE2_START_SECTOR) + 1); \
 	kstart_guess=$$(expr $$s3start_guess + $$s3s); \
-	$(AS) -f bin -D STAGE2_SECTORS=1 -D STAGE3_SECTORS=$$s3s -D STAGE3_START_SECTOR=$$s3start_guess -D KERNEL_SECTORS=$$ks -D KERNEL_START_SECTOR=$$kstart_guess -D KERNEL_LOAD_LINEAR=$(KERNEL_LOAD_LINEAR) -D STAGE2_FORCE_CHS=$(STAGE2_FORCE_CHS) -D ENABLE_BOOTINFO=$(BOOTINFO) -D DEBUG_BOOT=$(DEBUG_BOOT) -D ENABLE_A20_KBC=$(A20_KBC) -D WAIT_BEFORE_PM=$(WAIT_PM) -D DEBUG_PM_STUB=$(DEBUG_PM_STUB) $< -o $@; \
+	$(AS) -f bin -D STAGE2_SECTORS=1 -D STAGE3_SECTORS=$$s3s -D STAGE3_START_SECTOR=$$s3start_guess -D KERNEL_SECTORS=$$ks -D KERNEL_START_SECTOR=$$kstart_guess -D KERNEL_LOAD_LINEAR=$(KERNEL_LOAD_LINEAR) -D STAGE2_FORCE_CHS=$(STAGE2_FORCE_CHS) -D STAGE2_VERBOSE_DEBUG=$(STAGE2_VERBOSE_DEBUG) -D ENABLE_BOOTINFO=$(BOOTINFO) -D DEBUG_BOOT=$(DEBUG_BOOT) -D ENABLE_A20_KBC=$(A20_KBC) -D WAIT_BEFORE_PM=$(WAIT_PM) -D DEBUG_PM_STUB=$(DEBUG_PM_STUB) $< -o $@; \
 	s2s=$$(expr \( $$(wc -c < $@) + 511 \) / 512); \
 	s3start=$$(expr $(STAGE2_START_SECTOR) + $$s2s); \
 	kstart=$$(expr $$s3start + $$s3s); \
-	$(AS) -f bin -D STAGE2_SECTORS=$$s2s -D STAGE3_SECTORS=$$s3s -D STAGE3_START_SECTOR=$$s3start -D KERNEL_SECTORS=$$ks -D KERNEL_START_SECTOR=$$kstart -D KERNEL_LOAD_LINEAR=$(KERNEL_LOAD_LINEAR) -D STAGE2_FORCE_CHS=$(STAGE2_FORCE_CHS) -D ENABLE_BOOTINFO=$(BOOTINFO) -D DEBUG_BOOT=$(DEBUG_BOOT) -D ENABLE_A20_KBC=$(A20_KBC) -D WAIT_BEFORE_PM=$(WAIT_PM) -D DEBUG_PM_STUB=$(DEBUG_PM_STUB) $< -o $@
+	$(AS) -f bin -D STAGE2_SECTORS=$$s2s -D STAGE3_SECTORS=$$s3s -D STAGE3_START_SECTOR=$$s3start -D KERNEL_SECTORS=$$ks -D KERNEL_START_SECTOR=$$kstart -D KERNEL_LOAD_LINEAR=$(KERNEL_LOAD_LINEAR) -D STAGE2_FORCE_CHS=$(STAGE2_FORCE_CHS) -D STAGE2_VERBOSE_DEBUG=$(STAGE2_VERBOSE_DEBUG) -D ENABLE_BOOTINFO=$(BOOTINFO) -D DEBUG_BOOT=$(DEBUG_BOOT) -D ENABLE_A20_KBC=$(A20_KBC) -D WAIT_BEFORE_PM=$(WAIT_PM) -D DEBUG_PM_STUB=$(DEBUG_PM_STUB) $< -o $@
 
 stage3_entry.o: stage3_entry.asm boot_config.inc
 	$(AS) -f elf32 $< -o $@

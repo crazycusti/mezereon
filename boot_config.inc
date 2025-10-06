@@ -36,6 +36,18 @@
 %define STAGE3_STACK_TOP 0x0009F000 ; temporary 32-bit stack top (below 640K barrier)
 %endif
 
+%ifndef STAGE1_VERBOSE_DEBUG
+%define STAGE1_VERBOSE_DEBUG 1
+%endif
+
+%ifndef STAGE2_VERBOSE_DEBUG
+%define STAGE2_VERBOSE_DEBUG 1
+%endif
+
+%ifndef ENABLE_STAGE1_DEBUG
+%define ENABLE_STAGE1_DEBUG STAGE1_VERBOSE_DEBUG
+%endif
+
 %ifndef KERNEL_START_SECTOR
 %define KERNEL_START_SECTOR (STAGE3_START_SECTOR + STAGE3_SECTORS)
 %endif
@@ -49,10 +61,6 @@
 %endif
 
 ; Stage 1 options
-%ifndef ENABLE_STAGE1_DEBUG
-%define ENABLE_STAGE1_DEBUG 0
-%endif
-
 %ifndef ENABLE_STAGE1_A20
 %define ENABLE_STAGE1_A20 0
 %endif
