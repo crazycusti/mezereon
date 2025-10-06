@@ -42,8 +42,16 @@ static int ofw_write(ofw_entry_t ofw, uint32_t ih, const void* buf, int len) {
 #endif
 
 // New arch-neutral entry point.
+// Early debug output directly to VGA
+static void early_debug(char c) {
+    volatile char* vga = (volatile char*)0xB8000;
+    *vga = c;
+    *(vga+1) = 0x07;  // Light gray on black
+}
+
 void kentry(void* bi) {
 #if CONFIG_ARCH_X86
+    early_debug('K');  // Kernel entered
     const boot_info_t* info = (const boot_info_t*)bi;
     if (!info) {
         static boot_info_t fallback;

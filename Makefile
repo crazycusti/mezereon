@@ -8,6 +8,11 @@ OBJCOPY := $(shell command -v objcopy 2>/dev/null || command -v gobjcopy 2>/dev/
 CFLAGS ?= -ffreestanding -m32 -march=i386 -mtune=i386 -mno-mmx -mno-sse -mno-sse2 -mno-3dnow -mno-avx -fno-if-conversion -fno-if-conversion2 -Wall -Wextra -nostdlib -fno-builtin -fno-stack-protector -fno-pic -fno-pie
 LDFLAGS ?= -Ttext 0x8000 -m elf_i386
 
+STAGE2_START_SECTOR := 2
+STAGE3_LINK_ADDR    := 0x00020000
+KERNEL_LOAD_LINEAR  := 0x00008000
+STAGE2_FORCE_CHS    ?= 0
+
 # Optional QEMU acceleration: set QEMU_ACCEL=kvm|hvf|whpx to enable hardware acceleration and host CPU model
 ifeq ($(QEMU_ACCEL),kvm)
 QEMU_ACCEL_FLAGS := -enable-kvm -cpu host
@@ -55,15 +60,36 @@ WAIT_PM ?= 0
 DEBUG_PM_STUB ?= 0
 ENTRY32_DEBUG ?= 0
 
-stage1.bin: stage1.asm
-	$(AS) -f bin $< -o $@
+stage1.bin: stage1.asm stage2.bin
+	s2s=$$(expr \( $$(wc -c < stage2.bin) + 511 \) / 512); \
+	$(AS) -f bin -D STAGE2_SECTORS=$$s2s $< -o $@
 
-stage2.bin: stage2.asm kernel_payload.bin version.h
-	ks=$$((($$(wc -c < kernel_payload.bin)+511)/512)); \
-	$(AS) -f bin -D KERNEL_SECTORS=$$ks -D ENABLE_BOOTINFO=$(BOOTINFO) -D DEBUG_BOOT=$(DEBUG_BOOT) -D ENABLE_A20_KBC=$(A20_KBC) -D WAIT_BEFORE_PM=$(WAIT_PM) -D DEBUG_PM_STUB=$(DEBUG_PM_STUB) $< -o $@
+stage2.bin: stage2.asm stage3.bin kernel_payload.bin version.h
+	s3s=$$(expr \( $$(wc -c < stage3.bin) + 511 \) / 512); \
+	ks=$$(expr \( $$(wc -c < kernel_payload.bin) + 511 \) / 512); \
+	s3start_guess=$$(expr $(STAGE2_START_SECTOR) + 1); \
+	kstart_guess=$$(expr $$s3start_guess + $$s3s); \
+	$(AS) -f bin -D STAGE2_SECTORS=1 -D STAGE3_SECTORS=$$s3s -D STAGE3_START_SECTOR=$$s3start_guess -D KERNEL_SECTORS=$$ks -D KERNEL_START_SECTOR=$$kstart_guess -D KERNEL_LOAD_LINEAR=$(KERNEL_LOAD_LINEAR) -D STAGE2_FORCE_CHS=$(STAGE2_FORCE_CHS) -D ENABLE_BOOTINFO=$(BOOTINFO) -D DEBUG_BOOT=$(DEBUG_BOOT) -D ENABLE_A20_KBC=$(A20_KBC) -D WAIT_BEFORE_PM=$(WAIT_PM) -D DEBUG_PM_STUB=$(DEBUG_PM_STUB) $< -o $@; \
+	s2s=$$(expr \( $$(wc -c < $@) + 511 \) / 512); \
+	s3start=$$(expr $(STAGE2_START_SECTOR) + $$s2s); \
+	kstart=$$(expr $$s3start + $$s3s); \
+	$(AS) -f bin -D STAGE2_SECTORS=$$s2s -D STAGE3_SECTORS=$$s3s -D STAGE3_START_SECTOR=$$s3start -D KERNEL_SECTORS=$$ks -D KERNEL_START_SECTOR=$$kstart -D KERNEL_LOAD_LINEAR=$(KERNEL_LOAD_LINEAR) -D STAGE2_FORCE_CHS=$(STAGE2_FORCE_CHS) -D ENABLE_BOOTINFO=$(BOOTINFO) -D DEBUG_BOOT=$(DEBUG_BOOT) -D ENABLE_A20_KBC=$(A20_KBC) -D WAIT_BEFORE_PM=$(WAIT_PM) -D DEBUG_PM_STUB=$(DEBUG_PM_STUB) $< -o $@
 
-bootloader.bin: stage1.bin stage2.bin
-	cat stage1.bin stage2.bin > bootloader.bin
+stage3_entry.o: stage3_entry.asm boot_config.inc
+	$(AS) -f elf32 $< -o $@
+
+stage3_main.o: stage3.c stage3_params.h bootinfo.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+stage3.elf: stage3_entry.o stage3_main.o
+	$(LD) -m elf_i386 -Ttext $(STAGE3_LINK_ADDR) -e stage3_entry $^ -o $@
+
+stage3.bin: stage3.elf
+	$(OBJCOPY) -O binary $< $@
+	truncate -s %512 $@
+
+bootloader.bin: stage1.bin stage2.bin stage3.bin
+	cat stage1.bin stage2.bin stage3.bin > $@
 
 entry32.o: entry32.asm
 	$(AS) -f elf32 -D DEBUG_ENTRY32=$(ENTRY32_DEBUG) -D ENABLE_BOOTINFO=$(BOOTINFO) $< -o $@
@@ -177,7 +203,7 @@ disk.img: bootloader.bin kernel_payload.bin
 	cat $^ > $@
 
 version.h:
-	@printf "#define GIT_REV \\\"%s\\\"\n" "$(shell git describe --always --dirty 2>/dev/null || git rev-parse --short HEAD)" > $@
+	@printf '#define GIT_REV "%s"\n' "$(shell git describe --always --dirty 2>/dev/null || git rev-parse --short HEAD)" > $@
 
 main.o: version.h
 
@@ -247,7 +273,7 @@ help:
 
 clean:
 	# Root objs and binaries
-	rm -f *.o *.bin *.img netface.o console.o $(CONSOLE_BACKEND_OBJ) video.o main.o entry32.o isr.o idt.o interrupts.o kentry.o kernel_payload.bin kernel_payload.elf bootloader.bin
+	rm -f *.o *.bin *.img netface.o console.o $(CONSOLE_BACKEND_OBJ) video.o main.o entry32.o isr.o idt.o interrupts.o kentry.o kernel_payload.bin kernel_payload.elf bootloader.bin stage3.elf
 	# Driver objects
 	rm -f drivers/*.o drivers/*/*.o
 	# SPARC artifacts
