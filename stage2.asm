@@ -69,6 +69,7 @@ load_loop:
     mov eax, MAX_LBA_CHUNK
 .chunk_ok:
     mov word [chunk_size], ax
+    mov word [chunk_size_initial], ax
 
     cmp byte [use_lba], 0
     jne .prepare_transfer
@@ -83,6 +84,15 @@ load_loop:
     cmp byte [use_lba], 0
     jne .read_lba
     call read_chunk_chs
+    jc .chs_failed
+    jmp .after_read
+
+.chs_failed:
+    cmp byte [use_lba], 0
+    je load_error
+    mov ax, [chunk_size_initial]
+    mov [chunk_size], ax
+    call read_chunk_lba
     jc load_error
     jmp .after_read
 
@@ -256,17 +266,29 @@ detect_disk_extensions:
     jmp .done
 %endif
     mov dl, [boot_drive]
+    cmp dl, 0x80
+    jb .default_chs
+    mov byte [use_lba], 1
+    jmp .probe
+.default_chs:
+    mov byte [use_lba], 0
+.probe:
     mov ah, 0x41
     mov bx, 0x55AA
     int 0x13
-    jc .no_ext
+    jc .check_result
     cmp bx, 0xAA55
-    jne .no_ext
+    jne .check_result
     test cx, 1
-    jz .no_ext
+    jz .check_result
     mov byte [use_lba], 1
     jmp .done
-.no_ext:
+.check_result:
+    mov dl, [boot_drive]
+    cmp dl, 0x80
+    jb .force_chs_only
+    jmp .done
+.force_chs_only:
     mov byte [use_lba], 0
 .done:
     pop dx
@@ -494,8 +516,21 @@ read_chunk_chs:
     call reset_disk
     dec bp
     jnz .read_retry
+    mov bp, 3
+    mov ax, [chunk_size]
+    cmp ax, 1
+    jne .shrink_chunk
+    mov byte [use_lba], 1
     stc
     jmp .exit
+.shrink_chunk:
+    shr ax, 1
+    cmp ax, 1
+    jae .store_shrunk
+    mov ax, 1
+.store_shrunk:
+    mov [chunk_size], ax
+    jmp .read_retry
 .success:
     clc
 .exit:
@@ -677,6 +712,7 @@ boot_drive:           db 0
 use_lba:              db 0
 remaining_sectors:    dw 0
 chunk_size:           dw 0
+chunk_size_initial:   dw 0
 sectors_per_track:    dw 18
 heads_per_cyl:        dw 2
 current_lba:          dd 0
