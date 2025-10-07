@@ -14,6 +14,7 @@ KERNEL_LOAD_LINEAR  := 0x00008000
 STAGE2_FORCE_CHS    ?= 0
 STAGE1_VERBOSE_DEBUG ?= 1
 STAGE2_VERBOSE_DEBUG ?= 1
+STAGE3_VERBOSE_DEBUG ?= 1
 
 # Optional QEMU acceleration: set QEMU_ACCEL=kvm|hvf|whpx to enable hardware acceleration and host CPU model
 ifeq ($(QEMU_ACCEL),kvm)
@@ -81,7 +82,7 @@ stage3_entry.o: stage3_entry.asm boot_config.inc
 	$(AS) -f elf32 $< -o $@
 
 stage3_main.o: stage3.c stage3_params.h bootinfo.h
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) -DSTAGE3_VERBOSE_DEBUG=$(STAGE3_VERBOSE_DEBUG) -c $< -o $@
 
 stage3.elf: stage3_entry.o stage3_main.o
 	$(LD) -m elf_i386 -Ttext $(STAGE3_LINK_ADDR) -e stage3_entry $^ -o $@

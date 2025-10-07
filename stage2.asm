@@ -13,7 +13,6 @@ ORG 0
 %error "STAGE3_SECTORS must be defined via the build system"
 %endif
 
-%define BOOT_DRIVE_PTR           (0x7C00 + 0x1F)
 %define CODE_SEL                 0x08
 %define DATA_SEL                 0x10
 %define MAX_LBA_CHUNK            127
@@ -33,7 +32,6 @@ start:
     mov es, ax
     sti
 
-    mov dl, [BOOT_DRIVE_PTR]
     mov [boot_drive], dl
 
 %if STAGE2_DEBUG

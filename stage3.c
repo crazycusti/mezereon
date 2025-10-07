@@ -10,6 +10,10 @@ static uint32_t g_vga_pos = 0;
 static const char g_console_name[] = "vga_text";
 static const char HEX_DIGITS[] = "0123456789ABCDEF";
 
+#ifndef STAGE3_VERBOSE_DEBUG
+#define STAGE3_VERBOSE_DEBUG 0
+#endif
+
 static void *stage3_memset(void *dst, int value, size_t n) {
     uint8_t *d = (uint8_t *)dst;
     while (n--) {
@@ -35,6 +39,7 @@ static void stage3_console_write(const char *s) {
     }
 }
 
+#if STAGE3_VERBOSE_DEBUG
 static void stage3_print_hex8(uint8_t value) {
     stage3_console_putc(HEX_DIGITS[(value >> 4) & 0x0Fu]);
     stage3_console_putc(HEX_DIGITS[value & 0x0Fu]);
@@ -45,6 +50,7 @@ static void stage3_print_hex32(uint32_t value) {
         stage3_console_putc(HEX_DIGITS[(value >> shift) & 0x0Fu]);
     }
 }
+#endif
 
 static void stage3_halt(void) {
     for (;;) {
@@ -192,11 +198,13 @@ static bool stage3_load_kernel(const stage3_params_t *params) {
 
     while (remaining > 0) {
         uint8_t chunk = (remaining > 4u) ? 4u : (uint8_t)remaining;
+#if STAGE3_VERBOSE_DEBUG
         stage3_console_write("kernel LBA=0x");
         stage3_print_hex32(lba);
         stage3_console_write(" count=0x");
         stage3_print_hex8(chunk);
         stage3_console_write("\n");
+#endif
         if (!ata_read_lba28(lba, chunk, dest)) {
             return false;
         }
@@ -241,6 +249,8 @@ void stage3_main(stage3_params_t *params, boot_info_t *bootinfo) {
         stage3_panic("param");
     }
 
+    stage3_console_write("Stage3 start\n");
+#if STAGE3_VERBOSE_DEBUG
     stage3_console_write("S3: drive=0x");
     stage3_print_hex8((uint8_t)params->boot_drive);
     stage3_console_write(" stage3_lba=0x");
@@ -251,7 +261,10 @@ void stage3_main(stage3_params_t *params, boot_info_t *bootinfo) {
     stage3_print_hex32(params->kernel_lba);
     stage3_console_write(" kernel_secs=0x");
     stage3_print_hex32(params->kernel_sectors);
+    stage3_console_write(" flags=0x");
+    stage3_print_hex32(params->flags);
     stage3_console_write("\n");
+#endif
 
     if (params->boot_drive < 0x80u) {
         stage3_panic("flpy");
