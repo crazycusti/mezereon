@@ -267,8 +267,6 @@ load_complete:
 .far_bytes_loop:
     mov al, [bx]
     call debug_print_hex8
-    mov al, ' '
-    call debug_char
     inc bx
     loop .far_bytes_loop
     mov si, msg_far_sel
@@ -318,8 +316,11 @@ load_complete:
 %endif
     or eax, 1
     mov cr0, eax
+    nop
 far_jmp_label:
-    jmp CODE_SEL:pm_stub
+    db 0x66, 0xEA
+    dd (STAGE2_LINEAR_ADDR + pm_stub)
+    dw CODE_SEL
 far_jmp_end:
 
 load_error:
@@ -1100,15 +1101,6 @@ gdt_descriptor:
 
 [BITS 32]
 pm_stub:
-%if STAGE2_VERBOSE_DEBUG
-    mov word [0xB8000], 0x0750        ; 'P'
-    mov word [0xB8002], 0x0721        ; '!'
-    mov dx, 0xE9
-    mov al, 'P'
-    out dx, al
-    mov al, '!'
-    out dx, al
-%endif
     mov ax, DATA_SEL
     mov ds, ax
     mov es, ax
@@ -1116,5 +1108,12 @@ pm_stub:
     mov gs, ax
     mov ss, ax
     mov esp, STAGE3_STACK_TOP
+    mov word [0xB8000], 0x0750        ; 'P'
+    mov word [0xB8002], 0x0721        ; '!'
+    mov dx, 0xE9
+    mov al, 'P'
+    out dx, al
+    mov al, '!'
+    out dx, al
     jmp far [pm_target]
 [BITS 16]

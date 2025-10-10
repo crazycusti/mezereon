@@ -77,7 +77,8 @@ stage2.bin: stage2.asm stage3.bin kernel_payload.bin version.h
 	s2s=$$(expr \( $$(wc -c < $@) + 511 \) / 512); \
 	s3start=$$(expr $(STAGE2_START_SECTOR) - 1 + $$s2s); \
 	kstart=$$(expr $$s3start + $$s3s); \
-	$(AS) -f bin -D STAGE2_SECTORS=$$s2s -D STAGE3_SECTORS=$$s3s -D STAGE3_START_SECTOR=$$s3start -D KERNEL_SECTORS=$$ks -D KERNEL_START_SECTOR=$$kstart -D KERNEL_LOAD_LINEAR=$(KERNEL_LOAD_LINEAR) -D STAGE2_FORCE_CHS=$(STAGE2_FORCE_CHS) -D STAGE2_VERBOSE_DEBUG=$(STAGE2_VERBOSE_DEBUG) -D ENABLE_BOOTINFO=$(BOOTINFO) -D DEBUG_BOOT=$(DEBUG_BOOT) -D ENABLE_A20_KBC=$(A20_KBC) -D WAIT_BEFORE_PM=$(WAIT_PM) -D DEBUG_PM_STUB=$(DEBUG_PM_STUB) $< -o $@
+	$(AS) -f bin -D STAGE2_SECTORS=$$s2s -D STAGE3_SECTORS=$$s3s -D STAGE3_START_SECTOR=$$s3start -D KERNEL_SECTORS=$$ks -D KERNEL_START_SECTOR=$$kstart -D KERNEL_LOAD_LINEAR=$(KERNEL_LOAD_LINEAR) -D STAGE2_FORCE_CHS=$(STAGE2_FORCE_CHS) -D STAGE2_VERBOSE_DEBUG=$(STAGE2_VERBOSE_DEBUG) -D ENABLE_BOOTINFO=$(BOOTINFO) -D DEBUG_BOOT=$(DEBUG_BOOT) -D ENABLE_A20_KBC=$(A20_KBC) -D WAIT_BEFORE_PM=$(WAIT_PM) -D DEBUG_PM_STUB=$(DEBUG_PM_STUB) $< -o $@; \
+	python3 -c 'import pathlib,binascii,sys; data=pathlib.Path("stage2.bin").read_bytes(); needle=bytes.fromhex("66ea620d01000800"); idx=data.find(needle); sys.exit("Stage2 far-jump bytes not found in stage2.bin") if idx == -1 else print(f"[stage2] far-jump bytes @0x{idx:05X}: {binascii.hexlify(needle).decode()}")'
 
 stage3_entry.o: stage3_entry.asm boot_config.inc
 	$(AS) -f elf32 $< -o $@
@@ -215,6 +216,7 @@ disk.img: stage1.bin stage2.bin stage3.bin kernel_payload.bin
 	dd if=stage3.bin of=$@ bs=512 seek=$$stage3_lba conv=notrunc status=none; \
 	dd if=kernel_payload.bin of=$@ bs=512 seek=$$kernel_lba conv=notrunc status=none; \
 	dd if=$@ bs=512 skip=$$stage3_lba count=1 status=none | cmp -n 16 stage3.bin - >/dev/null || { echo 'Stage3 mismatch at LBA $$stage3_lba' >&2; exit 1; }; \
+	dd if=$@ bs=512 skip=$$kernel_lba count=1 status=none | cmp -n 16 kernel_payload.bin - >/dev/null || { echo 'Kernel mismatch at LBA $$kernel_lba' >&2; exit 1; }; \
 	printf 'Stage layout: stage2=%s stage3=%s kernel=%s (stage3_lba=%s kernel_lba=%s)\n' $$stage2_sectors $$stage3_sectors $$kernel_sectors $$stage3_lba $$kernel_lba
 
 version.h:
