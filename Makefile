@@ -1,4 +1,5 @@
 # Compiler-Auswahl: Standard gcc (host)
+SHELL := /bin/bash
 CC ?= gcc
 AS = nasm
 # Linker und Objcopy: host tools
@@ -70,11 +71,11 @@ stage1.bin: stage1.asm stage2.bin
 stage2.bin: stage2.asm stage3.bin kernel_payload.bin version.h
 	s3s=$$(expr \( $$(wc -c < stage3.bin) + 511 \) / 512); \
 	ks=$$(expr \( $$(wc -c < kernel_payload.bin) + 511 \) / 512); \
-	s3start_guess=$$(expr $(STAGE2_START_SECTOR) + 1); \
+	s3start_guess=$$(expr $(STAGE2_START_SECTOR) - 1 + 1); \
 	kstart_guess=$$(expr $$s3start_guess + $$s3s); \
 	$(AS) -f bin -D STAGE2_SECTORS=1 -D STAGE3_SECTORS=$$s3s -D STAGE3_START_SECTOR=$$s3start_guess -D KERNEL_SECTORS=$$ks -D KERNEL_START_SECTOR=$$kstart_guess -D KERNEL_LOAD_LINEAR=$(KERNEL_LOAD_LINEAR) -D STAGE2_FORCE_CHS=$(STAGE2_FORCE_CHS) -D STAGE2_VERBOSE_DEBUG=$(STAGE2_VERBOSE_DEBUG) -D ENABLE_BOOTINFO=$(BOOTINFO) -D DEBUG_BOOT=$(DEBUG_BOOT) -D ENABLE_A20_KBC=$(A20_KBC) -D WAIT_BEFORE_PM=$(WAIT_PM) -D DEBUG_PM_STUB=$(DEBUG_PM_STUB) $< -o $@; \
 	s2s=$$(expr \( $$(wc -c < $@) + 511 \) / 512); \
-	s3start=$$(expr $(STAGE2_START_SECTOR) + $$s2s); \
+	s3start=$$(expr $(STAGE2_START_SECTOR) - 1 + $$s2s); \
 	kstart=$$(expr $$s3start + $$s3s); \
 	$(AS) -f bin -D STAGE2_SECTORS=$$s2s -D STAGE3_SECTORS=$$s3s -D STAGE3_START_SECTOR=$$s3start -D KERNEL_SECTORS=$$ks -D KERNEL_START_SECTOR=$$kstart -D KERNEL_LOAD_LINEAR=$(KERNEL_LOAD_LINEAR) -D STAGE2_FORCE_CHS=$(STAGE2_FORCE_CHS) -D STAGE2_VERBOSE_DEBUG=$(STAGE2_VERBOSE_DEBUG) -D ENABLE_BOOTINFO=$(BOOTINFO) -D DEBUG_BOOT=$(DEBUG_BOOT) -D ENABLE_A20_KBC=$(A20_KBC) -D WAIT_BEFORE_PM=$(WAIT_PM) -D DEBUG_PM_STUB=$(DEBUG_PM_STUB) $< -o $@
 
@@ -84,15 +85,14 @@ stage3_entry.o: stage3_entry.asm boot_config.inc
 stage3_main.o: stage3.c stage3_params.h bootinfo.h
 	$(CC) $(CFLAGS) -DSTAGE3_VERBOSE_DEBUG=$(STAGE3_VERBOSE_DEBUG) -c $< -o $@
 
-stage3.elf: stage3_entry.o stage3_main.o
-	$(LD) -m elf_i386 -Ttext $(STAGE3_LINK_ADDR) -e stage3_entry $^ -o $@
+stage3.elf: stage3_entry.o stage3_main.o stage3.ld
+	$(LD) -m elf_i386 -T stage3.ld stage3_entry.o stage3_main.o -o $@
 
 stage3.bin: stage3.elf
 	$(OBJCOPY) -O binary $< $@
 	truncate -s %512 $@
-
-bootloader.bin: stage1.bin stage2.bin stage3.bin
-	cat stage1.bin stage2.bin stage3.bin > $@
+	python3 -c 'import pathlib, sys; data=pathlib.Path("stage3.bin").read_bytes(); sig=b"\xB8\x21\x47\x53\x33\x31\xC0";\
+		assert data.startswith(sig), "stage3.bin signature mismatch: %s" % data[:8].hex()'
 
 entry32.o: entry32.asm
 	$(AS) -f elf32 -D DEBUG_ENTRY32=$(ENTRY32_DEBUG) -D ENABLE_BOOTINFO=$(BOOTINFO) $< -o $@
@@ -202,8 +202,20 @@ kernel_payload.bin: kernel_payload.elf
 	$(OBJCOPY) -O binary --change-addresses -0x8000 $< $@
 	truncate -s %512 $@
 
-disk.img: bootloader.bin kernel_payload.bin
-	cat $^ > $@
+disk.img: stage1.bin stage2.bin stage3.bin kernel_payload.bin
+	set -euo pipefail; \
+	stage2_sectors=$$(python3 -c 'import pathlib; print((pathlib.Path("stage2.bin").stat().st_size + 511)//512)'); \
+	stage3_sectors=$$(python3 -c 'import pathlib; print((pathlib.Path("stage3.bin").stat().st_size + 511)//512)'); \
+	kernel_sectors=$$(python3 -c 'import pathlib; print((pathlib.Path("kernel_payload.bin").stat().st_size + 511)//512)'); \
+	stage3_lba=$$(( $(STAGE2_START_SECTOR) - 1 + stage2_sectors )); \
+	kernel_lba=$$(( stage3_lba + stage3_sectors )); \
+	rm -f $@; \
+	dd if=stage1.bin of=$@ bs=512 conv=notrunc status=none; \
+	dd if=stage2.bin of=$@ bs=512 seek=1 conv=notrunc status=none; \
+	dd if=stage3.bin of=$@ bs=512 seek=$$stage3_lba conv=notrunc status=none; \
+	dd if=kernel_payload.bin of=$@ bs=512 seek=$$kernel_lba conv=notrunc status=none; \
+	dd if=$@ bs=512 skip=$$stage3_lba count=1 status=none | cmp -n 16 stage3.bin - >/dev/null || { echo 'Stage3 mismatch at LBA $$stage3_lba' >&2; exit 1; }; \
+	printf 'Stage layout: stage2=%s stage3=%s kernel=%s (stage3_lba=%s kernel_lba=%s)\n' $$stage2_sectors $$stage3_sectors $$kernel_sectors $$stage3_lba $$kernel_lba
 
 version.h:
 	@printf '#define GIT_REV "%s"\n' "$(shell git describe --always --dirty 2>/dev/null || git rev-parse --short HEAD)" > $@
@@ -276,7 +288,7 @@ help:
 
 clean:
 	# Root objs and binaries
-	rm -f *.o *.bin *.img netface.o console.o $(CONSOLE_BACKEND_OBJ) video.o main.o entry32.o isr.o idt.o interrupts.o kentry.o kernel_payload.bin kernel_payload.elf bootloader.bin stage3.elf
+	rm -f *.o *.bin *.img netface.o console.o $(CONSOLE_BACKEND_OBJ) video.o main.o entry32.o isr.o idt.o interrupts.o kentry.o kernel_payload.bin kernel_payload.elf stage3.elf
 	# Driver objects
 	rm -f drivers/*.o drivers/*/*.o
 	# SPARC artifacts

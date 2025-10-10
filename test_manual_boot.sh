@@ -88,7 +88,7 @@ build_image() {
     else
         echo "[build] Rebuilding disk image (default LBA path)"
     fi
-    make -B stage1.bin stage2.bin bootloader.bin disk.img STAGE2_FORCE_CHS=$force_chs >/dev/null
+    make -B disk.img STAGE2_FORCE_CHS=$force_chs >/dev/null
 }
 
 launch_qemu() {

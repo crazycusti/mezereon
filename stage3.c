@@ -84,6 +84,14 @@ static inline uint16_t inw(uint16_t port) {
     return value;
 }
 
+#if STAGE3_VERBOSE_DEBUG
+static void stage3_port_debug(char c) {
+    outb(0xE9, (uint8_t)c);
+}
+#else
+static inline void stage3_port_debug(char c) { (void)c; }
+#endif
+
 #define ATA_REG_DATA      0
 #define ATA_REG_ERROR     1
 #define ATA_REG_SECCNT    2
@@ -245,12 +253,19 @@ static void stage3_build_bootinfo(const stage3_params_t *params, boot_info_t *bi
 }
 
 void stage3_main(stage3_params_t *params, boot_info_t *bootinfo) {
+    stage3_port_debug('S');
     if (!params || !bootinfo) {
+        stage3_port_debug('!');
         stage3_panic("param");
     }
+    stage3_port_debug('s');
 
-    stage3_console_write("Stage3 start\n");
 #if STAGE3_VERBOSE_DEBUG
+    g_vga_pos = 2;
+    stage3_console_write("Stage3 start\n");
+    stage3_port_debug('P');
+    ((volatile uint16_t*)0xB8000)[1] = 0x0753;
+    ((volatile uint16_t*)0xB8000)[2] = 0x0745;
     stage3_console_write("S3: drive=0x");
     stage3_print_hex8((uint8_t)params->boot_drive);
     stage3_console_write(" stage3_lba=0x");
@@ -267,25 +282,37 @@ void stage3_main(stage3_params_t *params, boot_info_t *bootinfo) {
 #endif
 
     if (params->boot_drive < 0x80u) {
+        stage3_port_debug('f');
         stage3_panic("flpy");
     }
+    stage3_port_debug('B');
 
     ata_select_device((uint8_t)params->boot_drive);
+    stage3_port_debug('D');
+#if STAGE3_VERBOSE_DEBUG
     stage3_console_write("ATA selected\n");
+#endif
 
     if ((uint32_t)(uintptr_t)bootinfo != params->bootinfo_ptr) {
+        stage3_port_debug('i');
         stage3_panic("bi");
     }
 
+    stage3_port_debug('R');
     stage3_console_putc('K');
     if (!stage3_load_kernel(params)) {
+        stage3_port_debug('!');
         stage3_panic("load");
     }
+    stage3_port_debug('r');
+#if STAGE3_VERBOSE_DEBUG
     stage3_console_putc('k');
     stage3_console_write("S3: kernel loaded, jumping\n");
+#endif
 
     stage3_build_bootinfo(params, bootinfo);
 
+    stage3_port_debug('X');
     void (*kernel_entry)(void) = (void (*)(void))(uintptr_t)params->kernel_load_linear;
     kernel_entry();
 

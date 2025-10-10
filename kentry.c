@@ -49,8 +49,15 @@ static void early_debug(char c) {
     *(vga+1) = 0x07;  // Light gray on black
 }
 
+#if CONFIG_ARCH_X86
+static inline void port_debug_e9(char c) {
+    __asm__ volatile ("outb %0, $0xE9" :: "a"(c));
+}
+#endif
+
 void kentry(void* bi) {
 #if CONFIG_ARCH_X86
+    port_debug_e9('K');
     early_debug('K');  // Kernel entered
     const boot_info_t* info = (const boot_info_t*)bi;
     if (!info) {

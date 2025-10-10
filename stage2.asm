@@ -17,6 +17,9 @@ ORG 0
 %define DATA_SEL                 0x10
 %define MAX_LBA_CHUNK            127
 %define E820_MAX_ENTRIES         32
+%define STAGE3_SIGNATURE_LEN     7
+%define STAGE2_LINEAR_LO         (STAGE2_LINEAR_ADDR & 0xFFFF)
+%define STAGE2_LINEAR_HI         ((STAGE2_LINEAR_ADDR >> 16) & 0xFFFF)
 
 %ifndef STAGE2_FORCE_CHS
 %define STAGE2_FORCE_CHS 0
@@ -33,6 +36,14 @@ start:
     sti
 
     mov [boot_drive], dl
+%if STAGE2_VERBOSE_DEBUG
+    mov si, msg_s2_start
+    call debug_print_str
+    mov al, [boot_drive]
+    call debug_print_hex8
+    mov si, msg_newline
+    call debug_print_str
+%endif
 
 %if STAGE2_DEBUG
     mov al, '2'
@@ -40,6 +51,14 @@ start:
 %endif
 
     call detect_disk_extensions
+%if STAGE2_VERBOSE_DEBUG
+    mov si, msg_use_lba
+    call debug_print_str
+    mov al, [use_lba]
+    call debug_print_hex8
+    mov si, msg_newline
+    call debug_print_str
+%endif
     call query_geometry
 
     mov dword [current_lba], STAGE3_START_SECTOR
@@ -87,16 +106,35 @@ load_loop:
 
 .chs_failed:
     cmp byte [use_lba], 0
-    je load_error
+    jne .chs_try_lba
+    mov si, msg_err_chs
+    call debug_print_str
+    mov si, msg_newline
+    call debug_print_str
+    jmp load_error
+.chs_try_lba:
     mov ax, [chunk_size_initial]
     mov [chunk_size], ax
     call read_chunk_lba
-    jc load_error
+    jc .chs_lba_fail
     jmp .after_read
+.chs_lba_fail:
+    mov si, msg_err_lba
+    call debug_print_str
+    mov si, msg_newline
+    call debug_print_str
+    jmp load_error
 
 .read_lba:
     call read_chunk_lba
-    jc load_error
+    jc .lba_fail
+    jmp .after_read
+.lba_fail:
+    mov si, msg_err_lba
+    call debug_print_str
+    mov si, msg_newline
+    call debug_print_str
+    jmp load_error
 
 .after_read:
     mov si, word [chunk_size]
@@ -154,8 +192,31 @@ load_complete:
     mov ax, [stage3_params + STAGE3_PARAM_FLAGS]
     mov dx, [stage3_params + STAGE3_PARAM_FLAGS + 2]
     call debug_print_hex32
+    mov si, msg_stage3_ptr
+    call debug_print_str
+    mov ax, [stage3_params_ptr]
+    mov dx, [stage3_params_ptr + 2]
+    call debug_print_hex32
     mov si, msg_newline
     call debug_print_str
+    mov si, msg_stage3_head0
+    call debug_print_str
+    push es
+    mov ax, STAGE3_LOAD_SEGMENT
+    mov es, ax
+    mov ax, [es:0]
+    mov dx, [es:2]
+    call debug_print_hex32
+    mov si, msg_newline
+    call debug_print_str
+    mov si, msg_stage3_head4
+    call debug_print_str
+    mov ax, [es:4]
+    mov dx, [es:6]
+    call debug_print_hex32
+    mov si, msg_newline
+    call debug_print_str
+    pop es
 %endif
 
     ; Prepare registers for Stage 3 hand-off
@@ -164,16 +225,110 @@ load_complete:
 
     call ensure_a20
 
+%if STAGE2_VERBOSE_DEBUG
+    mov si, msg_sel_code
+    call debug_print_str
+    mov ax, CODE_SEL
+    call debug_print_hex16
+    mov si, msg_sel_data
+    call debug_print_str
+    mov ax, DATA_SEL
+    call debug_print_hex16
+    mov si, msg_newline
+    call debug_print_str
+    mov si, msg_gdt_code_hdr
+    call debug_print_str
+    mov bx, gdt_code
+    call dump_descriptor
+    mov si, msg_gdt_data_hdr
+    call debug_print_str
+    mov bx, gdt_data
+    call dump_descriptor
+%endif
+
     cli
     call load_gdt
+%if STAGE2_VERBOSE_DEBUG
+    mov si, msg_gdt_lim
+    call debug_print_str
+    mov ax, [gdt_descriptor]
+    call debug_print_hex16
+    mov si, msg_newline
+    call debug_print_str
+    mov si, msg_gdt_base
+    call debug_print_str
+    mov ax, [gdt_descriptor + 2]
+    mov dx, [gdt_descriptor + 4]
+    call debug_print_hex32
+    mov si, msg_far_bytes
+    call debug_print_str
+    mov bx, far_jmp_label
+    mov cx, far_jmp_end - far_jmp_label
+.far_bytes_loop:
+    mov al, [bx]
+    call debug_print_hex8
+    mov al, ' '
+    call debug_char
+    inc bx
+    loop .far_bytes_loop
+    mov si, msg_far_sel
+    call debug_print_str
+    mov ax, CODE_SEL
+    call debug_print_hex16
+    mov si, msg_far_off
+    call debug_print_str
+    mov ax, pm_stub
+    call debug_print_hex16
+    mov si, msg_far_lin
+    call debug_print_str
+    mov ax, pm_stub
+    mov dx, STAGE2_LINEAR_HI
+    mov bx, STAGE2_LINEAR_LO
+    add ax, bx
+    adc dx, 0
+    call debug_print_hex32
+    mov si, msg_newline
+    call debug_print_str
+%endif
+    call check_stage3_signature
+    test al, al
+    jnz .sig_fail
+    mov si, msg_sig_ok
+    call debug_print_str
+    mov si, msg_newline
+    call debug_print_str
+    jmp .after_sig
+.sig_fail:
+    mov si, msg_sig_bad
+    call debug_print_str
+    mov si, msg_newline
+    call debug_print_str
+    jmp fatal_halt
+.after_sig:
     mov eax, cr0
+%if STAGE2_VERBOSE_DEBUG
+    mov si, msg_cr0b
+    mov [tmp_dword], eax
+    call debug_print_str
+    mov ax, [tmp_dword]
+    mov dx, [tmp_dword + 2]
+    call debug_print_hex32
+    mov si, msg_newline
+    call debug_print_str
+%endif
     or eax, 1
     mov cr0, eax
-    jmp dword CODE_SEL:STAGE3_LINEAR_ADDR
+far_jmp_label:
+    jmp CODE_SEL:pm_stub
+far_jmp_end:
 
 load_error:
     mov al, 'F'
     call debug_char
+    mov al, ah
+    call debug_print_hex8
+    mov si, msg_newline
+    call debug_print_str
 fatal_halt:
     hlt
     jmp fatal_halt
@@ -251,6 +406,87 @@ debug_print_hex32:
     pop dx
     pop ax
     call debug_print_hex16
+    ret
+
+check_stage3_signature:
+    push ds
+    push si
+    push bx
+    push dx
+    push cx
+    mov ax, STAGE3_LOAD_SEGMENT
+    mov ds, ax
+    xor si, si
+    xor bx, bx
+    mov cx, STAGE3_SIGNATURE_LEN
+.sig_loop:
+    mov al, [si]
+    mov dl, cs:[stage3_signature + bx]
+    cmp al, dl
+    jne .sig_bad
+    inc si
+    inc bx
+    loop .sig_loop
+    mov al, 0
+    jmp .sig_done
+.sig_bad:
+    mov al, 1
+.sig_done:
+    pop cx
+    pop dx
+    pop bx
+    pop si
+    pop ds
+    ret
+
+dump_descriptor:
+    push ax
+    push dx
+    push bx
+    push cx
+    push si
+    push di
+    mov di, bx
+    mov si, msg_desc_raw
+    call debug_print_str
+    mov cx, 8
+.raw_loop:
+    mov al, [di]
+    call debug_print_hex8
+    mov al, ' '
+    call debug_char
+    inc di
+    loop .raw_loop
+    mov si, msg_desc_lim
+    call debug_print_str
+    mov ax, [bx]
+    mov dx, 0
+    mov dl, [bx + 6]
+    and dl, 0x0F
+    call debug_print_hex32
+    mov si, msg_desc_base
+    call debug_print_str
+    mov ax, [bx + 2]
+    mov dl, [bx + 4]
+    mov dh, [bx + 7]
+    call debug_print_hex32
+    mov si, msg_desc_acc
+    call debug_print_str
+    mov al, [bx + 5]
+    call debug_print_hex8
+    mov si, msg_desc_flags
+    call debug_print_str
+    mov al, [bx + 6]
+    and al, 0xF0
+    call debug_print_hex8
+    mov si, msg_newline
+    call debug_print_str
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop dx
+    pop ax
     ret
 
 ; Detect INT 13h extensions (LBA support)
@@ -369,6 +605,23 @@ collect_e820:
     call debug_print_hex8
     mov si, msg_newline
     call debug_print_str
+    cmp word [e820_entry_count], 0
+    je .skip_e820_details
+    mov si, msg_e820_base
+    call debug_print_str
+    mov ax, [e820_entries]
+    mov dx, [e820_entries + 2]
+    call debug_print_hex32
+    mov si, msg_newline
+    call debug_print_str
+    mov si, msg_e820_len
+    call debug_print_str
+    mov ax, [e820_entries + 8]
+    mov dx, [e820_entries + 10]
+    call debug_print_hex32
+    mov si, msg_newline
+    call debug_print_str
+.skip_e820_details:
 %endif
     ret
 
@@ -640,13 +893,61 @@ ensure_a20:
     push ax
     push dx
     call enable_a20_fast
-    call check_a20
-    test al, 0x02
-    jnz .done
+    call test_a20_wrap
+    push ax
+    call report_a20
+    pop ax
+    cmp al, 0
+    jne .done
     call enable_a20_kbc
-    call check_a20
+    call test_a20_wrap
+    push ax
+    call report_a20
+    pop ax
 .done:
     pop dx
+    pop ax
+    ret
+
+test_a20_wrap:
+    push bx
+    push ds
+    push es
+    push di
+    xor ax, ax
+    mov ds, ax
+    mov ax, 0xFFFF
+    mov es, ax
+    mov di, 0x0010
+    mov bl, [ds:di]
+    mov byte [ds:di], 0x5A
+    cmp byte [es:di], 0x5A
+    mov [ds:di], bl
+    xor ax, ax
+    jne .a20_enabled
+    jmp .done_test
+.a20_enabled:
+    mov al, 1
+.done_test:
+    pop di
+    pop es
+    pop ds
+    pop bx
+    ret
+
+report_a20:
+    push ax
+    cmp al, 0
+    jne .a20_on_msg
+    mov si, msg_a20_off
+    call debug_print_str
+    jmp .report_exit
+.a20_on_msg:
+    mov si, msg_a20_on
+    call debug_print_str
+.report_exit:
+    mov si, msg_newline
+    call debug_print_str
     pop ax
     ret
 
@@ -673,10 +974,6 @@ enable_a20_kbc:
     pop ax
     ret
 
-check_a20:
-    in al, 0x92
-    ret
-
 ; Load GDT descriptor with runtime base
 load_gdt:
     mov eax, gdt_start
@@ -689,6 +986,8 @@ load_gdt:
 ; Data
 ; -----------------------------------------------------------------------------
 
+msg_s2_start:        db 'S2 INIT: drive=0x',0
+msg_use_lba:         db 'use_lba=0x',0
 hex_digits:          db '0123456789ABCDEF'
 msg_load_loop:       db 'Loading stage3 chunk, remaining=',0
 msg_chs_prefix:      db 'CHS C=',0
@@ -698,13 +997,44 @@ msg_count_prefix:    db ' count=',0
 msg_lba_prefix:      db 'LBA=',0
 msg_stage2_done:     db 'Stage2 loaded stage3',0
 msg_e820_prefix:     db 'E820 entries=',0
-msg_params_drive:    db 'S3 params: drive=',0
-msg_params_lba:      db ' LBA=',0
-msg_params_stage3:   db ' stage3_secs=',0
-msg_params_kernel_l: db ' kernel_lba=',0
-msg_params_kernel_s: db ' kernel_secs=',0
-msg_params_flags:    db ' flags=',0
+msg_e820_base:       db 'E820[0]=0x',0
+msg_e820_len:        db 'E820len=0x',0
+msg_params_drive:    db 'S3 d=0x',0
+msg_params_lba:      db ' lba=0x',0
+msg_params_stage3:   db ' s3s=0x',0
+msg_params_kernel_l: db ' klba=0x',0
+msg_params_kernel_s: db ' ksec=0x',0
+msg_params_flags:    db ' flag=0x',0
+msg_stage3_ptr:      db ' s3ptr=0x',0
+msg_stage3_head0:    db ' S3[0]=0x',0
+msg_stage3_head4:    db ' S3[4]=0x',0
+msg_sig_ok:          db 'S3sig=OK',0
+msg_sig_bad:         db 'S3sig=BAD',0
+msg_gdt_code_hdr:    db 'GDTc',0
+msg_gdt_data_hdr:    db 'GDTd',0
+msg_desc_raw:        db ' raw=',0
+msg_desc_lim:        db ' lim=0x',0
+msg_desc_base:       db ' base=0x',0
+msg_desc_acc:        db ' acc=0x',0
+msg_desc_flags:      db ' flg=0x',0
+msg_gdt_lim:         db 'GDTRlim=0x',0
+msg_gdt_base:        db ' GDTRbase=0x',0
+msg_cr0b:            db 'CR0b=0x',0
+msg_cr0a:            db ' CR0a=0x',0
+msg_pm_jump:         db 'S2:PM',0
+msg_a20_on:          db 'A20=1',0
+msg_a20_off:         db 'A20=0',0
+msg_err_chs:         db 'CHS!',0
+msg_err_lba:         db 'LBA!',0
+msg_sel_code:        db 'SELc=0x',0
+msg_sel_data:        db ' SELd=0x',0
+msg_far_bytes:       db 'JMP=',0
+msg_far_sel:         db ' sel=0x',0
+msg_far_off:         db ' off=0x',0
+msg_far_lin:         db ' lin=0x',0
 msg_newline:         db 0x0D,0x0A,0
+
+stage3_signature:    db 0xB8,0x21,0x47,0x53,0x33,0x31,0xC0
 
 boot_drive:           db 0
 use_lba:              db 0
@@ -728,6 +1058,10 @@ align 4
 e820_entries:         times E820_MAX_ENTRIES * 24 db 0
 stage3_params:        times STAGE3_PARAM_SIZE db 0
 stage3_params_ptr:    dd 0
+align 4
+tmp_dword:            dd 0
+pm_target:            dd STAGE3_LINEAR_ADDR
+                      dw CODE_SEL
 
 ; Disk Address Packet for INT 13h Extensions
 ; Byte 0 = size (16), byte 1 = reserved
@@ -763,3 +1097,24 @@ gdt_descriptor:
     dd 0
 
 ; *** Stage 2 end
+
+[BITS 32]
+pm_stub:
+%if STAGE2_VERBOSE_DEBUG
+    mov word [0xB8000], 0x0750        ; 'P'
+    mov word [0xB8002], 0x0721        ; '!'
+    mov dx, 0xE9
+    mov al, 'P'
+    out dx, al
+    mov al, '!'
+    out dx, al
+%endif
+    mov ax, DATA_SEL
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
+    mov esp, STAGE3_STACK_TOP
+    jmp far [pm_target]
+[BITS 16]
