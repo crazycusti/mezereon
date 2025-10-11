@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #define STAGE3_FLAG_USE_LBA 0x00000001u
+#define STAGE3_FLAG_KERNEL_PRELOADED 0x00000002u
 
 typedef struct __attribute__((packed)) stage3_params {
     uint32_t boot_drive;
@@ -17,6 +18,7 @@ typedef struct __attribute__((packed)) stage3_params {
     uint32_t kernel_lba;
     uint32_t kernel_sectors;
     uint32_t kernel_load_linear;
+    uint32_t kernel_buffer_linear;
     uint32_t e820_ptr;
     uint32_t e820_count;
 } stage3_params_t;

@@ -6,8 +6,17 @@ ORG 0
 %include "boot_shared.inc"
 
 %ifndef STAGE2_DEBUG
-%define STAGE2_DEBUG 1
+%define STAGE2_DEBUG 0
 %endif
+
+%ifndef ENABLE_A20_KBC
+%define ENABLE_A20_KBC 1
+%endif
+
+%ifndef DEBUG_PM_STUB
+%define DEBUG_PM_STUB 0
+%endif
+
 
 %ifndef STAGE3_SECTORS
 %error "STAGE3_SECTORS must be defined via the build system"
@@ -64,87 +73,7 @@ start:
     mov dword [current_lba], STAGE3_START_SECTOR
     mov word [remaining_sectors], STAGE3_SECTORS
     mov dword [buffer_linear], STAGE3_LINEAR_ADDR
-
-    cmp word [remaining_sectors], 0
-    je load_complete
-
-load_loop:
-%if STAGE2_VERBOSE_DEBUG
-    mov si, msg_load_loop
-    call debug_print_str
-    mov ax, [remaining_sectors]
-    call debug_print_hex16
-    mov si, msg_newline
-    call debug_print_str
-%endif
-    movzx eax, word [remaining_sectors]
-    test eax, eax
-    je load_complete
-
-    cmp eax, MAX_LBA_CHUNK
-    jbe .chunk_ok
-    mov eax, MAX_LBA_CHUNK
-.chunk_ok:
-    mov word [chunk_size], ax
-    mov word [chunk_size_initial], ax
-
-    cmp byte [use_lba], 0
-    jne .prepare_transfer
-
-    mov si, word [chunk_size]
-    call limit_chunk_to_track
-    mov [chunk_size], si
-
-.prepare_transfer:
-    call prepare_transfer_pointer
-
-    cmp byte [use_lba], 0
-    jne .read_lba
-    call read_chunk_chs
-    jc .chs_failed
-    jmp .after_read
-
-.chs_failed:
-    cmp byte [use_lba], 0
-    jne .chs_try_lba
-    mov si, msg_err_chs
-    call debug_print_str
-    mov si, msg_newline
-    call debug_print_str
-    jmp load_error
-.chs_try_lba:
-    mov ax, [chunk_size_initial]
-    mov [chunk_size], ax
-    call read_chunk_lba
-    jc .chs_lba_fail
-    jmp .after_read
-.chs_lba_fail:
-    mov si, msg_err_lba
-    call debug_print_str
-    mov si, msg_newline
-    call debug_print_str
-    jmp load_error
-
-.read_lba:
-    call read_chunk_lba
-    jc .lba_fail
-    jmp .after_read
-.lba_fail:
-    mov si, msg_err_lba
-    call debug_print_str
-    mov si, msg_newline
-    call debug_print_str
-    jmp load_error
-
-.after_read:
-    mov si, word [chunk_size]
-    call advance_buffer
-    call advance_lba
-
-    mov ax, [remaining_sectors]
-    sub ax, [chunk_size]
-    mov [remaining_sectors], ax
-    jmp load_loop
+    call load_sectors
 
 load_complete:
 %if STAGE2_DEBUG
@@ -161,6 +90,7 @@ load_complete:
 
     call collect_e820
     call populate_stage3_params
+    call preload_kernel_if_needed
 
 %if STAGE2_VERBOSE_DEBUG
     mov si, msg_params_drive
@@ -218,10 +148,6 @@ load_complete:
     call debug_print_str
     pop es
 %endif
-
-    ; Prepare registers for Stage 3 hand-off
-    mov esi, dword [stage3_params_ptr]
-    mov edi, BOOTINFO_ADDR
 
     call ensure_a20
 
@@ -316,11 +242,11 @@ load_complete:
 %endif
     or eax, 1
     mov cr0, eax
-    nop
+    mov esi, stage3_params
+    add esi, STAGE2_LINEAR_ADDR
+    mov edi, BOOTINFO_ADDR
 far_jmp_label:
-    db 0x66, 0xEA
-    dd (STAGE2_LINEAR_ADDR + pm_stub)
-    dw CODE_SEL
+    jmp dword CODE_SEL:(STAGE2_LINEAR_ADDR + pm_stub)
 far_jmp_end:
 
 load_error:
@@ -792,6 +718,87 @@ read_chunk_chs:
     pop ax
     ret
 
+load_sectors:
+    cmp word [remaining_sectors], 0
+    je .done
+.loop:
+%if STAGE2_VERBOSE_DEBUG
+    mov si, msg_load_loop
+    call debug_print_str
+    mov ax, [remaining_sectors]
+    call debug_print_hex16
+    mov si, msg_newline
+    call debug_print_str
+%endif
+    movzx eax, word [remaining_sectors]
+    cmp eax, MAX_LBA_CHUNK
+    jbe .chunk_ok
+    mov eax, MAX_LBA_CHUNK
+.chunk_ok:
+    mov word [chunk_size], ax
+    mov word [chunk_size_initial], ax
+
+    cmp byte [use_lba], 0
+    jne .prepare_transfer
+
+    mov si, word [chunk_size]
+    call limit_chunk_to_track
+    mov [chunk_size], si
+
+.prepare_transfer:
+    call prepare_transfer_pointer
+
+    cmp byte [use_lba], 0
+    jne .read_lba
+    call read_chunk_chs
+    jc .chs_failed
+    jmp .after_read
+
+.chs_failed:
+    cmp byte [use_lba], 0
+    jne .chs_try_lba
+    mov si, msg_err_chs
+    call debug_print_str
+    mov si, msg_newline
+    call debug_print_str
+    jmp load_error
+.chs_try_lba:
+    mov ax, [chunk_size_initial]
+    mov [chunk_size], ax
+    call read_chunk_lba
+    jc .chs_lba_fail
+    jmp .after_read
+.chs_lba_fail:
+    mov si, msg_err_lba
+    call debug_print_str
+    mov si, msg_newline
+    call debug_print_str
+    jmp load_error
+
+.read_lba:
+    call read_chunk_lba
+    jc .lba_fail
+    jmp .after_read
+.lba_fail:
+    mov si, msg_err_lba
+    call debug_print_str
+    mov si, msg_newline
+    call debug_print_str
+    jmp load_error
+
+.after_read:
+    mov si, word [chunk_size]
+    call advance_buffer
+    call advance_lba
+
+    mov ax, [remaining_sectors]
+    sub ax, [chunk_size]
+    mov [remaining_sectors], ax
+    cmp ax, 0
+    jne .loop
+.done:
+    ret
+
 ; Read chunk via LBA (uses Disk Address Packet)
 read_chunk_lba:
     push ax
@@ -879,6 +886,8 @@ populate_stage3_params:
     mov [stage3_params + STAGE3_PARAM_KERNEL_SECTORS], eax
     mov eax, KERNEL_LOAD_LINEAR
     mov [stage3_params + STAGE3_PARAM_KERNEL_LOAD], eax
+    mov eax, KERNEL_BUFFER_LINEAR
+    mov [stage3_params + STAGE3_PARAM_KERNEL_BUFFER], eax
     mov eax, e820_entries
     add eax, STAGE2_LINEAR_ADDR
     mov [stage3_params + STAGE3_PARAM_E820_PTR], eax
@@ -889,53 +898,133 @@ populate_stage3_params:
     mov [stage3_params_ptr], eax
     ret
 
+; Preload kernel image when booting from floppy (fallback for Stage 3)
+preload_kernel_if_needed:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+
+    mov al, [boot_drive]
+    cmp al, 0x80
+    jae .skip
+    mov ax, [stage3_params + STAGE3_PARAM_KERNEL_SECTORS]
+    mov dx, [stage3_params + STAGE3_PARAM_KERNEL_SECTORS + 2]
+    or ax, dx
+    jz .skip
+
+    mov ax, [buffer_linear]
+    push ax
+    mov ax, [buffer_linear + 2]
+    push ax
+    mov ax, [current_lba]
+    push ax
+    mov ax, [current_lba + 2]
+    push ax
+
+    mov ax, [stage3_params + STAGE3_PARAM_KERNEL_BUFFER]
+    mov [buffer_linear], ax
+    mov ax, [stage3_params + STAGE3_PARAM_KERNEL_BUFFER + 2]
+    mov [buffer_linear + 2], ax
+
+    mov ax, [stage3_params + STAGE3_PARAM_KERNEL_LBA]
+    mov [current_lba], ax
+    mov ax, [stage3_params + STAGE3_PARAM_KERNEL_LBA + 2]
+    mov [current_lba + 2], ax
+
+    mov ax, [stage3_params + STAGE3_PARAM_KERNEL_SECTORS]
+    mov [remaining_sectors], ax
+
+    call load_sectors
+
+    mov eax, [stage3_params + STAGE3_PARAM_FLAGS]
+    or eax, STAGE3_FLAG_KERNEL_PRELOADED
+    mov [stage3_params + STAGE3_PARAM_FLAGS], eax
+
+    mov word [remaining_sectors], 0
+
+    pop ax
+    mov [current_lba + 2], ax
+    pop ax
+    mov [current_lba], ax
+    pop ax
+    mov [buffer_linear + 2], ax
+    pop ax
+    mov [buffer_linear], ax
+
+.skip:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ; Ensure A20 gate enabled via Fast A20 toggle with keyboard controller fallback
 ensure_a20:
     push ax
     push dx
+    mov cx, 3
+.fast_retry:
     call enable_a20_fast
     call test_a20_wrap
-    push ax
-    call report_a20
-    pop ax
     cmp al, 0
     jne .done
+    loop .fast_retry
+%if ENABLE_A20_KBC
+    mov cx, 5
+.kbc_retry:
     call enable_a20_kbc
     call test_a20_wrap
-    push ax
-    call report_a20
-    pop ax
+    cmp al, 0
+    jne .done
+    loop .kbc_retry
+%endif
+    jmp .fatal
 .done:
     pop dx
     pop ax
     ret
+.fatal:
+    pop dx
+    pop ax
+    jmp fatal_halt
 
 test_a20_wrap:
     push bx
     push ds
     push es
+    push si
     push di
     xor ax, ax
     mov ds, ax
+    mov si, 0x0500
     mov ax, 0xFFFF
     mov es, ax
-    mov di, 0x0010
-    mov bl, [ds:di]
-    mov byte [ds:di], 0x5A
-    cmp byte [es:di], 0x5A
-    mov [ds:di], bl
-    xor ax, ax
-    jne .a20_enabled
-    jmp .done_test
-.a20_enabled:
-    mov al, 1
-.done_test:
+    mov di, 0x0510
+    mov bl, [ds:si]
+    mov bh, [es:di]
+    mov byte [ds:si], 0x00
+    mov byte [es:di], 0xFF
+    cmp byte [ds:si], 0xFF
+    mov byte [es:di], bh
+    mov byte [ds:si], bl
     pop di
+    pop si
     pop es
     pop ds
     pop bx
+    jne .a20_enabled
+    xor ax, ax
+    ret
+.a20_enabled:
+    mov ax, 1
     ret
 
+%if STAGE2_VERBOSE_DEBUG
 report_a20:
     push ax
     cmp al, 0
@@ -951,6 +1040,7 @@ report_a20:
     call debug_print_str
     pop ax
     ret
+%endif
 
 enable_a20_fast:
     in al, 0x92
@@ -958,22 +1048,44 @@ enable_a20_fast:
     out 0x92, al
     ret
 
+%if ENABLE_A20_KBC
 enable_a20_kbc:
     push ax
-.wait_input_clear:
-    in al, 0x64
-    test al, 0x02
-    jne .wait_input_clear
-    mov al, 0xD1
+    call enable_a20_wait_ibf_clear
+    mov al, 0xAD             ; disable keyboard
     out 0x64, al
-.wait_input_clear2:
-    in al, 0x64
-    test al, 0x02
-    jne .wait_input_clear2
-    mov al, 0xDF
+    call enable_a20_wait_ibf_clear
+    mov al, 0xD0             ; read output port
+    out 0x64, al
+    call enable_a20_wait_obf_set
+    in al, 0x60
+    or al, 0x02              ; set A20 bit
+    mov ah, al
+    call enable_a20_wait_ibf_clear
+    mov al, 0xD1             ; write output port
+    out 0x64, al
+    call enable_a20_wait_ibf_clear
+    mov al, ah
     out 0x60, al
+    call enable_a20_wait_ibf_clear
+    mov al, 0xAE             ; re-enable keyboard
+    out 0x64, al
+    call enable_a20_wait_ibf_clear
     pop ax
     ret
+
+enable_a20_wait_ibf_clear:
+    in al, 0x64
+    test al, 0x02
+    jnz enable_a20_wait_ibf_clear
+    ret
+
+enable_a20_wait_obf_set:
+    in al, 0x64
+    test al, 0x01
+    jz enable_a20_wait_obf_set
+    ret
+%endif
 
 ; Load GDT descriptor with runtime base
 load_gdt:
@@ -1061,8 +1173,6 @@ stage3_params:        times STAGE3_PARAM_SIZE db 0
 stage3_params_ptr:    dd 0
 align 4
 tmp_dword:            dd 0
-pm_target:            dd STAGE3_LINEAR_ADDR
-                      dw CODE_SEL
 
 ; Disk Address Packet for INT 13h Extensions
 ; Byte 0 = size (16), byte 1 = reserved
@@ -1108,6 +1218,7 @@ pm_stub:
     mov gs, ax
     mov ss, ax
     mov esp, STAGE3_STACK_TOP
+%if DEBUG_PM_STUB
     mov word [0xB8000], 0x0750        ; 'P'
     mov word [0xB8002], 0x0721        ; '!'
     mov dx, 0xE9
@@ -1115,5 +1226,6 @@ pm_stub:
     out dx, al
     mov al, '!'
     out dx, al
-    jmp far [pm_target]
+%endif
+    jmp 0x08:STAGE3_LINEAR_ADDR
 [BITS 16]

@@ -8,7 +8,9 @@
 static volatile uint16_t* const VGA_TEXT = (uint16_t*)0xB8000;
 static uint32_t g_vga_pos = 0;
 static const char g_console_name[] = "vga_text";
+#if STAGE3_VERBOSE_DEBUG
 static const char HEX_DIGITS[] = "0123456789ABCDEF";
+#endif
 
 #ifndef STAGE3_VERBOSE_DEBUG
 #define STAGE3_VERBOSE_DEBUG 0
@@ -18,6 +20,15 @@ static void *stage3_memset(void *dst, int value, size_t n) {
     uint8_t *d = (uint8_t *)dst;
     while (n--) {
         *d++ = (uint8_t)value;
+    }
+    return dst;
+}
+
+static void *stage3_memcpy(void *dst, const void *src, size_t n) {
+    uint8_t *d = (uint8_t *)dst;
+    const uint8_t *s = (const uint8_t *)src;
+    while (n--) {
+        *d++ = *s++;
     }
     return dst;
 }
@@ -77,6 +88,17 @@ static inline uint8_t inb(uint16_t port) {
 static inline void outw(uint16_t port, uint16_t value) {
     __asm__ volatile ("outw %0, %1" :: "a"(value), "d"(port));
 }
+
+#if STAGE3_VERBOSE_DEBUG
+static void stage3_port_debug(char c);
+static void stage3_debug_hex32(uint32_t value) {
+    for (int shift = 28; shift >= 0; shift -= 4) {
+        uint8_t nib = (value >> shift) & 0x0Fu;
+        uint8_t ch = (nib < 10) ? (uint8_t)('0' + nib) : (uint8_t)('A' + (nib - 10));
+        stage3_port_debug((char)ch);
+    }
+}
+#endif
 
 static inline uint16_t inw(uint16_t port) {
     uint16_t value;
@@ -195,10 +217,13 @@ static bool ata_read_lba28(uint32_t lba, uint8_t sectors, void *buffer) {
     return true;
 }
 
-static bool stage3_load_kernel(const stage3_params_t *params) {
+static bool stage3_load_kernel(const stage3_params_t *params, uint8_t *buffer) {
+    if (!params || !buffer) {
+        return false;
+    }
     uint32_t remaining = params->kernel_sectors;
     uint32_t lba = params->kernel_lba;
-    uint8_t *dest = (uint8_t *)(uintptr_t)params->kernel_load_linear;
+    uint8_t *dest = buffer;
 
     if (remaining == 0) {
         return false;
@@ -259,6 +284,20 @@ void stage3_main(stage3_params_t *params, boot_info_t *bootinfo) {
         stage3_panic("param");
     }
     stage3_port_debug('s');
+#if STAGE3_VERBOSE_DEBUG
+    stage3_port_debug('p');
+    stage3_debug_hex32((uint32_t)(uintptr_t)params);
+    stage3_port_debug('b');
+    stage3_debug_hex32(params->boot_drive);
+#endif
+
+    bool kernel_preloaded = (params->flags & STAGE3_FLAG_KERNEL_PRELOADED) != 0u;
+#if STAGE3_VERBOSE_DEBUG
+    bool loaded_now = false;
+#endif
+    uint8_t *const kernel_buffer = (uint8_t *)(uintptr_t)params->kernel_buffer_linear;
+    uint8_t *const kernel_target = (uint8_t *)(uintptr_t)params->kernel_load_linear;
+    uint32_t kernel_sectors = params->kernel_sectors;
 
 #if STAGE3_VERBOSE_DEBUG
     g_vga_pos = 2;
@@ -278,19 +317,40 @@ void stage3_main(stage3_params_t *params, boot_info_t *bootinfo) {
     stage3_print_hex32(params->kernel_sectors);
     stage3_console_write(" flags=0x");
     stage3_print_hex32(params->flags);
+    stage3_console_write(" kernel_buf=0x");
+    stage3_print_hex32(params->kernel_buffer_linear);
     stage3_console_write("\n");
 #endif
 
-    if (params->boot_drive < 0x80u) {
-        stage3_port_debug('f');
-        stage3_panic("flpy");
+    if (kernel_sectors == 0u) {
+        stage3_port_debug('!');
+        stage3_panic("ksec");
     }
-    stage3_port_debug('B');
+    if (!kernel_buffer || !kernel_target) {
+        stage3_port_debug('!');
+        stage3_panic("kptr");
+    }
 
-    ata_select_device((uint8_t)params->boot_drive);
-    stage3_port_debug('D');
+    if (params->boot_drive < 0x80u) {
+        if (!kernel_preloaded) {
+            stage3_port_debug('f');
+            stage3_panic("flpy");
+        }
+        stage3_port_debug('b');
+    } else {
+        stage3_port_debug('B');
+        ata_select_device((uint8_t)params->boot_drive);
+        stage3_port_debug('D');
 #if STAGE3_VERBOSE_DEBUG
-    stage3_console_write("ATA selected\n");
+        stage3_console_write("ATA selected\n");
+#endif
+    }
+
+#if STAGE3_VERBOSE_DEBUG
+    stage3_port_debug('I');
+    stage3_debug_hex32((uint32_t)(uintptr_t)bootinfo);
+    stage3_port_debug('P');
+    stage3_debug_hex32(params->bootinfo_ptr);
 #endif
 
     if ((uint32_t)(uintptr_t)bootinfo != params->bootinfo_ptr) {
@@ -299,21 +359,44 @@ void stage3_main(stage3_params_t *params, boot_info_t *bootinfo) {
     }
 
     stage3_port_debug('R');
-    stage3_console_putc('K');
-    if (!stage3_load_kernel(params)) {
-        stage3_port_debug('!');
-        stage3_panic("load");
-    }
-    stage3_port_debug('r');
+    if (!kernel_preloaded) {
+        stage3_console_putc('K');
+        if (!stage3_load_kernel(params, kernel_buffer)) {
+            stage3_port_debug('!');
+            stage3_panic("load");
+        }
+        kernel_preloaded = true;
 #if STAGE3_VERBOSE_DEBUG
-    stage3_console_putc('k');
-    stage3_console_write("S3: kernel loaded, jumping\n");
+        loaded_now = true;
 #endif
+    }
 
     stage3_build_bootinfo(params, bootinfo);
 
+    if (kernel_sectors > (UINT32_MAX / 512u)) {
+        stage3_port_debug('!');
+        stage3_panic("ksz");
+    }
+    uint32_t kernel_bytes = kernel_sectors * 512u;
+    if (kernel_bytes == 0u) {
+        stage3_port_debug('!');
+        stage3_panic("klen");
+    }
+    if (kernel_target != kernel_buffer) {
+        stage3_memcpy(kernel_target, kernel_buffer, kernel_bytes);
+    }
+    stage3_port_debug('r');
+#if STAGE3_VERBOSE_DEBUG
+    if (loaded_now) {
+        stage3_console_putc('k');
+        stage3_console_write("S3: kernel loaded, jumping\n");
+    } else {
+        stage3_console_write("S3: kernel preloaded, jumping\n");
+    }
+#endif
+
     stage3_port_debug('X');
-    void (*kernel_entry)(void) = (void (*)(void))(uintptr_t)params->kernel_load_linear;
+    void (*kernel_entry)(void) = (void (*)(void))(uintptr_t)kernel_target;
     kernel_entry();
 
     stage3_panic("return");

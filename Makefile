@@ -10,12 +10,13 @@ CFLAGS ?= -ffreestanding -m32 -march=i386 -mtune=i386 -mno-mmx -mno-sse -mno-sse
 LDFLAGS ?= -Ttext 0x8000 -m elf_i386
 
 STAGE2_START_SECTOR := 2
-STAGE3_LINK_ADDR    := 0x00020000
+STAGE3_LINK_ADDR    := 0x00040000
 KERNEL_LOAD_LINEAR  := 0x00008000
+KERNEL_BUFFER_LINEAR := 0x00060000
 STAGE2_FORCE_CHS    ?= 0
-STAGE1_VERBOSE_DEBUG ?= 1
-STAGE2_VERBOSE_DEBUG ?= 1
-STAGE3_VERBOSE_DEBUG ?= 1
+STAGE1_VERBOSE_DEBUG ?= 0
+STAGE2_VERBOSE_DEBUG ?= 0
+STAGE3_VERBOSE_DEBUG ?= 0
 
 # Optional QEMU acceleration: set QEMU_ACCEL=kvm|hvf|whpx to enable hardware acceleration and host CPU model
 ifeq ($(QEMU_ACCEL),kvm)
@@ -59,7 +60,7 @@ all: disk.img
 
 BOOTINFO ?= 1
 DEBUG_BOOT ?= 0
-A20_KBC ?= $(DEBUG_BOOT)
+A20_KBC ?= 1
 WAIT_PM ?= 0
 DEBUG_PM_STUB ?= 0
 ENTRY32_DEBUG ?= 0
@@ -73,12 +74,12 @@ stage2.bin: stage2.asm stage3.bin kernel_payload.bin version.h
 	ks=$$(expr \( $$(wc -c < kernel_payload.bin) + 511 \) / 512); \
 	s3start_guess=$$(expr $(STAGE2_START_SECTOR) - 1 + 1); \
 	kstart_guess=$$(expr $$s3start_guess + $$s3s); \
-	$(AS) -f bin -D STAGE2_SECTORS=1 -D STAGE3_SECTORS=$$s3s -D STAGE3_START_SECTOR=$$s3start_guess -D KERNEL_SECTORS=$$ks -D KERNEL_START_SECTOR=$$kstart_guess -D KERNEL_LOAD_LINEAR=$(KERNEL_LOAD_LINEAR) -D STAGE2_FORCE_CHS=$(STAGE2_FORCE_CHS) -D STAGE2_VERBOSE_DEBUG=$(STAGE2_VERBOSE_DEBUG) -D ENABLE_BOOTINFO=$(BOOTINFO) -D DEBUG_BOOT=$(DEBUG_BOOT) -D ENABLE_A20_KBC=$(A20_KBC) -D WAIT_BEFORE_PM=$(WAIT_PM) -D DEBUG_PM_STUB=$(DEBUG_PM_STUB) $< -o $@; \
+	$(AS) -f bin -D STAGE2_SECTORS=1 -D STAGE3_SECTORS=$$s3s -D STAGE3_START_SECTOR=$$s3start_guess -D KERNEL_SECTORS=$$ks -D KERNEL_START_SECTOR=$$kstart_guess -D KERNEL_LOAD_LINEAR=$(KERNEL_LOAD_LINEAR) -D KERNEL_BUFFER_LINEAR=$(KERNEL_BUFFER_LINEAR) -D STAGE2_FORCE_CHS=$(STAGE2_FORCE_CHS) -D STAGE2_VERBOSE_DEBUG=$(STAGE2_VERBOSE_DEBUG) -D ENABLE_BOOTINFO=$(BOOTINFO) -D DEBUG_BOOT=$(DEBUG_BOOT) -D ENABLE_A20_KBC=$(A20_KBC) -D WAIT_BEFORE_PM=$(WAIT_PM) -D DEBUG_PM_STUB=$(DEBUG_PM_STUB) $< -o $@; \
 	s2s=$$(expr \( $$(wc -c < $@) + 511 \) / 512); \
 	s3start=$$(expr $(STAGE2_START_SECTOR) - 1 + $$s2s); \
 	kstart=$$(expr $$s3start + $$s3s); \
-	$(AS) -f bin -D STAGE2_SECTORS=$$s2s -D STAGE3_SECTORS=$$s3s -D STAGE3_START_SECTOR=$$s3start -D KERNEL_SECTORS=$$ks -D KERNEL_START_SECTOR=$$kstart -D KERNEL_LOAD_LINEAR=$(KERNEL_LOAD_LINEAR) -D STAGE2_FORCE_CHS=$(STAGE2_FORCE_CHS) -D STAGE2_VERBOSE_DEBUG=$(STAGE2_VERBOSE_DEBUG) -D ENABLE_BOOTINFO=$(BOOTINFO) -D DEBUG_BOOT=$(DEBUG_BOOT) -D ENABLE_A20_KBC=$(A20_KBC) -D WAIT_BEFORE_PM=$(WAIT_PM) -D DEBUG_PM_STUB=$(DEBUG_PM_STUB) $< -o $@; \
-	python3 -c 'import pathlib,binascii,sys; data=pathlib.Path("stage2.bin").read_bytes(); needle=bytes.fromhex("66ea620d01000800"); idx=data.find(needle); sys.exit("Stage2 far-jump bytes not found in stage2.bin") if idx == -1 else print(f"[stage2] far-jump bytes @0x{idx:05X}: {binascii.hexlify(needle).decode()}")'
+	$(AS) -f bin -D STAGE2_SECTORS=$$s2s -D STAGE3_SECTORS=$$s3s -D STAGE3_START_SECTOR=$$s3start -D KERNEL_SECTORS=$$ks -D KERNEL_START_SECTOR=$$kstart -D KERNEL_LOAD_LINEAR=$(KERNEL_LOAD_LINEAR) -D KERNEL_BUFFER_LINEAR=$(KERNEL_BUFFER_LINEAR) -D STAGE2_FORCE_CHS=$(STAGE2_FORCE_CHS) -D STAGE2_VERBOSE_DEBUG=$(STAGE2_VERBOSE_DEBUG) -D ENABLE_BOOTINFO=$(BOOTINFO) -D DEBUG_BOOT=$(DEBUG_BOOT) -D ENABLE_A20_KBC=$(A20_KBC) -D WAIT_BEFORE_PM=$(WAIT_PM) -D DEBUG_PM_STUB=$(DEBUG_PM_STUB) $< -o $@; \
+	python3 -c 'import pathlib,sys; data=pathlib.Path("stage2.bin").read_bytes(); opcode=b"\x66\xea"; idx=data.find(opcode); sys.exit("Stage2 far-jump opcode not found in stage2.bin") if idx == -1 else None; offset=int.from_bytes(data[idx+2:idx+6],"little"); selector=int.from_bytes(data[idx+6:idx+8],"little"); print(f"[stage2] far-jump @0x{idx:05X}: offset=0x{offset:08X}, selector=0x{selector:04X}"); sys.exit(f"Unexpected selector 0x{selector:04X} in stage2 far-jump") if selector != 0x0008 else None; sys.exit(f"Unexpected far-jump offset 0x{offset:08X}") if offset < 0x00010000 else None'
 
 stage3_entry.o: stage3_entry.asm boot_config.inc
 	$(AS) -f elf32 $< -o $@

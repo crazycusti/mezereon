@@ -25,7 +25,7 @@
 %endif
 
 %ifndef STAGE3_LOAD_SEGMENT
-%define STAGE3_LOAD_SEGMENT 0x2000  ; 0x20000 physical address for Stage 3 image
+%define STAGE3_LOAD_SEGMENT 0x4000  ; 0x40000 physical address for Stage 3 image
 %endif
 
 %ifndef STAGE3_LINEAR_ADDR
@@ -37,15 +37,15 @@
 %endif
 
 %ifndef STAGE1_VERBOSE_DEBUG
-%define STAGE1_VERBOSE_DEBUG 1
+%define STAGE1_VERBOSE_DEBUG 0
 %endif
 
 %ifndef STAGE2_VERBOSE_DEBUG
-%define STAGE2_VERBOSE_DEBUG 1
+%define STAGE2_VERBOSE_DEBUG 0
 %endif
 
 %ifndef STAGE3_VERBOSE_DEBUG
-%define STAGE3_VERBOSE_DEBUG 1
+%define STAGE3_VERBOSE_DEBUG 0
 %endif
 
 %ifndef ENABLE_STAGE1_DEBUG
@@ -62,6 +62,10 @@
 
 %ifndef KERNEL_LOAD_LINEAR
 %define KERNEL_LOAD_LINEAR KERNEL_LOAD_ADDR
+%endif
+
+%ifndef KERNEL_BUFFER_LINEAR
+%define KERNEL_BUFFER_LINEAR 0x00060000
 %endif
 
 ; Stage 1 options
