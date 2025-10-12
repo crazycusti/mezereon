@@ -1,10 +1,15 @@
 #include "et4000.h"
 #include "vga_hw.h"
 #include "fb_accel.h"
+#include "et4000_common.h"
 #include "../../config.h"
 #if CONFIG_ARCH_X86
 #include "../../arch/x86/io.h"
+#include "et4000_ax_detect.h"
 #endif
+
+// Globale Variable für AX-Variante
+int g_is_ax_variant = 0;
 
 #include <stddef.h>
 #include <stdint.h>
@@ -12,18 +17,22 @@
 #if !CONFIG_ARCH_X86
 int et4000_detect(gpu_info_t* out_info) {
     (void)out_info;
-    return 0;
+    return 0;  // Nicht-x86 Plattform
 }
 
 int et4000_set_mode_640x480x8(gpu_info_t* gpu, display_mode_info_t* out_mode) {
     (void)gpu;
     (void)out_mode;
-    return 0;
+    return 0;  // Nicht-x86 Plattform
 }
 
 void et4000_restore_text_mode(void) {
+    // Nicht-x86 Plattform
 }
 #else
+
+#include "et4000ax.h"
+#include "et4000_ax_detect.h"
 
 #define ET4K_SEGMENT_PORT 0x3CD
 #define ET4K_BANK_PORT    0x3CB
@@ -46,6 +55,7 @@ typedef struct {
 
 static et4k_state_t g_et4k = {0};
 
+// Standard VGA Register-Werte
 static const uint8_t std_seq_text[5] = { 0x03,0x00,0x03,0x00,0x02 };
 static const uint8_t std_crtc_text[25] = {
     0x5F,0x4F,0x50,0x82,0x55,0x81,0xBF,0x1F,

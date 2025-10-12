@@ -1,6 +1,9 @@
 #include "gpu.h"
 #include "cirrus.h"
+#include "../../config.h"
+#if CONFIG_VIDEO_ENABLE_ET4000
 #include "et4000.h"
+#endif
 #include "../../console.h"
 #include "../../display.h"
 #include "../../video_fb.h"

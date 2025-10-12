@@ -56,6 +56,10 @@
 #define CONFIG_VIDEO_TARGET CONFIG_VIDEO_TARGET_AUTO
 #endif
 
+#ifndef CONFIG_VIDEO_ENABLE_ET4000
+#define CONFIG_VIDEO_ENABLE_ET4000 0
+#endif
+
 // Kernel version string
 #ifndef CONFIG_KERNEL_VERSION
 #define CONFIG_KERNEL_VERSION "0.01-prealpha"
