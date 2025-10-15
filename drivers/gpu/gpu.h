@@ -11,6 +11,7 @@ typedef enum {
     GPU_TYPE_UNKNOWN = 0,
     GPU_TYPE_CIRRUS,
     GPU_TYPE_ET4000,
+    GPU_TYPE_ET4000AX,
 } gpu_type_t;
 
 #define GPU_CAP_LINEAR_FB   (1u << 0)
@@ -40,5 +41,7 @@ void gpu_log_summary(void);
 void gpu_dump_details(void);
 int  gpu_request_framebuffer_mode(uint16_t width, uint16_t height, uint8_t bpp);
 void gpu_restore_text_mode(void);
+void gpu_debug_probe(int scan_legacy);
+int  gpu_manual_activate_et4000(uint16_t width, uint16_t height, uint8_t bpp);
 
 #endif // DRIVERS_GPU_GPU_H

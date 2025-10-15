@@ -807,6 +807,7 @@ read_chunk_chs:
 
     mov bp, 3
 .read_retry:
+    call disk_wait_settle
     mov bx, [transfer_offset]
     mov dx, [transfer_segment]
     mov es, dx
@@ -957,6 +958,7 @@ read_chunk_lba:
 %endif
     mov bp, 3
 .retry:
+    call disk_wait_settle
     mov dl, [boot_drive]
     mov si, dap_packet
     mov ah, 0x42
@@ -977,6 +979,31 @@ read_chunk_lba:
     pop ax
     ret
 
+; Give floppy drives ~30ms to settle between BIOS disk calls (fallback if INT 15h fails)
+disk_wait_settle:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov dl, [boot_drive]
+    cmp dl, 0x80
+    jae .skip_wait
+    mov ax, 0x8600
+    mov cx, 0
+    mov dx, 0x7530
+    int 0x15
+    jnc .done
+    mov cx, 0xFFFF
+.busy_loop:
+    loop .busy_loop
+.done:
+.skip_wait:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ; Reset disk subsystem after failure
 reset_disk:
     push ax
@@ -984,6 +1011,7 @@ reset_disk:
     xor ax, ax
     mov dl, [boot_drive]
     int 0x13
+    call disk_wait_settle
     pop dx
     pop ax
     ret

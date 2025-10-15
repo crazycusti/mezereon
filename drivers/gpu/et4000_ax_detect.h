@@ -4,21 +4,7 @@
 #include "et4000_common.h"
 #include "../../arch/x86/io.h"
 
-static int detect_et4000ax(void) {
-    // Prüfe auf ET4000/AX spezifische Register
-    outb(0x3C3, 0x20);
-    uint8_t ax_id = inb(0x3C3);
-    
-    if ((ax_id & 0xF0) != 0x20) {
-        return 0;  // Keine ET4000/AX
-    }
-    
-    // Prüfe Beschleuniger-Register
-    outb(ET4K_AX_ACCEL_CMD, 0x00);
-    uint8_t status = inb(ET4K_AX_ACCEL_STATUS);
-    
-    return (status & ET4K_AX_STATUS_READY) != 0;
-}
+int detect_et4000ax(void);
 
 // ET4000AX Hardware-Initialisierung
 static inline void init_et4000ax_hw(void) {
