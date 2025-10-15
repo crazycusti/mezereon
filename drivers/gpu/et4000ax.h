@@ -4,6 +4,10 @@
 #include "gpu.h"
 #include "et4000.h"
 
+// ET4000/AX Beschleunigungs-Status Bits
+#define ET4K_AX_STATUS_BUSY    0x01
+#define ET4K_AX_STATUS_READY   0x02
+
 // ET4000/AX spezifische Register
 #define ET4K_AX_ACCEL_CMD      0x03B6  // Beschleunigungs-Befehlsregister
 #define ET4K_AX_ACCEL_STATUS   0x03B6  // Status der Beschleunigungseinheit
@@ -30,10 +34,10 @@
 #define ET4K_AX_ROP_OR        0xEE    // OR Operation
 
 // ET4000/AX spezifische Funktionen
-int et4000ax_init(gpu_info_t* gpu);
 void et4000ax_bitblt(int sx, int sy, int dx, int dy, int width, int height, uint8_t rop);
 void et4000ax_fill_rect(int x, int y, int width, int height, uint8_t color);
 void et4000ax_draw_line(int x1, int y1, int x2, int y2, uint8_t color);
 void et4000ax_pattern_fill(int x, int y, int width, int height, const uint8_t* pattern);
+int  et4kax_after_modeset_init(void);
 
 #endif // DRIVERS_GPU_ET4000AX_H

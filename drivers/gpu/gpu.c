@@ -116,6 +116,7 @@ static gpu_info_t g_gpu_infos[GPU_MAX_DEVICES];
 static size_t g_gpu_count = 0;
 static gpu_info_t* g_active_fb_gpu = NULL;
 static int g_framebuffer_active = 0;
+static int g_tseng_auto_enabled = CONFIG_VIDEO_ENABLE_ET4000;
 
 void gpu_init(void) {
     g_gpu_count = 0;
@@ -217,6 +218,10 @@ int gpu_request_framebuffer_mode(uint16_t width, uint16_t height, uint8_t bpp) {
         }
 #if CONFIG_VIDEO_ENABLE_ET4000
         if (gpu->type == GPU_TYPE_ET4000 || gpu->type == GPU_TYPE_ET4000AX) {
+            if (!g_tseng_auto_enabled) {
+                console_writeln("gpu: Tseng auto activation suppressed (debug mode)");
+                continue;
+            }
             if (bpp == 8) {
                 display_mode_info_t mode;
                 et4000_mode_t desired = (CONFIG_VIDEO_ET4000_MODE == CONFIG_VIDEO_ET4000_MODE_640x400)
@@ -383,5 +388,27 @@ int gpu_manual_activate_et4000(uint16_t width, uint16_t height, uint8_t bpp) {
     console_write_dec(mode.bpp);
     console_write("\n");
     return 1;
+#endif
+}
+
+void gpu_tseng_set_auto_enabled(int enabled) {
+#if CONFIG_VIDEO_ENABLE_ET4000
+    g_tseng_auto_enabled = enabled ? 1 : 0;
+    console_write("gpu: Tseng auto activation ");
+    console_writeln(g_tseng_auto_enabled ? "enabled" : "disabled");
+    if (!g_tseng_auto_enabled && g_active_fb_gpu &&
+        (g_active_fb_gpu->type == GPU_TYPE_ET4000 || g_active_fb_gpu->type == GPU_TYPE_ET4000AX)) {
+        console_writeln("gpu: auto disabled while framebuffer active – consider gpuinfo or gpuprobe activate to re-enable manually");
+    }
+#else
+    (void)enabled;
+#endif
+}
+
+int gpu_tseng_get_auto_enabled(void) {
+#if CONFIG_VIDEO_ENABLE_ET4000
+    return g_tseng_auto_enabled;
+#else
+    return 0;
 #endif
 }

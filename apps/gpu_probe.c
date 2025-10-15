@@ -7,6 +7,7 @@ void gpu_probe_run(const char* args) {
     int activate = 0;
     uint16_t activate_height = 480;
     int expect_height = 0;
+    int toggle_auto = -1; // -1=no change, 0=disable, 1=enable
 
     const char* p = args;
     while (p && *p) {
@@ -47,10 +48,14 @@ void gpu_probe_run(const char* args) {
         } else if (token[0] == 'a' && token[1] == 'c' && token[2] == 't' && token[3] == 'i' && token[4] == 'v' && token[5] == 'a' && token[6] == 't' && token[7] == 'e' && token[8] == '\0') {
             activate = 1;
             expect_height = 1;
+        } else if (token[0] == 'a' && token[1] == 'u' && token[2] == 't' && token[3] == 'o' && token[4] == '\0') {
+            toggle_auto = 1;
+        } else if (token[0] == 'n' && token[1] == 'o' && token[2] == 'a' && token[3] == 'u' && token[4] == 't' && token[5] == 'o' && token[6] == '\0') {
+            toggle_auto = 0;
         } else {
             console_write("gpuprobe: unknown token '");
             console_write(token);
-            console_writeln("' (use scan|noscan|activate [400|480])");
+            console_writeln("' (use scan|noscan|activate [400|480]|auto|noauto)");
         }
     }
 
@@ -59,6 +64,10 @@ void gpu_probe_run(const char* args) {
         console_writeln("gpuprobe: legacy scan disabled (pass 'scan' to force)");
     }
     gpu_debug_probe(scan);
+
+    if (toggle_auto != -1) {
+        gpu_tseng_set_auto_enabled(toggle_auto);
+    }
 
     if (activate) {
         console_write("gpuprobe: activating ET4000 ");

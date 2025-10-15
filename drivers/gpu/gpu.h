@@ -43,5 +43,7 @@ int  gpu_request_framebuffer_mode(uint16_t width, uint16_t height, uint8_t bpp);
 void gpu_restore_text_mode(void);
 void gpu_debug_probe(int scan_legacy);
 int  gpu_manual_activate_et4000(uint16_t width, uint16_t height, uint8_t bpp);
+void gpu_tseng_set_auto_enabled(int enabled);
+int  gpu_tseng_get_auto_enabled(void);
 
 #endif // DRIVERS_GPU_GPU_H

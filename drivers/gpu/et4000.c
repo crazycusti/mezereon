@@ -36,11 +36,17 @@ void et4000_restore_text_mode(void) {
 #include "et4000ax.h"
 #include "et4000_ax_detect.h"
 
-#define ET4K_SEGMENT_PORT 0x3CD
-#define ET4K_BANK_PORT    0x3CB
+#define ET4K_BANK_PORT    0x3CD
+#define ET4K_WINDOW_PORT  0x3CB
 #define ET4K_EXT_PORT     0x3BF
 #define ET4K_WINDOW_PHYS  0xA0000u
 #define ET4K_BANK_SIZE    0x10000u
+
+/*
+ * NOTE: Legacy ET4000 ISA boards often rely on strap or jumper settings for
+ * wait-states. The driver assumes default timings; if the physical board
+ * shows instability, adjust the hardware configuration accordingly.
+ */
 
 static uint8_t g_et4k_shadow[640u * 480u];
 
@@ -54,6 +60,8 @@ typedef struct {
     uint8_t  dirty_first_bank;
     uint8_t  dirty_last_bank;
     uint8_t  dirty_pending;
+    uint32_t dirty_start_offset;
+    uint32_t dirty_end_offset;
 } et4k_state_t;
 
 static et4k_state_t g_et4k = {0};
@@ -61,6 +69,12 @@ static uint8_t g_ext_port_saved = 0;
 static uint8_t g_ext_port_active = 0;
 static int g_ext_port_saved_valid = 0;
 static int g_et4k_debug_trace = 0;
+static uint8_t g_et4k_saved_bank = 0;
+static uint8_t g_et4k_saved_window = 0;
+static int g_et4k_saved_state_valid = 0;
+static uint8_t g_et4k_bank_read = 0;
+static uint8_t g_et4k_bank_write = 0;
+static int g_et4k_ax_engine_ready = 0;
 
 static inline void et4k_io_delay(void) {
     outb(0x80, 0);
@@ -79,6 +93,38 @@ static void et4k_trace_hex(const char* label, uint32_t value) {
     console_write("=0x");
     console_write_hex32(value);
     console_write("\n");
+}
+
+static void et4k_write_key_sequence(void) {
+    if (g_et4k_debug_trace) {
+        console_writeln("    [et4k] writing ATC key sequence");
+    }
+    outb(0x3BF, 0x03);
+    et4k_io_delay();
+    outb(0x3D8, 0xA0);
+    et4k_io_delay();
+    vga_attr_reenable_video();
+}
+
+static inline uint8_t et4k_atc_read(uint8_t index) {
+#if CONFIG_ARCH_X86
+    (void)inb(0x3DA);
+    outb(0x3C0, (uint8_t)(index | 0x20u));
+    return inb(0x3C1);
+#else
+    (void)index;
+    return 0;
+#endif
+}
+
+static inline void et4k_atc_write(uint8_t index, uint8_t value) {
+#if CONFIG_ARCH_X86
+    (void)inb(0x3DA);
+    outb(0x3C0, index);
+    outb(0x3C0, value);
+#else
+    (void)index; (void)value;
+#endif
 }
 
 
@@ -157,7 +203,39 @@ static uint8_t et4k_unlock_value(uint8_t ext) {
     return (uint8_t)((ext & 0xFCu) | 0x03u);
 }
 
+static void et4k_set_window_raw(uint8_t value) {
+    outb(ET4K_WINDOW_PORT, value);
+    et4k_io_delay();
+    if (g_et4k_debug_trace) {
+        console_write("    [et4k] window=0x");
+        console_write_hex32(value);
+        console_write("\n");
+    }
+}
+
+static void et4k_set_bank_rw(uint8_t read_bank, uint8_t write_bank) {
+    uint8_t value = (uint8_t)((read_bank & 0x0Fu) | ((write_bank & 0x0Fu) << 4));
+    outb(ET4K_BANK_PORT, value);
+    et4k_io_delay();
+    g_et4k_bank_read = (uint8_t)(read_bank & 0x0Fu);
+    g_et4k_bank_write = (uint8_t)(write_bank & 0x0Fu);
+    if (g_et4k_debug_trace) {
+        console_write("    [et4k] bank rw=");
+        console_write_hex32(value);
+        console_write(" (r=");
+        console_write_hex32(g_et4k_bank_read);
+        console_write(", w=");
+        console_write_hex32(g_et4k_bank_write);
+        console_write(")\n");
+    }
+}
+
+static void et4k_set_bank(uint8_t bank) {
+    et4k_set_bank_rw(bank, bank);
+}
+
 static void et4k_enable_extensions(void) {
+    et4k_write_key_sequence();
     uint8_t ext = inb(ET4K_EXT_PORT);
     if (!g_ext_port_saved_valid) {
         g_ext_port_saved = ext;
@@ -181,6 +259,41 @@ static void et4k_restore_extensions(void) {
         et4k_io_delay();
         g_ext_port_active = g_ext_port_saved;
         et4k_trace_hex("restore ext", g_ext_port_saved);
+    }
+}
+
+static void et4k_configure_variant_registers(void) {
+    uint8_t mode_ctrl = et4k_atc_read(0x10);
+    et4k_atc_write(0x10, (uint8_t)(mode_ctrl | 0x20u));
+
+    if (g_is_ax_variant) {
+        et4k_trace("configuring ET4000AX extended bits");
+        g_et4k_ax_engine_ready = et4kax_after_modeset_init();
+        if (!g_et4k_ax_engine_ready && g_et4k_debug_trace) {
+            console_writeln("    [et4k-ax] accel engine not ready; falling back to CPU path");
+        }
+    } else {
+        et4k_trace("configuring ET4000 (non-AX) defaults");
+        uint8_t attr16 = et4k_atc_read(0x16);
+        et4k_atc_write(0x16, (uint8_t)(attr16 & (uint8_t)~0x40u));
+
+        uint8_t seq7 = vga_seq_read(0x07);
+        vga_seq_write(0x07, (uint8_t)(seq7 & (uint8_t)~0x10u));
+
+        vga_crtc_write(0x32, 0x00u);
+        g_et4k_ax_engine_ready = 0;
+    }
+
+    et4k_set_window_raw(0x00);
+    et4k_set_bank(0);
+
+    et4k_atc_write(0x10, (uint8_t)(mode_ctrl & (uint8_t)~0x20u));
+    vga_attr_reenable_video();
+    if (g_et4k_debug_trace) {
+        uint8_t mc = et4k_atc_read(0x10);
+        console_write("    [et4k] mode ctrl=0x");
+        console_write_hex32(mc);
+        console_write("\n");
     }
 }
 
@@ -236,6 +349,24 @@ int detect_et4000ax(void) {
         console_write_hex32(status);
         console_write("\n");
     }
+    if (status == 0xFF || status == 0x00) {
+        if (g_et4k_debug_trace) {
+            console_writeln("    [et4k-ax] accel status suspicious, treating as non-AX");
+        }
+        return 0;
+    }
+
+    if (!(status & ET4K_AX_STATUS_READY)) {
+        for (int t = 0; t < 10000 && !(status & ET4K_AX_STATUS_READY); ++t) {
+            status = inb(ET4K_AX_ACCEL_STATUS);
+            if (status == 0xFF || status == 0x00) {
+                if (g_et4k_debug_trace) {
+                    console_writeln("    [et4k-ax] accel status unstable, treating as non-AX");
+                }
+                return 0;
+            }
+        }
+    }
 
     return (status & ET4K_AX_STATUS_READY) != 0;
 }
@@ -262,14 +393,6 @@ static void vga_program_standard_mode(uint8_t misc,
     vga_attr_reenable_video();
 }
 
-static void et4k_select_segment(uint8_t segment) {
-    et4k_enable_extensions();
-    uint8_t bank = (uint8_t)(segment & 0x0Fu);
-    outb(ET4K_SEGMENT_PORT, (uint8_t)(bank | (bank << 4)));
-    et4k_io_delay();
-    et4k_trace_hex("select bank", bank);
-}
-
 static void et4k_mark_dirty_internal(uint32_t start_offset, uint32_t end_offset) {
     uint8_t first_bank = (uint8_t)(start_offset / ET4K_BANK_SIZE);
     uint8_t last_bank = (uint8_t)(end_offset / ET4K_BANK_SIZE);
@@ -277,12 +400,20 @@ static void et4k_mark_dirty_internal(uint32_t start_offset, uint32_t end_offset)
         g_et4k.dirty_first_bank = first_bank;
         g_et4k.dirty_last_bank = last_bank;
         g_et4k.dirty_pending = 1;
+        g_et4k.dirty_start_offset = start_offset;
+        g_et4k.dirty_end_offset = end_offset;
     } else {
         if (first_bank < g_et4k.dirty_first_bank) {
             g_et4k.dirty_first_bank = first_bank;
         }
         if (last_bank > g_et4k.dirty_last_bank) {
             g_et4k.dirty_last_bank = last_bank;
+        }
+        if (start_offset < g_et4k.dirty_start_offset) {
+            g_et4k.dirty_start_offset = start_offset;
+        }
+        if (end_offset > g_et4k.dirty_end_offset) {
+            g_et4k.dirty_end_offset = end_offset;
         }
     }
 }
@@ -325,30 +456,48 @@ static int et4k_fill_rect(void* ctx, uint16_t x, uint16_t y, uint16_t width, uin
     return 1;
 }
 
+static int et4k_ax_fill_rect(void* ctx, uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint8_t color) {
+    int result = et4k_fill_rect(ctx, x, y, width, height, color);
+    if (g_et4k_ax_engine_ready) {
+        et4000ax_fill_rect((int)x, (int)y, (int)width, (int)height, color);
+    }
+    return result;
+}
+
 static void et4k_sync(void* ctx) {
     (void)ctx;
     if (!g_et4k.dirty_pending || !g_et4k.shadow) return;
+    et4k_set_window_raw(0x00);
+    uint32_t range_start = g_et4k.dirty_start_offset;
+    uint32_t range_end = g_et4k.dirty_end_offset;
     uint8_t last = g_et4k.dirty_last_bank;
     for (uint8_t bank = g_et4k.dirty_first_bank; bank <= last; bank++) {
-        et4k_select_segment(bank);
-        uint32_t offset = (uint32_t)bank * ET4K_BANK_SIZE;
-        if (offset >= g_et4k.shadow_size) break;
-        uint32_t remaining = g_et4k.shadow_size - offset;
-        uint32_t copy = (remaining >= ET4K_BANK_SIZE) ? ET4K_BANK_SIZE : remaining;
-        volatile uint8_t* dst = (volatile uint8_t*)(uintptr_t)ET4K_WINDOW_PHYS;
-        const uint8_t* src = g_et4k.shadow + offset;
+        uint32_t bank_base = (uint32_t)bank * ET4K_BANK_SIZE;
+        if (bank_base >= g_et4k.shadow_size) break;
+        uint32_t bank_limit = bank_base + ET4K_BANK_SIZE;
+        uint32_t copy_start = (range_start > bank_base) ? (range_start - bank_base) : 0;
+        uint32_t copy_end = (range_end + 1u > bank_limit) ? ET4K_BANK_SIZE : (range_end + 1u - bank_base);
+        if (copy_end <= copy_start) continue;
+
+        uint32_t copy = copy_end - copy_start;
+        et4k_set_bank_rw(bank, bank);
+        volatile uint8_t* dst = (volatile uint8_t*)(uintptr_t)ET4K_WINDOW_PHYS + copy_start;
+        const uint8_t* src = g_et4k.shadow + bank_base + copy_start;
         for (uint32_t i = 0; i < copy; i++) {
             dst[i] = src[i];
-        }
-        if (copy < ET4K_BANK_SIZE) {
-            break;
         }
     }
     g_et4k.dirty_pending = 0;
 }
 
-static const fb_accel_ops_t g_et4k_ops = {
+static const fb_accel_ops_t g_et4k_ops_cpu = {
     .fill_rect = et4k_fill_rect,
+    .sync = et4k_sync,
+    .mark_dirty = et4k_mark_dirty,
+};
+
+static const fb_accel_ops_t g_et4k_ops_ax = {
+    .fill_rect = et4k_ax_fill_rect,
     .sync = et4k_sync,
     .mark_dirty = et4k_mark_dirty,
 };
@@ -358,6 +507,7 @@ int et4000_detect(gpu_info_t* out_info) {
     g_is_ax_variant = 0;
     int detected = 0;
     et4k_trace("detect start");
+    g_et4k_saved_state_valid = 0;
     uint8_t saved_ext = inb(ET4K_EXT_PORT);
     if (!g_ext_port_saved_valid) {
         g_ext_port_saved = saved_ext;
@@ -365,10 +515,14 @@ int et4000_detect(gpu_info_t* out_info) {
     }
     et4k_trace_hex("saved ext", saved_ext);
     g_ext_port_active = saved_ext;
-    uint8_t saved_seg = inb(ET4K_SEGMENT_PORT);
-    uint8_t saved_bank = inb(ET4K_BANK_PORT);
-    et4k_trace_hex("saved seg", saved_seg);
+    uint8_t saved_bank_reg = inb(ET4K_BANK_PORT);
+    uint8_t saved_bank = (uint8_t)(saved_bank_reg & 0x0Fu);
+    uint8_t saved_window = inb(ET4K_WINDOW_PORT);
+    et4k_trace_hex("saved bank register", saved_bank_reg);
     et4k_trace_hex("saved bank", saved_bank);
+    et4k_trace_hex("saved window", saved_window);
+    g_et4k_bank_read = (uint8_t)(saved_bank_reg & 0x0Fu);
+    g_et4k_bank_write = (uint8_t)((saved_bank_reg >> 4) & 0x0Fu);
 
     uint8_t unlocked_ext = et4k_unlock_value(saved_ext);
     if (unlocked_ext != saved_ext) {
@@ -379,12 +533,12 @@ int et4000_detect(gpu_info_t* out_info) {
     } else {
         et4k_trace("extensions already unlocked");
     }
-    outb(ET4K_SEGMENT_PORT, 0x55);
+    outb(ET4K_BANK_PORT, 0x55);
     et4k_io_delay();
-    uint8_t test1 = inb(ET4K_SEGMENT_PORT);
-    outb(ET4K_SEGMENT_PORT, 0xAA);
+    uint8_t test1 = inb(ET4K_BANK_PORT);
+    outb(ET4K_BANK_PORT, 0xAA);
     et4k_io_delay();
-    uint8_t test2 = inb(ET4K_SEGMENT_PORT);
+    uint8_t test2 = inb(ET4K_BANK_PORT);
     et4k_trace_hex("read 0x55", test1);
     et4k_trace_hex("read 0xAA", test2);
 
@@ -394,10 +548,7 @@ int et4000_detect(gpu_info_t* out_info) {
     } else {
         et4k_trace("signature mismatch");
     }
-    outb(ET4K_SEGMENT_PORT, saved_seg);
-    et4k_io_delay();
-    outb(ET4K_BANK_PORT, saved_bank);
-    et4k_io_delay();
+    et4k_set_bank_rw(g_et4k_bank_read, g_et4k_bank_write);
     et4k_trace("segment/bank restored");
 
     if (!detected) {
@@ -406,6 +557,8 @@ int et4000_detect(gpu_info_t* out_info) {
             et4k_io_delay();
             g_ext_port_active = saved_ext;
         }
+        et4k_set_bank_rw(g_et4k_bank_read, g_et4k_bank_write);
+        et4k_set_window_raw(saved_window);
         et4k_trace("detect end (not found)");
         return 0;
     }
@@ -423,6 +576,9 @@ int et4000_detect(gpu_info_t* out_info) {
     out_info->framebuffer_bar = 0xFF;
     out_info->framebuffer_base = ET4K_WINDOW_PHYS;
     out_info->framebuffer_size = sizeof(g_et4k_shadow);
+    g_et4k_saved_bank = saved_bank_reg;
+    g_et4k_saved_window = saved_window;
+    g_et4k_saved_state_valid = 1;
     if (g_ext_port_active != saved_ext) {
         outb(ET4K_EXT_PORT, saved_ext);
         et4k_io_delay();
@@ -446,6 +602,8 @@ static void et4k_state_reset(void) {
     g_et4k.dirty_first_bank = 0;
     g_et4k.dirty_last_bank = 0;
     g_et4k.dirty_pending = 0;
+    g_et4k.dirty_start_offset = 0;
+    g_et4k.dirty_end_offset = 0;
 }
 
 typedef struct {
@@ -482,21 +640,22 @@ void et4000_debug_dump(void) {
     console_writeln("et4000-debug: not supported on this architecture.");
 #else
     console_writeln("et4000-debug: probing ISA registers (3BFh/3CBh/3CDh)...");
+    et4k_write_key_sequence();
     uint8_t saved_ext = inb(ET4K_EXT_PORT);
-    uint8_t saved_seg = inb(ET4K_SEGMENT_PORT);
-    uint8_t saved_bank = inb(ET4K_BANK_PORT);
+    uint8_t saved_bank_reg = inb(ET4K_BANK_PORT);
+    uint8_t saved_window = inb(ET4K_WINDOW_PORT);
 
     console_write("  initial ext=");
     console_write_hex32(saved_ext);
-    console_write(" seg=");
-    console_write_hex32(saved_seg);
-    console_write(" bank=");
-    console_write_hex32(saved_bank);
+    console_write(" bankReg=");
+    console_write_hex32(saved_bank_reg);
+    console_write(" window=");
+    console_write_hex32(saved_window);
     console_write("\n");
     if (saved_ext == 0xFF) {
         console_writeln("    note: ext=0xFF indicates extensions disabled or floating bus");
     }
-    if (saved_bank == 0xFF) {
+    if (saved_bank_reg == 0xFF) {
         console_writeln("    note: bank=0xFF suggests window unmapped; expect 0x00 after enabling");
     }
 
@@ -508,22 +667,20 @@ void et4000_debug_dump(void) {
     console_write_hex32(ext_after_unlock);
     console_write("\n");
 
-    outb(ET4K_SEGMENT_PORT, 0x55);
+    outb(ET4K_BANK_PORT, 0x55);
     et4k_io_delay();
-    uint8_t seg_55 = inb(ET4K_SEGMENT_PORT);
-    outb(ET4K_SEGMENT_PORT, 0xAA);
+    uint8_t seg_55 = inb(ET4K_BANK_PORT);
+    outb(ET4K_BANK_PORT, 0xAA);
     et4k_io_delay();
-    uint8_t seg_AA = inb(ET4K_SEGMENT_PORT);
+    uint8_t seg_AA = inb(ET4K_BANK_PORT);
     console_write("  signature readback 0x55->");
     console_write_hex32(seg_55);
     console_write(", 0xAA->");
     console_write_hex32(seg_AA);
     console_write(seg_55 == 0x55 && seg_AA == 0xAA ? " (match)\n" : " (mismatch)\n");
 
-    outb(ET4K_SEGMENT_PORT, saved_seg);
-    et4k_io_delay();
-    outb(ET4K_BANK_PORT, saved_bank);
-    et4k_io_delay();
+    et4k_set_bank_rw((uint8_t)(saved_bank_reg & 0x0Fu), (uint8_t)((saved_bank_reg >> 4) & 0x0Fu));
+    et4k_set_window_raw(saved_window);
 
     int ax_variant = detect_et4000ax();
     console_write("  AX accelerator status: ");
@@ -545,6 +702,7 @@ int et4000_set_mode(gpu_info_t* gpu, display_mode_info_t* out_mode, et4000_mode_
     vga_program_standard_mode(desc->misc, desc->seq, desc->crtc, desc->graph, desc->attr);
     vga_pel_mask_write(0xFF);
     vga_dac_load_default_palette();
+    et4k_configure_variant_registers();
 
     et4k_bzero(g_et4k_shadow, sizeof(g_et4k_shadow));
 
@@ -558,7 +716,11 @@ int et4000_set_mode(gpu_info_t* gpu, display_mode_info_t* out_mode, et4000_mode_
     g_et4k.dirty_last_bank = (uint8_t)((g_et4k.shadow_size - 1u) / ET4K_BANK_SIZE);
     g_et4k.dirty_pending = 1;
 
-    fb_accel_register(&g_et4k_ops, &g_et4k);
+    if (g_is_ax_variant) {
+        fb_accel_register(&g_et4k_ops_ax, &g_et4k);
+    } else {
+        fb_accel_register(&g_et4k_ops_cpu, &g_et4k);
+    }
 
     gpu->framebuffer_width = g_et4k.width;
     gpu->framebuffer_height = g_et4k.height;
@@ -582,10 +744,30 @@ int et4000_set_mode(gpu_info_t* gpu, display_mode_info_t* out_mode, et4000_mode_
 
 void et4000_restore_text_mode(void) {
     fb_accel_reset();
+    g_et4k_ax_engine_ready = 0;
     vga_program_standard_mode(0x67, std_seq_text, std_crtc_text, std_graph_text, std_attr_text);
     vga_dac_reset_text_palette();
+    if (g_is_ax_variant) {
+        uint8_t attr16 = vga_attr_read(0x16);
+        vga_attr_write(0x16, (uint8_t)(attr16 & (uint8_t)~0x40u));
+        vga_attr_reenable_video();
+
+        uint8_t seq7 = vga_seq_read(0x07);
+        vga_seq_write(0x07, (uint8_t)(seq7 & (uint8_t)~0x10u));
+
+        vga_crtc_write(0x32, 0x00u);
+        uint8_t c36 = vga_crtc_read(0x36);
+        c36 &= (uint8_t)~0xC0u;
+        vga_crtc_write(0x36, c36);
+    }
     et4k_state_reset();
     et4k_restore_extensions();
+    if (g_et4k_saved_state_valid) {
+        uint8_t read_bank = (uint8_t)(g_et4k_saved_bank & 0x0Fu);
+        uint8_t write_bank = (uint8_t)((g_et4k_saved_bank >> 4) & 0x0Fu);
+        et4k_set_bank_rw(read_bank, write_bank);
+        et4k_set_window_raw(g_et4k_saved_window);
+    }
 }
 
 #endif // !CONFIG_ARCH_X86

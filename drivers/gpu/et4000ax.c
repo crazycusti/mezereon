@@ -4,43 +4,23 @@
 #include <stddef.h>
 #include <string.h>
 
+#define AX_READY()   (inb(ET4K_AX_ACCEL_STATUS) & ET4K_AX_STATUS_READY)
+#define AX_RESET()   outb(ET4K_AX_ACCEL_CMD, 0x00)
+
 // ET4000/AX Beschleunigungs-Status Bits
 #define ET4K_AX_STATUS_BUSY    0x01
 #define ET4K_AX_STATUS_READY   0x02
 
 static void wait_for_fifo(void) {
-    // Warte bis die Beschleunigungseinheit bereit ist
-    while ((inb(ET4K_AX_ACCEL_STATUS) & ET4K_AX_STATUS_READY) == 0) {
-        // Busy waiting
+    while (!AX_READY()) {
+        outb(0x80, 0);
     }
 }
 
 static void wait_for_blitter(void) {
-    // Warte bis der Blitter fertig ist
     while (inb(ET4K_AX_ACCEL_STATUS) & ET4K_AX_STATUS_BUSY) {
-        // Busy waiting
+        outb(0x80, 0);
     }
-}
-
-int et4000ax_init(gpu_info_t* gpu) {
-    if (!gpu) return 0;
-    
-    // Prüfe ob es wirklich eine ET4000/AX ist
-    // TODO: Implementiere bessere Erkennung
-    uint8_t id = inb(0x3C3);
-    if ((id & 0xF0) != 0x20) return 0;
-    
-    // Setze die GPU-Info Struktur
-    gpu->type = GPU_TYPE_ET4000AX;
-    gpu->caps = GPU_CAP_ACCEL_BITBLT | 
-                GPU_CAP_ACCEL_FILL |
-                GPU_CAP_ACCEL_LINE;
-                
-    gpu->max_width = 1024;
-    gpu->max_height = 768;
-    gpu->max_bpp = 8;
-    
-    return 1;
 }
 
 void et4000ax_bitblt(int sx, int sy, int dx, int dy, int width, int height, uint8_t rop) {
@@ -122,4 +102,28 @@ void et4000ax_pattern_fill(int x, int y, int width, int height, const uint8_t* p
     outb(ET4K_AX_ACCEL_CMD, ET4K_AX_CMD_PAT_FILL);
     
     wait_for_blitter();
+}
+
+int et4kax_after_modeset_init(void) {
+    uint8_t a16 = vga_attr_read(0x16);
+    vga_attr_write(0x16, (uint8_t)(a16 | 0x40u));
+    vga_attr_reenable_video();
+
+    uint8_t s7 = vga_seq_read(0x07);
+    vga_seq_write(0x07, (uint8_t)(s7 | 0x10u));
+
+    vga_crtc_write(0x32, 0x28u);
+
+    uint8_t c36 = vga_crtc_read(0x36);
+    // Optional: enable IO/MEM wait states or 16-bit path; keep defaults for compatibility.
+    vga_crtc_write(0x36, c36);
+
+    vga_pel_mask_write(0xFF);
+
+    AX_RESET();
+    for (int t = 0; t < 100000; ++t) {
+        if (AX_READY()) return 1;
+        outb(0x80, 0);
+    }
+    return 0;
 }
