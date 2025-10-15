@@ -3,6 +3,7 @@ BITS 16
 ORG 0x7C00
 
 %include "boot_config.inc"
+%include "boot_shared.inc"
 
 %define DEBUG_BOOT ENABLE_STAGE1_DEBUG
 
@@ -133,7 +134,8 @@ enable_a20_fast:
     ret
 %endif
 
+times BOOT_DRIVE_OFFSET - ($-$$) db 0
 boot_drive db 0
 
 times 510-($-$$) db 0
-dw 0xAA55
+dw BOOT_SIGNATURE

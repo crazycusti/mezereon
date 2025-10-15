@@ -25,6 +25,11 @@
 %define BOOTINFO_OFFSET      (BOOTINFO_ADDR & 0x0F)
 %define KERNEL_LOAD_ADDR     0x0008000  ; Adresse an die der Kernel kopiert wird
 
+; Anzahl Worte die beim Setup der Bootinfo gelöscht werden (sicher großzügig)
+%ifndef BOOTINFO_CLEAR_WORDS
+%define BOOTINFO_CLEAR_WORDS 512
+%endif
+
 ; Übergabeparameter von Stage 2 an Stage 3
 %define STAGE3_PARAM_BOOT_DRIVE      0x00
 %define STAGE3_PARAM_STAGE3_LBA      0x04
@@ -44,5 +49,14 @@
 
 %define STAGE3_FLAG_USE_LBA          0x00000001
 %define STAGE3_FLAG_KERNEL_PRELOADED 0x00000002
+
+; Bootsektor-Hilfswerte (Stage 1)
+%ifndef BOOT_DRIVE_OFFSET
+%define BOOT_DRIVE_OFFSET 0x01FD
+%endif
+
+%ifndef BOOT_SIGNATURE
+%define BOOT_SIGNATURE 0xAA55
+%endif
 
 %endif ; BOOT_SHARED_INC

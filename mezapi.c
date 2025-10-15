@@ -8,6 +8,7 @@
 #include "video_fb.h"
 #include <stddef.h>
 #include <stdint.h>
+#include "statusbar.h"
 
 // Minimal backend wrappers (text-mode drawing via VGA text memory for now)
 
@@ -41,6 +42,37 @@ static void api_sound_tone_off(void){ pcspeaker_off(); }
 
 static mez_fb_info32_t g_fb_info;
 static mez_sound_info32_t g_sound_info;
+
+static statusbar_pos_t mez_pos_to_statusbar(mez_status_pos_t pos) {
+    switch (pos) {
+        case MEZ_STATUS_POS_LEFT: return STATUSBAR_POS_LEFT;
+        case MEZ_STATUS_POS_CENTER: return STATUSBAR_POS_CENTER;
+        case MEZ_STATUS_POS_RIGHT: return STATUSBAR_POS_RIGHT;
+        default: return STATUSBAR_POS_LEFT;
+    }
+}
+
+static mez_status_slot_t api_status_register(mez_status_pos_t pos, uint8_t priority, uint8_t flags, char icon, const char* initial_text) {
+    statusbar_slot_desc_t desc = {
+        .position = mez_pos_to_statusbar(pos),
+        .priority = priority,
+        .flags = (flags & MEZ_STATUS_FLAG_ICON_ONLY_ON_TRUNCATE) ? STATUSBAR_FLAG_ICON_ONLY_ON_TRUNCATE : 0,
+        .icon = icon,
+        .initial_text = initial_text
+    };
+    statusbar_slot_t s = statusbar_register(&desc);
+    return (s == STATUSBAR_SLOT_INVALID) ? MEZ_STATUS_SLOT_INVALID : (mez_status_slot_t)s;
+}
+
+static void api_status_update(mez_status_slot_t slot, const char* text) {
+    if (slot == MEZ_STATUS_SLOT_INVALID) return;
+    statusbar_set_text((statusbar_slot_t)slot, text);
+}
+
+static void api_status_release(mez_status_slot_t slot) {
+    if (slot == MEZ_STATUS_SLOT_INVALID) return;
+    statusbar_release((statusbar_slot_t)slot);
+}
 
 static const mez_fb_info32_t* api_video_fb_get_info(void)
 {
@@ -137,6 +169,10 @@ static mez_api32_t g_api = {
     .text_fill_line  = api_text_fill_line,
     .status_left     = console_status_set_left,
     .status_right    = console_draw_status_right,
+
+    .status_register = api_status_register,
+    .status_update   = api_status_update,
+    .status_release  = api_status_release,
 
     .capabilities    = 0,
     .video_fb_get_info = api_video_fb_get_info,

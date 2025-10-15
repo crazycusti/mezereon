@@ -1,5 +1,6 @@
 #include "fbtest_color.h"
 #include "../display.h"
+#include "../config.h"
 #include "../console.h"
 #include "../drivers/gpu/gpu.h"
 #include "../drivers/gpu/vga_hw.h"
@@ -109,10 +110,20 @@ static void wait_for_keypress(void) {
 }
 
 void fbtest_run(void) {
-    console_writeln("fbtest: schalte Cirrus auf 640x480 @ 8bpp. Drücke eine Taste zum Zurückkehren.");
+    console_writeln("fbtest: versuche Framebuffer 640x480/640x400 @ 8bpp. Taste drücken für Abbruch.");
 
-    if (!gpu_request_framebuffer_mode(640, 480, 8)) {
-        console_writeln("fbtest: kein unterstützter Framebuffer gefunden (Cirrus?).");
+    uint16_t preferred_height = 480;
+#if CONFIG_VIDEO_ENABLE_ET4000
+    if (CONFIG_VIDEO_ET4000_MODE == CONFIG_VIDEO_ET4000_MODE_640x400) {
+        preferred_height = 400;
+    }
+#endif
+    int fb_enabled = gpu_request_framebuffer_mode(640, preferred_height, 8);
+    if (!fb_enabled && preferred_height != 480) {
+        fb_enabled = gpu_request_framebuffer_mode(640, 480, 8);
+    }
+    if (!fb_enabled) {
+        console_writeln("fbtest: kein unterstützter Framebuffer gefunden.");
         return;
     }
 

@@ -89,11 +89,15 @@ void irq0_handler_c(void) {
 }
 
 void irq1_handler_c(void) {
-    // Read scancode to deassert IRQ and queue for polling path
+    uint8_t status = inb(0x64);
+    if ((status & 0x01u) == 0) {
+        outb(0x20, 0x20);
+        return;
+    }
     uint8_t sc = inb(0x60);
-    // optional: read status (0x64) to clear
-    (void)inb(0x64);
-    keyboard_isr_byte(sc);
+    if ((status & 0x20u) == 0) {
+        keyboard_isr_byte(sc);
+    }
     outb(0x20, 0x20);
 }
 

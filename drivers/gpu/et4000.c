@@ -20,9 +20,10 @@ int et4000_detect(gpu_info_t* out_info) {
     return 0;  // Nicht-x86 Plattform
 }
 
-int et4000_set_mode_640x480x8(gpu_info_t* gpu, display_mode_info_t* out_mode) {
+int et4000_set_mode(gpu_info_t* gpu, display_mode_info_t* out_mode, et4000_mode_t mode) {
     (void)gpu;
     (void)out_mode;
+    (void)mode;
     return 0;  // Nicht-x86 Plattform
 }
 
@@ -36,6 +37,7 @@ void et4000_restore_text_mode(void) {
 
 #define ET4K_SEGMENT_PORT 0x3CD
 #define ET4K_BANK_PORT    0x3CB
+#define ET4K_EXT_PORT     0x3BF
 #define ET4K_WINDOW_PHYS  0xA0000u
 #define ET4K_BANK_SIZE    0x10000u
 
@@ -79,6 +81,20 @@ static const uint8_t std_crtc_640x480[25] = {
 };
 static const uint8_t std_graph_640x480[9] = { 0x00,0x00,0x00,0x00,0x00,0x40,0x05,0x0F,0xFF };
 static const uint8_t std_attr_640x480[21] = {
+    0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,
+    0x08,0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F,
+    0x41,0x00,0x0F,0x00,0x00
+};
+
+static const uint8_t std_seq_640x400[5] = { 0x03,0x01,0x0F,0x00,0x06 };
+static const uint8_t std_crtc_640x400[25] = {
+    0x5F,0x4F,0x50,0x82,0x55,0x81,0xBF,0x1F,
+    0x00,0x41,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x9C,0x8E,0x8F,0x28,0x1F,0x96,0xB9,0xA3,
+    0xFF
+};
+static const uint8_t std_graph_640x400[9] = { 0x00,0x00,0x00,0x00,0x00,0x40,0x05,0x0F,0xFF };
+static const uint8_t std_attr_640x400[21] = {
     0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,
     0x08,0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F,
     0x41,0x00,0x0F,0x00,0x00
@@ -221,32 +237,40 @@ static const fb_accel_ops_t g_et4k_ops = {
 
 int et4000_detect(gpu_info_t* out_info) {
     if (!out_info) return 0;
+    g_is_ax_variant = 0;
+    int detected = 0;
+    uint8_t saved_ext = inb(ET4K_EXT_PORT);
     uint8_t saved_seg = inb(ET4K_SEGMENT_PORT);
     uint8_t saved_bank = inb(ET4K_BANK_PORT);
 
+    outb(ET4K_EXT_PORT, (uint8_t)(saved_ext | 0x03u));
     outb(ET4K_SEGMENT_PORT, 0x55);
-    uint8_t test = inb(ET4K_SEGMENT_PORT);
-    if (test != 0x55) {
-        outb(ET4K_SEGMENT_PORT, saved_seg);
-        outb(ET4K_BANK_PORT, saved_bank);
-        return 0;
-    }
+    uint8_t test1 = inb(ET4K_SEGMENT_PORT);
     outb(ET4K_SEGMENT_PORT, 0xAA);
-    test = inb(ET4K_SEGMENT_PORT);
+    uint8_t test2 = inb(ET4K_SEGMENT_PORT);
 
+    if (test1 == 0x55 && test2 == 0xAA) {
+        detected = 1;
+    }
     outb(ET4K_SEGMENT_PORT, saved_seg);
     outb(ET4K_BANK_PORT, saved_bank);
+    outb(ET4K_EXT_PORT, saved_ext);
 
-    if (test != 0xAA) {
+    if (!detected) {
         return 0;
     }
 
     et4k_bzero(out_info, sizeof(*out_info));
     out_info->type = GPU_TYPE_ET4000;
-    et4k_copy_name(out_info->name, sizeof(out_info->name), "Tseng ET4000");
+    g_is_ax_variant = detect_et4000ax();
+    if (g_is_ax_variant) {
+        et4k_copy_name(out_info->name, sizeof(out_info->name), "Tseng ET4000AX");
+    } else {
+        et4k_copy_name(out_info->name, sizeof(out_info->name), "Tseng ET4000");
+    }
     out_info->framebuffer_bar = 0xFF;
     out_info->framebuffer_base = ET4K_WINDOW_PHYS;
-    out_info->framebuffer_size = 0;
+    out_info->framebuffer_size = sizeof(g_et4k_shadow);
     out_info->capabilities = 0;
     return 1;
 }
@@ -263,19 +287,51 @@ static void et4k_state_reset(void) {
     g_et4k.dirty_pending = 0;
 }
 
-int et4000_set_mode_640x480x8(gpu_info_t* gpu, display_mode_info_t* out_mode) {
-    if (!gpu || !out_mode) return 0;
+typedef struct {
+    uint16_t width;
+    uint16_t height;
+    uint32_t pitch;
+    uint8_t  bpp;
+    uint8_t  misc;
+    const uint8_t* seq;
+    const uint8_t* crtc;
+    const uint8_t* graph;
+    const uint8_t* attr;
+} et4k_mode_desc_t;
 
-    vga_program_standard_mode(0xE3, std_seq_640x480, std_crtc_640x480, std_graph_640x480, std_attr_640x480);
+static const et4k_mode_desc_t g_et4k_modes[] = {
+    {
+        640u, 480u, 640u, 8u, 0xE3,
+        std_seq_640x480,
+        std_crtc_640x480,
+        std_graph_640x480,
+        std_attr_640x480
+    },
+    {
+        640u, 400u, 640u, 8u, 0xE3,
+        std_seq_640x400,
+        std_crtc_640x400,
+        std_graph_640x400,
+        std_attr_640x400
+    }
+};
+
+int et4000_set_mode(gpu_info_t* gpu, display_mode_info_t* out_mode, et4000_mode_t mode) {
+    if (!gpu || !out_mode) return 0;
+    if (mode < ET4000_MODE_640x480x8 || mode > ET4000_MODE_640x400x8) return 0;
+
+    const et4k_mode_desc_t* desc = &g_et4k_modes[mode];
+
+    vga_program_standard_mode(desc->misc, desc->seq, desc->crtc, desc->graph, desc->attr);
     vga_pel_mask_write(0xFF);
     vga_dac_load_default_palette();
 
     et4k_bzero(g_et4k_shadow, sizeof(g_et4k_shadow));
 
-    g_et4k.width = 640;
-    g_et4k.height = 480;
-    g_et4k.pitch = 640;
-    g_et4k.bpp = 8;
+    g_et4k.width = desc->width;
+    g_et4k.height = desc->height;
+    g_et4k.pitch = desc->pitch;
+    g_et4k.bpp = desc->bpp;
     g_et4k.shadow = g_et4k_shadow;
     g_et4k.shadow_size = (uint32_t)g_et4k.pitch * g_et4k.height;
     g_et4k.dirty_first_bank = 0;

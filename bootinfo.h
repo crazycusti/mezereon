@@ -39,6 +39,14 @@ typedef struct boot_info {
     uint32_t flags;       // arch-specific flags (see BOOTINFO_FLAG_*)
     void*    prom;        // firmware/prom vector (e.g. SPARC OBP)
     uint32_t boot_device; // BIOS/firmware provided boot device identifier
+    /* Framebuffer / VBE info (filled by bootloader if available) */
+    uint16_t vbe_mode;    // raw VBE mode (AX low) or BIOS mode
+    uint16_t vbe_pitch;   // bytes per scanline (if known)
+    uint16_t vbe_width;   // pixels
+    uint16_t vbe_height;  // pixels
+    uint8_t  vbe_bpp;     // bits per pixel
+    uint8_t  _pad0;
+    uint32_t framebuffer_phys; // physical address of LFB if present (0 = none)
     bootinfo_memory_map_t memory;
 } boot_info_t;
 

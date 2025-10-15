@@ -63,6 +63,8 @@ void shell_run(void) {
                     console_write("\n");
                 } else if (streq(buf, "clear")) {
                     console_clear();
+                } else if (streq(buf, "kbdump")) {
+                    keyboard_debug_dump();
                 } else if (streq(buf, "help")) {
                     console_write("Commands: version, clear, help, cpuinfo, meminfo, ticks, wakeups, idle [n], timer <show|hz N|off|on>, ata, atadump [lba], autofs [show|rescan|mount <n>], ip [show|set <ip> <mask> [gw]|ping <ip> [count]], neele mount [lba], neele ls [path], neele cat <name|/path>, neele mkfs, neele mkdir </path>, neele write </path> <text>, neele verify [verbose] [path], pad </path>, netinfo, netrxdump, gpuinfo, fbtest, beep [freq] [ms], keymusic, rotcube, app [ls|run </path|name>], http [start [port]|stop|status|body <text>]\n");
                 } else if (streq(buf, "ata")) {

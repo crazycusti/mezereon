@@ -57,16 +57,20 @@ static void log_device(const gpu_info_t* gpu) {
     const char* name = (gpu->name[0] != '\0') ? gpu->name : "Unknown";
     console_write("GPU: ");
     console_write(name);
-    console_write(" (vendor=");
-    console_write_hex16(gpu->pci.vendor_id);
-    console_write(", device=");
-    console_write_hex16(gpu->pci.device_id);
-    console_write(") bus ");
-    console_write_dec(gpu->pci.bus);
-    console_write(", dev ");
-    console_write_dec(gpu->pci.device);
-    console_write(", fn ");
-    console_write_dec(gpu->pci.function);
+    if (gpu->pci.vendor_id || gpu->pci.device_id) {
+        console_write(" (vendor=");
+        console_write_hex16(gpu->pci.vendor_id);
+        console_write(", device=");
+        console_write_hex16(gpu->pci.device_id);
+        console_write(") bus ");
+        console_write_dec(gpu->pci.bus);
+        console_write(", dev ");
+        console_write_dec(gpu->pci.device);
+        console_write(", fn ");
+        console_write_dec(gpu->pci.function);
+    } else {
+        console_write(" (legacy/ISA)");
+    }
     console_writeln("");
 
     console_write("      caps:");
@@ -121,7 +125,7 @@ void gpu_init(void) {
     const pci_device_t* pci_devices = pci_get_devices(&pci_count);
     for (size_t i = 0; i < pci_count && g_gpu_count < GPU_MAX_DEVICES; i++) {
         const pci_device_t* dev = &pci_devices[i];
-        gpu_info_t info;
+        gpu_info_t info = {0};
         info.type = GPU_TYPE_UNKNOWN;
         info.name[0] = '\0';
         info.framebuffer_bar = 0xFF;
@@ -141,12 +145,14 @@ void gpu_init(void) {
         }
     }
 
+#if CONFIG_VIDEO_ENABLE_ET4000
     if (g_gpu_count < GPU_MAX_DEVICES) {
-        gpu_info_t info;
+        gpu_info_t info = {0};
         if (et4000_detect(&info)) {
             g_gpu_infos[g_gpu_count++] = info;
         }
     }
+#endif
 }
 
 const gpu_info_t* gpu_get_devices(size_t* count) {
@@ -209,10 +215,16 @@ int gpu_request_framebuffer_mode(uint16_t width, uint16_t height, uint8_t bpp) {
                     return 1;
                 }
             }
-        } else if (gpu->type == GPU_TYPE_ET4000) {
-            if (width == 640 && height == 480 && bpp == 8) {
+            continue;
+        }
+#if CONFIG_VIDEO_ENABLE_ET4000
+        if (gpu->type == GPU_TYPE_ET4000) {
+            if (bpp == 8) {
                 display_mode_info_t mode;
-                if (et4000_set_mode_640x480x8(gpu, &mode)) {
+                et4000_mode_t desired = (CONFIG_VIDEO_ET4000_MODE == CONFIG_VIDEO_ET4000_MODE_640x400)
+                    ? ET4000_MODE_640x400x8
+                    : ET4000_MODE_640x480x8;
+                if (et4000_set_mode(gpu, &mode, desired)) {
                     display_manager_set_framebuffer_candidate("et4000", &mode);
                     display_manager_activate_framebuffer();
                     video_switch_to_framebuffer(&mode);
@@ -221,7 +233,9 @@ int gpu_request_framebuffer_mode(uint16_t width, uint16_t height, uint8_t bpp) {
                     return 1;
                 }
             }
+            continue;
         }
+#endif
     }
     return 0;
 }
@@ -237,7 +251,9 @@ void gpu_restore_text_mode(void) {
         g_active_fb_gpu->framebuffer_pitch = 0;
         g_active_fb_gpu->framebuffer_bpp = 0;
         cirrus_accel_disable();
-    } else if (g_active_fb_gpu && g_active_fb_gpu->type == GPU_TYPE_ET4000) {
+    }
+#if CONFIG_VIDEO_ENABLE_ET4000
+    if (g_active_fb_gpu && g_active_fb_gpu->type == GPU_TYPE_ET4000) {
         et4000_restore_text_mode();
         g_active_fb_gpu->framebuffer_ptr = NULL;
         g_active_fb_gpu->framebuffer_width = 0;
@@ -245,6 +261,7 @@ void gpu_restore_text_mode(void) {
         g_active_fb_gpu->framebuffer_pitch = 0;
         g_active_fb_gpu->framebuffer_bpp = 0;
     }
+#endif
 
     g_active_fb_gpu = NULL;
     g_framebuffer_active = 0;

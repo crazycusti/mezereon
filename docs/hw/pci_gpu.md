@@ -23,6 +23,13 @@ Shell usage
 - `gpuinfo detail` — includes Cirrus register snapshots (Sequencer, CRTC, Graphics, Attribute) to aid bring-up and debugging.
 - Boot-Log-Zeilen spiegeln die `gpuinfo`-Kurzfassung wider. Steht `CONFIG_VIDEO_TARGET` auf `auto` oder `framebuffer`, wechselt der Kernel bei Cirrus auf 640×480×8, zeichnet die Shell direkt auf den Framebuffer und färbt die Statusleiste mit einem dunklen Regenbogenhintergrund (`gfx: framebuffer`). `gpuinfo` listet zudem alle bekannten Cirrus-Modi (Auflösung × Farbtiefe), gefiltert nach der erkannten VRAM-Größe.
 
+Tseng ET4000 (ISA) notes
+------------------------
+- Detection toggles the Tseng-specific bank/segment registers (`0x3CB/0x3CD`). Activation is gated by `CONFIG_VIDEO_ENABLE_ET4000` (default: on).
+- The driver exposes einen banked Framebuffer über ein Shadow-Buffer: per `CONFIG_VIDEO_ET4000_MODE` lässt sich zwischen 640×480×8 (Default) und 640×400×8 wählen. Letzteres vermeidet Skalierungsprobleme auf vielen TFTs/Notebooks.
+- `gpuinfo` marks the adapter as “legacy/ISA” (no PCI coordinates) and the console automatically switches to the framebuffer path when `CONFIG_VIDEO_TARGET` is set to `auto` or `framebuffer`.
+- Text-mode restore is supported (`gpu_restore_text_mode`), so shell commands like `fbtest`/`gpuinfo` leave the adapter in a sane state.
+
 Architecture considerations
 ---------------------------
 - Non-x86 builds compile with a stub enumerator (no devices detected) but keep the same interface so future platform code can plug in native PCI accessors.

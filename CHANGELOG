@@ -58,3 +58,5 @@
 2025-09-21 22:18:01 (master@4aaa05c) - build: truncate kernel payload to 512-byte sectors before cat
 2025-09-21 23:20:41 (master@4aaa05c) - pci: add config space scanner and device table
 2025-09-21 23:20:48 (master@4aaa05c) - gpu: detect cirrus gd5446, add gpuinfo command
+2025-09-22 12:34:00 (codex@worktree) - gpu: auto-enable Tseng ET4000 framebuffer (640x480@8, legacy ISA detect)
+2025-09-22 12:34:00 (codex@worktree) - docs: document ET4000 support/config toggle in README + docs/hw/pci_gpu.md

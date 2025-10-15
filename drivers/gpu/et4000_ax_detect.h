@@ -21,7 +21,7 @@ static int detect_et4000ax(void) {
 }
 
 // ET4000AX Hardware-Initialisierung
-static void init_et4000ax_hw(void) {
+static inline void init_et4000ax_hw(void) {
     if (!g_is_ax_variant) return;
     
     // Setze Standard-Parameter für den Beschleuniger
@@ -34,7 +34,7 @@ static void init_et4000ax_hw(void) {
 }
 
 // ET4000AX Beschleuniger-Funktionen aktivieren
-static void enable_et4000ax_accel(et4k_gpu_info_t* gpu) {
+static inline void enable_et4000ax_accel(et4k_gpu_info_t* gpu) {
     if (!gpu || !g_is_ax_variant) return;
     
     // Setze erweiterte Fähigkeiten

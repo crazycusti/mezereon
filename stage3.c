@@ -373,6 +373,38 @@ void stage3_main(stage3_params_t *params, boot_info_t *bootinfo) {
 
     stage3_build_bootinfo(params, bootinfo);
 
+    /* Preserve bootloader-provided VBE/framebuffer info if present in the
+       raw bootinfo area (written earlier in real-mode). We read the small
+       fields at the well-known offsets and copy them into the final
+       boot_info_t so the kernel can use them. Offsets mirror boot_shared.inc.
+    */
+    {
+        const uintptr_t raw = (uintptr_t)params->bootinfo_ptr;
+        uint8_t *r = (uint8_t *)raw;
+        uint16_t vbe_mode = 0;
+        uint16_t vbe_pitch = 0;
+        uint16_t vbe_width = 0;
+        uint16_t vbe_height = 0;
+        uint8_t vbe_bpp = 0;
+        uint32_t fb_addr = 0;
+        /* Offsets defined in boot_shared.inc */
+        vbe_mode = *(uint16_t *)(uintptr_t)(raw + 0x0A);
+        vbe_pitch = *(uint16_t *)(uintptr_t)(raw + 0x0C);
+        vbe_width = *(uint16_t *)(uintptr_t)(raw + 0x0E);
+        vbe_height = *(uint16_t *)(uintptr_t)(raw + 0x10);
+        vbe_bpp = *(uint8_t  *)(uintptr_t)(raw + 0x12);
+        fb_addr  = *(uint32_t *)(uintptr_t)(raw + 0x14);
+
+        if (vbe_mode != 0 || vbe_bpp != 0 || fb_addr != 0) {
+            bootinfo->vbe_mode = vbe_mode;
+            bootinfo->vbe_pitch = vbe_pitch;
+            bootinfo->vbe_width = vbe_width;
+            bootinfo->vbe_height = vbe_height;
+            bootinfo->vbe_bpp = vbe_bpp;
+            bootinfo->framebuffer_phys = fb_addr;
+        }
+    }
+
     if (kernel_sectors > (UINT32_MAX / 512u)) {
         stage3_port_debug('!');
         stage3_panic("ksz");

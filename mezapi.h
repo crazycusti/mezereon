@@ -38,6 +38,16 @@ typedef struct {
     uint8_t  reserved1;
 } mez_sound_info32_t;
 
+typedef enum {
+    MEZ_STATUS_POS_LEFT = 0,
+    MEZ_STATUS_POS_CENTER = 1,
+    MEZ_STATUS_POS_RIGHT = 2
+} mez_status_pos_t;
+
+typedef uint8_t mez_status_slot_t;
+#define MEZ_STATUS_SLOT_INVALID ((mez_status_slot_t)0xFF)
+#define MEZ_STATUS_FLAG_ICON_ONLY_ON_TRUNCATE 0x01u
+
 typedef struct mez_api32 {
     // Header
     uint32_t abi_version;   // e.g., MEZ_ABI32_V1
@@ -67,6 +77,11 @@ typedef struct mez_api32 {
     void     (*text_fill_line)(int y, char ch, uint8_t attr);
     void     (*status_left)(const char* s);
     void     (*status_right)(const char* s, int len);
+
+    // Advanced status bar management (optional)
+    mez_status_slot_t (*status_register)(mez_status_pos_t pos, uint8_t priority, uint8_t flags, char icon, const char* initial_text);
+    void     (*status_update)(mez_status_slot_t slot, const char* text);
+    void     (*status_release)(mez_status_slot_t slot);
 
     uint32_t capabilities;
     const mez_fb_info32_t* (*video_fb_get_info)(void);

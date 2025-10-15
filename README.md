@@ -81,8 +81,8 @@ Useful runtime commands (shell)
   - Storage: `ata`, `autofs`, `atadump` (see `docs/shell/storage.md`).
   - NeeleFS v2: `neele mount/ls/cat/mkfs/verify`, `pad` editor (`docs/shell/neelefs.md`).
   - Network: `netinfo`, `netrxdump` (set `CONFIG_NET_RX_DEBUG=1` for verbose driver logs), `ip`, `http` (`docs/shell/network.md`, `docs/net/http.md`).
-  - GPU/Pci: `gpuinfo [detail]` prüft PCI-Grafikgeräte; `detail` zeigt Register-Dumps. `gpuinfo` listet verfügbare Auflösungen/Farbtiefen (basierend auf erkanntem VRAM). `fbtest` schaltet testweise den Cirrus-Framebuffer auf 640×480 und zeigt Farbbalken.
-  - Grafikmodus: `CONFIG_VIDEO_TARGET=text|auto|framebuffer` (Default `auto`). Bei Cirrus wird automatisch auf Framebuffer umgestellt; die Statusleiste zeigt einen dunklen Regenbogen-Hintergrund und den aktuellen Modus (`gfx: framebuffer`/`text`).
+  - GPU/Pci: `gpuinfo [detail]` prüft PCI-Grafikgeräte; `detail` zeigt Register-Dumps. `gpuinfo` listet verfügbare Auflösungen/Farbtiefen (basierend auf erkanntem VRAM) und nennt auch erkannte ISA-Adapter wie die Tseng ET4000 (aktiviert via `CONFIG_VIDEO_ENABLE_ET4000`). `CONFIG_VIDEO_ET4000_MODE` wählt zwischen 640×480×8 (Default) und 640×400×8, letzteres passt besser zu älteren LCDs/Notebooks. `fbtest` schaltet testweise den Framebuffer und zeigt Farbbalken.
+  - Grafikmodus: `CONFIG_VIDEO_TARGET=text|auto|framebuffer` (Default `auto`). Bei Cirrus sowie Tseng ET4000 wird automatisch auf den Framebuffer umgestellt; die Statusleiste zeigt einen dunklen Regenbogen-Hintergrund und den aktuellen Modus (`gfx: framebuffer`/`text`).
   - Power/system: `version`, `idle`, `timer`, `ticks`, `wakeups` (`docs/shell/system.md`, `docs/shell/power.md`).
   - Apps: `app ls`, `app run <name|/path>` for MezAPI-linked helpers such as `keymusic` or `rotcube`; see `docs/shell/apps.md`, `docs/api/mezapi.md`, `docs/api/graphics_fb.md`.
   - Audio quick test: `beep [freq] [ms]` (PC speaker ping).

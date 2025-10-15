@@ -9,7 +9,11 @@ Provided services
 - Input: non-blocking `input_poll_key()`
 - Timing: `time_ticks_get()`, `time_timer_hz()`, `time_sleep_ms()`
 - Sound: `sound_beep(hz, ms)`, `sound_tone_on(hz)`, `sound_tone_off()` sowie `sound_get_info()` → `mez_sound_info32_t` mit Backends (`MEZ_SOUND_BACKEND_PCSPK`, `MEZ_SOUND_BACKEND_SB16`), SB16-Basisport/IRQ/DMA/Version; `MEZ_CAP_SOUND_SB16` signalisiert erkannte SB16-Hardware
-- Text mode helpers: `text_put(x,y,ch,attr)`, `text_fill_line(y,ch,attr)`, `status_left(text)`, `status_right(text,len)`
+- Text mode helpers: `text_put(x,y,ch,attr)`, `text_fill_line(y,ch,attr)`
+- Statusbar:
+  - Legacy Wrapper: `status_left(text)`, `status_right(text,len)`
+  - Slots: `status_register(pos, priority, flags, icon, initial_text)`, `status_update(slot, text)`, `status_release(slot)`
+  - Position enum `mez_status_pos_t` (`LEFT/CENTER/RIGHT`), Flags (`MEZ_STATUS_FLAG_ICON_ONLY_ON_TRUNCATE`)
 - Framebuffer: `capabilities` bitmask (`MEZ_CAP_VIDEO_FB`, `MEZ_CAP_VIDEO_FB_ACCEL`), `video_fb_get_info()` → returns `NULL` oder `mez_fb_info32_t` (Breite, Höhe, Pitch, bpp, `framebuffer`), `video_fb_fill_rect(x,y,w,h,color)` für schnelle Flächenfüllungen (setzt `MEZ_CAP_VIDEO_FB_ACCEL` voraus).
 
 Usage pattern
@@ -30,6 +34,24 @@ int sample_app(const mez_api32_t* api) {
         if (ch >= 0) api->sound_beep(440, 100);
     }
     return 0;
+}
+```
+
+Statusbar-Slot verwenden
+```c
+mez_status_slot_t slot = MEZ_STATUS_SLOT_INVALID;
+if (api->status_register) {
+    slot = api->status_register(MEZ_STATUS_POS_CENTER,
+                                80,                      // hohe Priorität
+                                MEZ_STATUS_FLAG_ICON_ONLY_ON_TRUNCATE,
+                                '*',
+                                "demo ready");
+}
+
+if (slot != MEZ_STATUS_SLOT_INVALID) {
+    api->status_update(slot, "processing...");
+    // ... Arbeit verrichten ...
+    api->status_release(slot);
 }
 ```
 

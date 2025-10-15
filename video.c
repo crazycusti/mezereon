@@ -6,9 +6,11 @@
 #include "drivers/gpu/fb_accel.h"
 #include "fonts/font8x16.h"
 #include "platform.h"
+#include "statusbar.h"
 #include <stdint.h>
 #include <stddef.h>
 #include "arch/x86/io.h"
+#include <string.h>
 
 #define VIDEO_MEMORY 0xB8000
 #define VGA_CRTC_INDEX 0x3D4
@@ -43,16 +45,50 @@ static int g_col = 0;
 static const char HEX_DIGITS[] = "0123456789ABCDEF";
 
 // --- Status bar state ---
-static char status_left[128];
-static int  status_left_len = 0;
-static char status_right[64];
-static int  status_right_len = 0;
+static char status_line[TEXT_COLS];
 static uint8_t g_cursor_fb_visible = 1;
 static uint32_t g_cursor_fb_last_toggle = 0;
+static statusbar_slot_t s_status_slot_gfx = STATUSBAR_SLOT_INVALID;
 static void video_cursor_refresh_fb(void);
 static void video_cursor_hide_current_fb(void);
 
 void video_print(const char* str);
+
+#if CONFIG_ARCH_X86 && CONFIG_VIDEO_ENABLE_ET4000
+static int g_text_force_8dot = 0;
+static int g_text_probe_done = 0;
+
+static int video_detect_legacy_et4000(void) {
+    const uint16_t ext_port = 0x3BF;
+    const uint16_t seg_port = 0x3CD;
+    const uint16_t bank_port = 0x3CB;
+    uint8_t saved_ext = inb(ext_port);
+    uint8_t saved_seg = inb(seg_port);
+    uint8_t saved_bank = inb(bank_port);
+
+    outb(ext_port, (uint8_t)(saved_ext | 0x03u));
+    outb(seg_port, 0x55);
+    uint8_t test1 = inb(seg_port);
+    outb(seg_port, 0xAA);
+    uint8_t test2 = inb(seg_port);
+
+    outb(seg_port, saved_seg);
+    outb(bank_port, saved_bank);
+    outb(ext_port, saved_ext);
+    return (test1 == 0x55 && test2 == 0xAA);
+}
+
+static void video_force_8dot_text_mode(void) {
+    uint8_t clock = vga_seq_read(0x01);
+    if ((clock & 0x01u) == 0) {
+        vga_seq_write(0x01, (uint8_t)(clock | 0x01u));
+    }
+    uint8_t attr_mode = vga_attr_read(0x10);
+    if ((attr_mode & 0x04u) == 0) {
+        vga_attr_write(0x10, (uint8_t)(attr_mode | 0x04u));
+    }
+}
+#endif
 
 static inline uint8_t attr_fg(uint8_t attr) {
     return (uint8_t)((attr & 0x0F) & 0x0F);
@@ -204,37 +240,24 @@ static void video_redraw_framebuffer(void) {
 
 static void video_status_redraw(void) {
     for (int x = 0; x < TEXT_COLS; x++) {
-        video_put_cell(0, x, ' ', 0x1F);
+        char ch = status_line[x];
+        if (ch == '\0') ch = ' ';
+        video_put_cell(0, x, ch, 0x1F);
     }
-    int ll = status_left_len;
-    if (ll < 0) ll = 0;
-    if (ll > TEXT_COLS) ll = TEXT_COLS;
-    for (int i = 0; i < ll; i++) {
-        video_put_cell(0, i, status_left[i], 0x1F);
-    }
-    const char* mode = (g_target == VIDEO_TARGET_FB) ? " | gfx: framebuffer" : " | gfx: text";
-    int mode_len = 0;
-    while (mode[mode_len]) mode_len++;
-    int mode_pos = ll;
-    int rl = status_right_len;
-    if (rl < 0) rl = 0;
-    if (rl > TEXT_COLS) rl = TEXT_COLS;
-    int right_start = TEXT_COLS - rl;
-    if (right_start < 0) right_start = 0;
+}
 
-    if (mode_pos < right_start) {
-        int draw_len = mode_len;
-        if (mode_pos + draw_len > right_start) draw_len = right_start - mode_pos;
-        for (int i = 0; i < draw_len && (mode_pos + i) < TEXT_COLS; i++) {
-            video_put_cell(0, mode_pos + i, mode[i], 0x1F);
+void video_status_draw_full(const char* text, int len) {
+    if (len < 0) len = 0;
+    if (len > TEXT_COLS) len = TEXT_COLS;
+    for (int i = 0; i < TEXT_COLS; i++) {
+        status_line[i] = ' ';
+    }
+    if (text && len > 0) {
+        for (int i = 0; i < len; i++) {
+            status_line[i] = text[i];
         }
-        if (mode_pos + draw_len > ll) ll = mode_pos + draw_len;
-        if (ll > TEXT_COLS) ll = TEXT_COLS;
     }
-
-    for (int i = 0; i < rl && (right_start + i) < TEXT_COLS; i++) {
-        video_put_cell(0, right_start + i, status_right[i], 0x1F);
-    }
+    video_status_redraw();
 }
 
 static void video_scroll(void) {
@@ -257,24 +280,6 @@ static void video_scroll(void) {
     video_cursor_refresh_fb();
 }
 
-void video_status_set_right(const char* buf, int len) {
-    if (!buf || len <= 0) { status_right_len = 0; status_right[0] = 0; video_status_redraw(); return; }
-    if (len > (int)sizeof(status_right)) len = (int)sizeof(status_right);
-    for (int i = 0; i < len; i++) status_right[i] = buf[i];
-    status_right_len = len;
-    if (status_right_len > 0 && status_right[status_right_len - 1] == '\0') status_right_len--;
-    video_status_redraw();
-}
-
-void video_status_set_left(const char* buf, int len) {
-    if (!buf || len <= 0) { status_left_len = 0; status_left[0] = 0; video_status_redraw(); return; }
-    if (len > (int)sizeof(status_left)) len = (int)sizeof(status_left);
-    for (int i = 0; i < len; i++) status_left[i] = buf[i];
-    status_left_len = len;
-    if (status_left_len > 0 && status_left[status_left_len - 1] == '\0') status_left_len--;
-    video_status_redraw();
-}
-
 void video_init() {
     g_target = VIDEO_TARGET_TEXT;
     g_fb_ptr = NULL;
@@ -283,11 +288,24 @@ void video_init() {
     g_fb_height = 0;
     g_fb_bpp = 0;
 
+#if CONFIG_ARCH_X86 && CONFIG_VIDEO_ENABLE_ET4000
+    if (!g_text_probe_done) {
+        g_text_force_8dot = video_detect_legacy_et4000();
+        g_text_probe_done = 1;
+    }
+    if (g_text_force_8dot) {
+        video_force_8dot_text_mode();
+    }
+#endif
+
     for (int y = 0; y < TEXT_ROWS; y++) {
         for (int x = 0; x < TEXT_COLS; x++) {
             g_cells[y][x].ch = ' ';
             g_cells[y][x].attr = 0x07;
         }
+    }
+    for (int x = 0; x < TEXT_COLS; x++) {
+        status_line[x] = ' ';
     }
 
 #if CONFIG_VIDEO_CLEAR_ON_INIT
@@ -312,6 +330,19 @@ void video_init() {
     g_col = (pos % TEXT_COLS);
     if (g_row < 1) g_row = 1;
 #endif
+
+    if (s_status_slot_gfx == STATUSBAR_SLOT_INVALID) {
+        statusbar_slot_desc_t desc = {
+            .position = STATUSBAR_POS_CENTER,
+            .priority = 90,
+            .flags = STATUSBAR_FLAG_ICON_ONLY_ON_TRUNCATE,
+            .icon = 'G',
+            .initial_text = "gfx: text"
+        };
+        s_status_slot_gfx = statusbar_register(&desc);
+    } else {
+        statusbar_set_text(s_status_slot_gfx, "gfx: text");
+    }
 
     display_manager_set_text_mode("vga-text", TEXT_COLS, TEXT_ROWS, 16);
     video_status_redraw();
@@ -460,6 +491,9 @@ void video_switch_to_framebuffer(const display_mode_info_t* mode) {
     g_cursor_fb_visible = 1;
     g_cursor_fb_last_toggle = platform_ticks_get();
     video_cursor_refresh_fb();
+    if (s_status_slot_gfx != STATUSBAR_SLOT_INVALID) {
+        statusbar_set_text(s_status_slot_gfx, "gfx: framebuffer");
+    }
 }
 
 void video_switch_to_text(void) {
@@ -476,6 +510,9 @@ void video_switch_to_text(void) {
     video_status_redraw();
     vga_hw_cursor_update_internal();
     g_cursor_fb_visible = 1;
+    if (s_status_slot_gfx != STATUSBAR_SLOT_INVALID) {
+        statusbar_set_text(s_status_slot_gfx, "gfx: text");
+    }
 }
 
 void video_cursor_tick(void) {

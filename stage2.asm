@@ -90,6 +90,109 @@ load_complete:
 
     call collect_e820
     call populate_stage3_params
+
+    ; --- Probe current BIOS video mode (INT 10h AH=0x0F) and VBE ModeInfo
+    push ax
+    push bx
+    push cx
+    push dx
+    ; get current BIOS mode
+    mov ah, 0x0F
+    int 0x10
+    movzx eax, al
+    ; write 16-bit mode into BOOTINFO VBE mode offset
+    mov ax, BOOTINFO_SEGMENT
+    mov es, ax
+    mov di, BOOTINFO_OFFSET
+    add di, BOOTINFO_VBE_MODE
+    mov [es:di], al
+    mov [es:di+1], ah
+
+    ; prepare scratch buffer at BOOTINFO_ADDR+0x20
+    mov ax, BOOTINFO_SEGMENT
+    mov es, ax
+    mov di, BOOTINFO_OFFSET
+    add di, 0x20
+    mov word [es:di], 0
+    mov word [es:di+2], 0
+
+    ; probe VBE controller
+    mov ax, 0x4F00
+    int 0x10
+    jc .vbe_skip
+    cmp ax, 0x004F
+    jne .vbe_skip
+
+    ; Read VideoModePtr (offset 0x0E) from controller info at ES:DI
+    mov si, [es:di+0x0E]
+    mov dx, [es:di+0x10]
+
+.vbe_mode_iter:
+    ; load mode word from DX:SI
+    push es
+    push ds
+    mov ax, dx
+    mov ds, ax
+    mov bx, si
+    mov ax, [ds:bx]
+    cmp ax, 0xFFFF
+    je .vbe_done
+
+    mov cx, ax            ; CX = mode number
+    mov ax, BOOTINFO_SEGMENT
+    mov es, ax
+    mov di, BOOTINFO_OFFSET
+    add di, 0x20
+    mov ax, 0x4F01
+    int 0x10
+    jc .vbe_skip_one
+    cmp ax, 0x004F
+    jne .vbe_skip_one
+
+    ; parse ModeInfo: bytes_per_scanline @+0x10, xres @+0x12, yres @+0x14, bpp @+0x19, physbase @+0x28
+    mov ax, [es:di+0x10]
+    mov bx, BOOTINFO_SEGMENT
+    mov es, bx
+    mov di, BOOTINFO_OFFSET
+    add di, BOOTINFO_VBE_PITCH
+    mov [es:di], ax
+
+    mov ax, [es:di- (BOOTINFO_VBE_PITCH - 0x12) ]
+    ; store width
+    mov ax, [es:di+2]
+    mov di, BOOTINFO_OFFSET
+    add di, BOOTINFO_VBE_WIDTH
+    mov [es:di], ax
+    ; store height
+    mov ax, [es:di+2]
+    mov di, BOOTINFO_OFFSET
+    add di, BOOTINFO_VBE_HEIGHT
+    mov [es:di], ax
+    ; store bpp
+    mov al, [es:di+4]
+    mov di, BOOTINFO_OFFSET
+    add di, BOOTINFO_VBE_BPP
+    mov [es:di], al
+    ; store physbase dword (at +0x28)
+    mov bx, [es:di+0x12]
+    mov cx, [es:di+0x14]
+    mov di, BOOTINFO_OFFSET
+    add di, BOOTINFO_FB_ADDR
+    mov [es:di], bx
+    mov [es:di+2], cx
+
+.vbe_skip_one:
+    pop ds
+    pop es
+    add si, 2
+    jmp .vbe_mode_iter
+.vbe_done:
+.vbe_skip:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+
     call preload_kernel_if_needed
 
 %if STAGE2_VERBOSE_DEBUG
@@ -214,19 +317,43 @@ load_complete:
     mov si, msg_newline
     call debug_print_str
 %endif
+%if STAGE2_VERBOSE_DEBUG
+    mov si, msg_stage3_head0
+    call debug_print_str
+    mov ax, STAGE3_LOAD_SEGMENT
+    mov ds, ax
+    mov al, [0]
+    call debug_print_hex8
+    mov al, [1]
+    call debug_print_hex8
+    mov al, [2]
+    call debug_print_hex8
+    mov al, [3]
+    call debug_print_hex8
+    mov al, [4]
+    call debug_print_hex8
+    mov al, [5]
+    call debug_print_hex8
+    mov al, [6]
+    call debug_print_hex8
+    mov si, msg_newline
+    call debug_print_str
+%endif
     call check_stage3_signature
+%if STAGE2_VERBOSE_DEBUG
+    mov si, msg_sig_ok
+    test al, al
+    jz .sig_ok_dbg
+    mov si, msg_sig_bad
+.sig_ok_dbg:
+    call debug_print_str
+    mov si, msg_newline
+    call debug_print_str
+%endif
     test al, al
     jnz .sig_fail
-    mov si, msg_sig_ok
-    call debug_print_str
-    mov si, msg_newline
-    call debug_print_str
     jmp .after_sig
 .sig_fail:
-    mov si, msg_sig_bad
-    call debug_print_str
-    mov si, msg_newline
-    call debug_print_str
     jmp fatal_halt
 .after_sig:
     mov eax, cr0
@@ -1089,6 +1216,7 @@ enable_a20_wait_obf_set:
 
 ; Load GDT descriptor with runtime base
 load_gdt:
+    mov word [gdt_descriptor], gdt_end - gdt_start - 1
     mov eax, gdt_start
     add eax, STAGE2_LINEAR_ADDR
     mov [gdt_descriptor + 2], eax
@@ -1147,6 +1275,8 @@ msg_far_off:         db ' off=0x',0
 msg_far_lin:         db ' lin=0x',0
 msg_newline:         db 0x0D,0x0A,0
 
+; VBE bootlog messages removed (kernel will log bootinfo)
+
 stage3_signature:    db 0xB8,0x21,0x47,0x53,0x33,0x31,0xC0
 
 boot_drive:           db 0
@@ -1204,7 +1334,7 @@ gdt_data:
 gdt_end:
 
 gdt_descriptor:
-    dw gdt_end - gdt_start - 1
+    dw 0x0017
     dd 0
 
 ; *** Stage 2 end

@@ -9,6 +9,8 @@ int keyboard_poll_char(void);
 void keyboard_set_irq_mode(int enabled);
 // IRQ path: enqueue raw scancode from IRQ1 handler
 void keyboard_isr_byte(uint8_t sc);
+// Debug helper: dumps recent raw scancodes to the console
+void keyboard_debug_dump(void);
 
 // Special key codes (>255) returned by keyboard_poll_char when applicable
 #define KEY_UP    0x101

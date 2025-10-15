@@ -283,7 +283,110 @@ setup_bootinfo:
 .no_hdd_flag:
 
     call detect_memory
-    ret
+    ; --- Probe current BIOS video mode (INT 10h AH=0x0F)
+    push ax
+    push bx
+    push cx
+    push dx
+    mov ah, 0x0F
+    int 0x10
+    ; AL = current mode
+    movzx eax, al
+    mov word [BOOTINFO_VBE_MODE], ax
+
+    ; Allocate scratch buffer at BOOTINFO_ADDR + 0x20 (ES:DI) and call VBE 0x4F00
+    mov ax, BOOTINFO_SEG
+    mov es, ax
+    mov di, BOOTINFO_BIAS
+    add di, 0x20            ; scratch buffer offset
+    ; clear first dword
+    mov word [es:di], 0
+    mov word [es:di+2], 0
+
+    mov ax, 0x4F00
+    mov bx, 0
+    int 0x10
+    jc .vbe_none
+    cmp ax, 0x004F
+    jne .vbe_none
+
+    ; VBE controller info present at ES:DI (we used buffer at BOOTINFO_ADDR+0x20)
+    ; VideoModePtr is a far pointer at offset 0x0E (word offset, word segment)
+    ; Read mode list pointer into SI:DX (SI = offset, DX = segment)
+    mov si, [es:di+0x0E]
+    mov dx, [es:di+0x10]
+
+
+    ; Iterate mode list: words terminated by 0xFFFF
+.mode_loop:
+    ; read next mode word from DX:SI
+    push es
+    push ds
+    mov ax, DX
+    mov ds, ax
+    mov bx, SI
+    mov ax, [ds:bx]
+    ; check terminator
+    cmp ax, 0xFFFF
+    je .mode_done
+
+
+    ; Query ModeInfo for this mode: call INT 0x10 AX=0x4F01 CX=mode with ES:DI -> scratch
+    mov ax, 0x4F01
+    mov cx, ax              ; save mode in cx
+    ; set ES:DI to BOOTINFO scratch again
+    mov ax, BOOTINFO_SEG
+    mov es, ax
+    mov di, BOOTINFO_BIAS
+    add di, 0x20
+    int 0x10
+    jc .skip_mode
+    cmp ax, 0x004F
+    jne .skip_mode
+
+    ; Parse ModeInfo in scratch buffer: offsets (per VBE spec-ish)
+    ; bytes_per_scanline: word at +0x10
+    ; xres: word at +0x12, yres: word at +0x14
+    ; bpp: byte at +0x19
+    ; physbaseptr: dword at +0x28
+    mov ax, [es:di+0x10]
+    mov [BOOTINFO_VBE_PITCH], ax
+    mov ax, [es:di+0x12]
+    mov [BOOTINFO_VBE_WIDTH], ax
+    mov ax, [es:di+0x14]
+    mov [BOOTINFO_VBE_HEIGHT], ax
+    mov al, [es:di+0x19]
+    mov [BOOTINFO_VBE_BPP], al
+    ; phys base ptr (dword)
+    mov bx, [es:di+0x28]
+    mov cx, [es:di+0x2A]
+    mov [BOOTINFO_FB_ADDR], bx
+    mov [BOOTINFO_FB_ADDR+2], cx
+
+    ; If we found a linear framebuffer address, keep BOOTINFO updated (no Stage2 logging)
+    mov ax, [BOOTINFO_FB_ADDR]
+    or ax, [BOOTINFO_FB_ADDR+2]
+    jz .no_fb_log
+    ; (no logging here - kernel will display the results)
+.no_fb_log:
+
+.skip_mode:
+    pop ds
+    pop es
+    ; advance SI to next word
+    add si, 2
+    jmp .mode_loop
+.mode_done:
+    jmp .vbe_done
+.vbe_none:
+    ; VBE not present - silent
+.vbe_done:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ; continue setup
+    ; NOTE: if we didn't find an FB, BOOTINFO_FB_ADDR remains zero
 
 detect_memory:
     xor ebx, ebx
