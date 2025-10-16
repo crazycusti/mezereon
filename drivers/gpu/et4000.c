@@ -80,6 +80,11 @@ static inline void et4k_io_delay(void) {
     outb(0x80, 0);
 }
 
+static inline uint8_t et4k_atc_read(uint8_t index);
+static inline void et4k_atc_write(uint8_t index, uint8_t value);
+static inline void et4k_atc_video_disable(void);
+static inline void et4k_atc_video_enable(void);
+
 static void et4k_trace(const char* msg) {
     if (!g_et4k_debug_trace || !msg) return;
     console_write("    [et4k] ");
@@ -114,6 +119,21 @@ static inline uint8_t et4k_atc_read(uint8_t index) {
 #else
     (void)index;
     return 0;
+#endif
+}
+
+static inline void et4k_atc_video_disable(void) {
+#if CONFIG_ARCH_X86
+    uint8_t mode = et4k_atc_read(0x10);
+    et4k_atc_write(0x10, (uint8_t)(mode | 0x20u));
+#endif
+}
+
+static inline void et4k_atc_video_enable(void) {
+#if CONFIG_ARCH_X86
+    uint8_t mode = et4k_atc_read(0x10);
+    et4k_atc_write(0x10, (uint8_t)(mode & (uint8_t)~0x20u));
+    vga_attr_reenable_video();
 #endif
 }
 
@@ -263,8 +283,7 @@ static void et4k_restore_extensions(void) {
 }
 
 static void et4k_configure_variant_registers(void) {
-    uint8_t mode_ctrl = et4k_atc_read(0x10);
-    et4k_atc_write(0x10, (uint8_t)(mode_ctrl | 0x20u));
+    et4k_atc_video_disable();
 
     if (g_is_ax_variant) {
         et4k_trace("configuring ET4000AX extended bits");
@@ -286,15 +305,7 @@ static void et4k_configure_variant_registers(void) {
 
     et4k_set_window_raw(0x00);
     et4k_set_bank(0);
-
-    et4k_atc_write(0x10, (uint8_t)(mode_ctrl & (uint8_t)~0x20u));
-    vga_attr_reenable_video();
-    if (g_et4k_debug_trace) {
-        uint8_t mc = et4k_atc_read(0x10);
-        console_write("    [et4k] mode ctrl=0x");
-        console_write_hex32(mc);
-        console_write("\n");
-    }
+    et4k_atc_video_enable();
 }
 
 int detect_et4000ax(void) {
