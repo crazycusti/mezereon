@@ -14,5 +14,7 @@ int et4000_set_mode(gpu_info_t* gpu, display_mode_info_t* out_mode, et4000_mode_
 void et4000_restore_text_mode(void);
 void et4000_debug_dump(void);
 void et4000_set_debug_trace(int enabled);
+int  et4k_debug_trace_enabled(void);
+void et4k_disable_ax_engine(const char* reason);
 
 #endif // DRIVERS_GPU_ET4000_H

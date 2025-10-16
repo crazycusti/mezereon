@@ -75,6 +75,7 @@ static int g_et4k_saved_state_valid = 0;
 static uint8_t g_et4k_bank_read = 0;
 static uint8_t g_et4k_bank_write = 0;
 static int g_et4k_ax_engine_ready = 0;
+static int et4k_verify_vram_window(void);
 
 static inline void et4k_io_delay(void) {
     outb(0x80, 0);
@@ -252,6 +253,29 @@ static void et4k_set_bank_rw(uint8_t read_bank, uint8_t write_bank) {
 
 static void et4k_set_bank(uint8_t bank) {
     et4k_set_bank_rw(bank, bank);
+}
+
+static int et4k_verify_vram_window(void) {
+    uint8_t saved_window = inb(ET4K_WINDOW_PORT);
+    uint8_t saved_bank = inb(ET4K_BANK_PORT);
+    et4k_set_window_raw(0x00);
+    et4k_set_bank(0);
+
+    volatile uint8_t* window = (volatile uint8_t*)(uintptr_t)ET4K_WINDOW_PHYS;
+    uint8_t original = window[0];
+    uint8_t probe = (uint8_t)(original ^ 0x5Au);
+    window[0] = probe;
+    et4k_io_delay();
+    uint8_t observed = window[0];
+    window[0] = original;
+    et4k_io_delay();
+
+    uint8_t restore_read = (uint8_t)(saved_bank & 0x0Fu);
+    uint8_t restore_write = (uint8_t)((saved_bank >> 4) & 0x0Fu);
+    et4k_set_bank_rw(restore_read, restore_write);
+    et4k_set_window_raw(saved_window);
+
+    return observed == probe;
 }
 
 static void et4k_enable_extensions(void) {
@@ -603,6 +627,24 @@ void et4000_set_debug_trace(int enabled) {
     g_et4k_debug_trace = enabled ? 1 : 0;
 }
 
+int et4k_debug_trace_enabled(void) {
+    return g_et4k_debug_trace;
+}
+
+void et4k_disable_ax_engine(const char* reason) {
+    if (!g_et4k_ax_engine_ready) return;
+    g_et4k_ax_engine_ready = 0;
+    if (g_et4k_debug_trace) {
+        console_write("    [et4k-ax] accelerator disabled");
+        if (reason && *reason) {
+            console_write(": ");
+            console_writeln(reason);
+        } else {
+            console_write("\n");
+        }
+    }
+}
+
 static void et4k_state_reset(void) {
     g_et4k.width = 0;
     g_et4k.height = 0;
@@ -714,6 +756,13 @@ int et4000_set_mode(gpu_info_t* gpu, display_mode_info_t* out_mode, et4000_mode_
     vga_pel_mask_write(0xFF);
     vga_dac_load_default_palette();
     et4k_configure_variant_registers();
+
+    if (!et4k_verify_vram_window()) {
+        console_writeln("et4000: VRAM window test failed; aborting framebuffer mode.");
+        et4k_disable_ax_engine("vram-window");
+        et4000_restore_text_mode();
+        return 0;
+    }
 
     et4k_bzero(g_et4k_shadow, sizeof(g_et4k_shadow));
 

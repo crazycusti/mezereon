@@ -8,6 +8,9 @@
 static const uint8_t VGA_DEFAULT_PALETTE[256][3] = {
 #include "vga_palette_generated.inc"
 };
+static inline void vga_io_delay(void) {
+    outb(0x80, 0);
+}
 #endif
 
 static inline void vga_attr_reset(void) {
@@ -120,9 +123,13 @@ void vga_misc_write(uint8_t value) {
 void vga_dac_set_entry(uint8_t index, uint8_t r6, uint8_t g6, uint8_t b6) {
 #if CONFIG_ARCH_X86
     outb(0x3C8, index);
+    vga_io_delay();
     outb(0x3C9, (uint8_t)(r6 & 0x3F));
+    vga_io_delay();
     outb(0x3C9, (uint8_t)(g6 & 0x3F));
+    vga_io_delay();
     outb(0x3C9, (uint8_t)(b6 & 0x3F));
+    vga_io_delay();
 #else
     (void)index; (void)r6; (void)g6; (void)b6;
 #endif
