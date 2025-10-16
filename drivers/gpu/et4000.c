@@ -168,6 +168,15 @@ static void et4k_debug_print_alias_fallback(uint32_t fallback_bytes) {
     console_writeln("");
 }
 
+static void et4k_console_hex8(uint8_t value) {
+    static const char kHex[] = "0123456789ABCDEF";
+    char buf[3];
+    buf[0] = kHex[(value >> 4) & 0x0F];
+    buf[1] = kHex[value & 0x0F];
+    buf[2] = '\0';
+    console_write(buf);
+}
+
 static void et4k_write_key_sequence(void) {
     if (g_et4k_debug_trace) {
         console_writeln("    [et4k] writing ATC key sequence");
@@ -1492,6 +1501,88 @@ void et4000_restore_text_mode(void) {
         et4k_set_bank_rw(read_bank, write_bank);
         et4k_set_window_raw(g_et4k_saved_window);
     }
+}
+
+void et4000_dump_bank(uint8_t bank, uint32_t offset, uint32_t length) {
+#if !CONFIG_ARCH_X86
+    (void)bank; (void)offset; (void)length;
+    console_writeln("gpudump: not supported on this architecture");
+#else
+    if (length == 0) {
+        length = 0x100u;
+    }
+    if (offset >= ET4K_BANK_SIZE) {
+        console_writeln("gpudump: offset beyond bank window");
+        return;
+    }
+    if (offset + length > ET4K_BANK_SIZE) {
+        length = ET4K_BANK_SIZE - offset;
+    }
+    if (!g_et4k_detected_banks) {
+        gpu_info_t info = {0};
+        if (!et4000_detect(&info)) {
+            console_writeln("gpudump: Tseng adapter not detected");
+            return;
+        }
+    }
+    if (g_et4k_detected_banks && bank >= g_et4k_detected_banks) {
+        console_writeln("gpudump: bank exceeds detected VRAM");
+        return;
+    }
+
+    uint8_t saved_window = inb(ET4K_WINDOW_PORT);
+    uint8_t saved_bank_reg = inb(ET4K_BANK_PORT);
+    uint8_t saved_read = (uint8_t)(saved_bank_reg & 0x0Fu);
+    uint8_t saved_write = (uint8_t)((saved_bank_reg >> 4) & 0x0Fu);
+
+    et4k_set_window_raw(0x00);
+    et4k_set_bank(bank);
+
+    volatile uint8_t* window = (volatile uint8_t*)(uintptr_t)ET4K_WINDOW_PHYS;
+    const volatile uint8_t* base = window + offset;
+
+    console_write("gpudump: bank ");
+    console_write_dec(bank);
+    console_write(", offset=0x");
+    console_write_hex32(offset);
+    console_write(", length=0x");
+    console_write_hex32(length);
+    console_writeln("");
+
+    uint32_t absolute_base = (uint32_t)bank * ET4K_BANK_SIZE + offset;
+    uint32_t processed = 0;
+    while (processed < length) {
+        uint32_t remaining = length - processed;
+        uint32_t line_bytes = remaining > 16u ? 16u : remaining;
+        uint8_t bytes[16];
+        for (uint32_t idx = 0; idx < line_bytes; ++idx) {
+            bytes[idx] = base[processed + idx];
+        }
+
+        console_write("  ");
+        console_write_hex32(absolute_base + processed);
+        console_write(": ");
+        for (uint32_t idx = 0; idx < line_bytes; ++idx) {
+            et4k_console_hex8(bytes[idx]);
+            if (idx + 1u < line_bytes) {
+                console_write(" ");
+            }
+        }
+        for (uint32_t pad = line_bytes; pad < 16u; ++pad) {
+            console_write("   ");
+        }
+        console_write(" |");
+        for (uint32_t idx = 0; idx < line_bytes; ++idx) {
+            uint8_t ch = bytes[idx];
+            console_putc((ch >= 32u && ch < 127u) ? (char)ch : '.');
+        }
+        console_writeln("|");
+        processed += line_bytes;
+    }
+
+    et4k_set_bank_rw(saved_read, saved_write);
+    et4k_set_window_raw(saved_window);
+#endif
 }
 
 int et4k_detection_toggle_ok(void) {
