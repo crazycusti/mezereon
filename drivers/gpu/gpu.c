@@ -295,6 +295,9 @@ void gpu_init(void) {
         gpu_info_t info = {0};
         if (et4000_detect(&info)) {
             g_gpu_infos[g_gpu_count++] = info;
+            if (!g_tseng_auto_enabled) {
+                console_writeln("gpu: Tseng auto activation disabled (use 'gpuprobe auto' to re-enable)");
+            }
         }
     }
 #endif
