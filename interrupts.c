@@ -106,3 +106,63 @@ void irq3_handler_c(void) {
     netface_irq();
     outb(0x20, 0x20);
 }
+
+static void halt_forever(void) {
+    while (1) {
+        __asm__ volatile ("cli");
+        __asm__ volatile ("hlt");
+    }
+}
+
+void nmi_handler_c(void) {
+    interrupts_disable();
+    uint8_t status = inb(0x61);
+    uint8_t parity = (uint8_t)((status >> 7) & 0x01u);
+    uint8_t io_check = (uint8_t)((status >> 6) & 0x01u);
+
+    console_writeln("NMI: non-maskable interrupt detected");
+    console_write("  port 0x61 status=0x");
+    console_write_hex16(status);
+    console_write(" (parity=");
+    console_write(parity ? "1" : "0");
+    console_write(", io-check=");
+    console_write(io_check ? "1" : "0");
+    console_write(")\n");
+
+    // Acknowledge by toggling bit 7 high then restoring.
+    outb(0x61, (uint8_t)(status | 0x80u));
+    outb(0x61, (uint8_t)(status & (uint8_t)~0x80u));
+
+    console_writeln("  System halted after NMI.");
+    halt_forever();
+}
+
+void page_fault_handler_c(uint32_t error_code, uint32_t fault_eip) {
+    interrupts_disable();
+    uint32_t cr2;
+    __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
+
+    console_writeln("PAGE FAULT: fatal fault encountered");
+    console_write("  CR2 (fault addr)=0x");
+    console_write_hex32(cr2);
+    console_writeln("");
+    console_write("  EIP              =0x");
+    console_write_hex32(fault_eip);
+    console_writeln("");
+    console_write("  error            =0x");
+    console_write_hex32(error_code);
+    console_write(" (P=");
+    console_write((error_code & 0x01u) ? "1" : "0");
+    console_write(", W/R=");
+    console_write((error_code & 0x02u) ? "1" : "0");
+    console_write(", U/S=");
+    console_write((error_code & 0x04u) ? "1" : "0");
+    console_write(", RSVD=");
+    console_write((error_code & 0x08u) ? "1" : "0");
+    console_write(", IF=");
+    console_write((error_code & 0x10u) ? "1" : "0");
+    console_write(")\n");
+
+    console_writeln("  Halting CPU to avoid triple fault.");
+    halt_forever();
+}

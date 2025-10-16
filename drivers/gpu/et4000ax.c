@@ -96,7 +96,7 @@ static int et4kax_enable_register_window(void) {
 
 static void et4kax_program_waitstates(void) {
     uint8_t c36 = vga_crtc_read(0x36);
-    uint8_t c36_wait = (uint8_t)((c36 & (uint8_t)~0xC0u) | 0x40u);
+    uint8_t c36_wait = (uint8_t)((c36 & (uint8_t)~0xC0u) | 0x80u);
     if (c36_wait != c36) {
         vga_crtc_write(0x36, c36_wait);
     }
@@ -121,8 +121,20 @@ static int et4kax_detect_word_io(void) {
     et4kax_io_delay();
 
     if (ctrl_verify & 0x20u) {
-        et4kax_log("ISA control bit5 asserted; using 16-bit AX writes");
-        return 1;
+        const uint16_t port = ET4K_AX_WIDTH;
+        uint16_t original = inw(port);
+        const uint16_t pattern = 0x55AAu;
+        outw(port, pattern);
+        et4kax_io_delay();
+        uint16_t observed = inw(port);
+        int ok = (observed == pattern);
+        outw(port, original);
+        if (ok) {
+            et4kax_log("ISA control bit5 asserted; using 16-bit AX writes");
+            return 1;
+        }
+        et4kax_log("16-bit IO test failed; falling back to byte writes");
+        return 0;
     }
 
     et4kax_log("ISA 16-bit control bit unavailable; using byte writes");

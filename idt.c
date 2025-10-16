@@ -18,6 +18,8 @@ struct __attribute__((packed)) idt_ptr {
 extern void irq0_stub(void);
 extern void irq1_stub(void);
 extern void irq3_stub(void);
+extern void nmi_stub(void);
+extern void page_fault_stub(void);
 
 static struct idt_entry idt[256];
 static struct idt_ptr   idtp;
@@ -40,6 +42,10 @@ void idt_init(void) {
     for (int i=0;i<256;i++) {
         idt[i].base_low=0; idt[i].base_high=0; idt[i].sel=0x08; idt[i].always0=0; idt[i].flags=0x00;
     }
+
+    // CPU exceptions we care about
+    idt_set_gate(2, (uint32_t)nmi_stub, 0x08, 0x8E);
+    idt_set_gate(14, (uint32_t)page_fault_stub, 0x08, 0x8E);
 
     // Map IRQs at vectors 0x20.. (PIC remap)
     idt_set_gate(32, (uint32_t)irq0_stub, 0x08, 0x8E);

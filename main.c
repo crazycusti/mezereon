@@ -63,7 +63,7 @@ void kmain(const boot_info_t* bootinfo)
     if (CONFIG_VIDEO_TARGET != CONFIG_VIDEO_TARGET_TEXT) {
         uint16_t preferred_height = 480;
 #if CONFIG_VIDEO_ENABLE_ET4000
-        if (CONFIG_VIDEO_ET4000_MODE == CONFIG_VIDEO_ET4000_MODE_640x400) {
+        if (CONFIG_VIDEO_ET4000_MODE == CONFIG_VIDEO_ET4000_MODE_640x400x8) {
             preferred_height = 400;
         }
 #endif

@@ -12,6 +12,7 @@ typedef enum {
     GPU_TYPE_CIRRUS,
     GPU_TYPE_ET4000,
     GPU_TYPE_ET4000AX,
+    GPU_TYPE_VGA,
 } gpu_type_t;
 
 #define GPU_CAP_LINEAR_FB   (1u << 0)
@@ -45,5 +46,15 @@ void gpu_debug_probe(int scan_legacy);
 int  gpu_manual_activate_et4000(uint16_t width, uint16_t height, uint8_t bpp);
 void gpu_tseng_set_auto_enabled(int enabled);
 int  gpu_tseng_get_auto_enabled(void);
+void gpu_set_debug(int enabled);
+int  gpu_get_debug(void);
+void gpu_debug_log(const char* level, const char* msg);
+void gpu_debug_log_hex(const char* level, const char* label, uint32_t value);
+void gpu_set_last_error(const char* msg);
+const char* gpu_get_last_error(void);
+void gpu_set_last_mode(const char* name, uint16_t width, uint16_t height, uint8_t bpp);
+void gpu_get_last_mode(char* out_name, size_t name_len, uint16_t* width, uint16_t* height, uint8_t* bpp);
+void gpu_print_status(void);
+int  gpu_force_activate(gpu_type_t type, uint16_t width, uint16_t height, uint8_t bpp);
 
 #endif // DRIVERS_GPU_GPU_H

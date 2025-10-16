@@ -28,4 +28,11 @@ typedef struct {
 // Externe Variablen
 extern int g_is_ax_variant;
 
+// Detection status helpers
+int et4k_detection_toggle_ok(void);
+int et4k_detection_latch_ok(void);
+int et4k_detection_signature_ok(void);
+int et4k_detection_alias_limited(void);
+uint32_t et4k_detection_alias_limit_bytes(void);
+
 #endif // ET4000_COMMON_H

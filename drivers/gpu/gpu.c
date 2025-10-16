@@ -6,8 +6,129 @@
 #include "../../display.h"
 #include "../../video_fb.h"
 #include "cirrus_accel.h"
+#include "et4000_common.h"
 #include <stdint.h>
 #include <stddef.h>
+
+#if defined(GPU_DEBUG) && GPU_DEBUG
+#undef CONFIG_GPU_DEBUG
+#define CONFIG_GPU_DEBUG 1
+#endif
+
+#ifndef CONFIG_GPU_DEBUG
+#define CONFIG_GPU_DEBUG 0
+#endif
+
+static int g_gpu_debug = CONFIG_GPU_DEBUG ? 1 : 0;
+static char g_gpu_last_error[128] = "OK";
+static char g_gpu_last_mode_name[16] = "none";
+static uint16_t g_gpu_last_mode_width = 0;
+static uint16_t g_gpu_last_mode_height = 0;
+static uint8_t g_gpu_last_mode_bpp = 0;
+
+static void gpu_memzero(void* dst, size_t len) {
+    uint8_t* p = (uint8_t*)dst;
+    while (len--) {
+        *p++ = 0;
+    }
+}
+
+static void gpu_copy_string(char* dst, size_t len, const char* src) {
+    if (!dst || len == 0) return;
+    if (!src) {
+        dst[0] = '\0';
+        return;
+    }
+    size_t i = 0;
+    while (i + 1 < len && src[i]) {
+        dst[i] = src[i];
+        i++;
+    }
+    dst[i] = '\0';
+}
+
+void gpu_set_last_error(const char* msg) {
+    gpu_copy_string(g_gpu_last_error, sizeof(g_gpu_last_error), msg ? msg : "unknown");
+}
+
+const char* gpu_get_last_error(void) {
+    return g_gpu_last_error;
+}
+
+void gpu_set_last_mode(const char* name, uint16_t width, uint16_t height, uint8_t bpp) {
+    gpu_copy_string(g_gpu_last_mode_name, sizeof(g_gpu_last_mode_name), name ? name : "unknown");
+    g_gpu_last_mode_width = width;
+    g_gpu_last_mode_height = height;
+    g_gpu_last_mode_bpp = bpp;
+}
+
+void gpu_get_last_mode(char* out_name, size_t name_len, uint16_t* width, uint16_t* height, uint8_t* bpp) {
+    if (out_name && name_len) {
+        gpu_copy_string(out_name, name_len, g_gpu_last_mode_name);
+    }
+    if (width) *width = g_gpu_last_mode_width;
+    if (height) *height = g_gpu_last_mode_height;
+    if (bpp) *bpp = g_gpu_last_mode_bpp;
+}
+
+void gpu_debug_log(const char* level, const char* msg) {
+    if (!g_gpu_debug || !msg) return;
+    console_write("[");
+    if (level && *level) {
+        console_write(level);
+    } else {
+        console_write("DBG");
+    }
+    console_write("] ");
+    console_writeln(msg);
+}
+
+void gpu_debug_log_hex(const char* level, const char* label, uint32_t value) {
+    if (!g_gpu_debug || !label) return;
+    console_write("[");
+    if (level && *level) {
+        console_write(level);
+    } else {
+        console_write("DBG");
+    }
+    console_write("] ");
+    console_write(label);
+    console_write("=0x");
+    console_write_hex32(value);
+    console_writeln("");
+}
+
+void gpu_set_debug(int enabled) {
+    g_gpu_debug = enabled ? 1 : 0;
+    et4000_set_debug_trace(g_gpu_debug);
+    console_write("gpu-debug: ");
+    console_writeln(g_gpu_debug ? "enabled" : "disabled");
+}
+
+int gpu_get_debug(void) {
+    return g_gpu_debug;
+}
+
+void gpu_print_status(void) {
+    console_writeln("gpu-status:");
+    console_write("  debug: ");
+    console_writeln(g_gpu_debug ? "on" : "off");
+    console_write("  last-mode: ");
+    if (g_gpu_last_mode_width && g_gpu_last_mode_height) {
+        console_write(g_gpu_last_mode_name);
+        console_write(" ");
+        console_write_dec(g_gpu_last_mode_width);
+        console_write("x");
+        console_write_dec(g_gpu_last_mode_height);
+        console_write("x");
+        console_write_dec(g_gpu_last_mode_bpp);
+    } else {
+        console_write("none");
+    }
+    console_writeln("");
+    console_write("  last-error: ");
+    console_writeln(g_gpu_last_error);
+}
 
 static void log_size(uint32_t bytes) {
     if (bytes == 0) {
@@ -83,6 +204,10 @@ static void log_device(const gpu_info_t* gpu) {
         console_write(", size=");
         log_size(gpu->framebuffer_size);
         console_writeln("");
+    } else if (gpu->framebuffer_size) {
+        console_write("      VRAM size=");
+        log_size(gpu->framebuffer_size);
+        console_writeln("");
     }
 
     if (gpu->type == GPU_TYPE_CIRRUS) {
@@ -109,16 +234,37 @@ static void log_device(const gpu_info_t* gpu) {
             console_write(" none");
         }
         console_writeln("");
+    } else if (gpu->type == GPU_TYPE_ET4000 || gpu->type == GPU_TYPE_ET4000AX) {
+        console_write("      et4k-tests: toggle=");
+        console_write(et4k_detection_toggle_ok() ? "OK" : "FAIL");
+        console_write(", latch=");
+        console_write(et4k_detection_latch_ok() ? "OK" : "FAIL");
+        console_write(", signature=");
+        console_write(et4k_detection_signature_ok() ? "OK" : "FAIL");
+        console_writeln("");
+        if (et4k_detection_alias_limited()) {
+            uint32_t alias_bytes = et4k_detection_alias_limit_bytes();
+            console_write("      bank-alias limit=");
+            console_write_dec(alias_bytes ? alias_bytes / 1024u : 0u);
+            console_writeln(" KB (bank 4 mirrors bank 0)");
+        }
     }
 }
+
+static int tseng_mode_to_enum(uint16_t width, uint16_t height, uint8_t bpp, et4000_mode_t* out_mode);
+static void tseng_enum_to_dimensions(et4000_mode_t mode, uint16_t* width, uint16_t* height, uint8_t* bpp);
+static int tseng_candidate_contains(const et4000_mode_t* modes, size_t count, et4000_mode_t value);
+static void tseng_candidate_append(et4000_mode_t* modes, size_t* count, size_t capacity, et4000_mode_t value);
 
 static gpu_info_t g_gpu_infos[GPU_MAX_DEVICES];
 static size_t g_gpu_count = 0;
 static gpu_info_t* g_active_fb_gpu = NULL;
 static int g_framebuffer_active = 0;
-static int g_tseng_auto_enabled = CONFIG_VIDEO_ENABLE_ET4000;
+static int g_tseng_auto_enabled = 0;
 
 void gpu_init(void) {
+    et4000_set_debug_trace(g_gpu_debug);
+    gpu_debug_log("INFO", "initialising GPU subsystem");
     g_gpu_count = 0;
     size_t pci_count = 0;
     const pci_device_t* pci_devices = pci_get_devices(&pci_count);
@@ -209,6 +355,8 @@ int gpu_request_framebuffer_mode(uint16_t width, uint16_t height, uint8_t bpp) {
                     display_manager_activate_framebuffer();
                     cirrus_accel_enable(&mode);
                     video_switch_to_framebuffer(&mode);
+                    gpu_set_last_mode("cirrus", mode.width, mode.height, mode.bpp);
+                    gpu_set_last_error("OK: Cirrus framebuffer active");
                     g_active_fb_gpu = gpu;
                     g_framebuffer_active = 1;
                     return 1;
@@ -222,19 +370,79 @@ int gpu_request_framebuffer_mode(uint16_t width, uint16_t height, uint8_t bpp) {
                 console_writeln("gpu: Tseng auto activation suppressed (debug mode)");
                 continue;
             }
-            if (bpp == 8) {
+            if (bpp == 8 || bpp == 4) {
+                int explicit_request = (width != 0 || height != 0 || bpp != 0);
+                et4000_mode_t candidates[4];
+                size_t candidate_count = 0;
+                et4000_mode_t requested_mode;
+                if (tseng_mode_to_enum(width, height, bpp, &requested_mode)) {
+                    tseng_candidate_append(candidates, &candidate_count, 4, requested_mode);
+                } else if (explicit_request) {
+                    gpu_set_last_error("ERROR: unsupported Tseng mode");
+                    gpu_debug_log("ERROR", "Tseng framebuffer request outside supported set");
+                    continue;
+                }
+
+                et4000_mode_t config_mode;
+                switch (CONFIG_VIDEO_ET4000_MODE) {
+                    case CONFIG_VIDEO_ET4000_MODE_640x400x8:
+                        config_mode = ET4000_MODE_640x400x8;
+                        break;
+                    case CONFIG_VIDEO_ET4000_MODE_640x480x4:
+                        config_mode = ET4000_MODE_640x480x4;
+                        break;
+                    default:
+                        config_mode = ET4000_MODE_640x480x8;
+                        break;
+                }
+                et4000_mode_t default_mode = et4k_choose_default_mode(gpu->type == GPU_TYPE_ET4000AX, gpu->framebuffer_size);
+
+                tseng_candidate_append(candidates, &candidate_count, 4, config_mode);
+                tseng_candidate_append(candidates, &candidate_count, 4, default_mode);
+                tseng_candidate_append(candidates, &candidate_count, 4, ET4000_MODE_640x400x8);
+                tseng_candidate_append(candidates, &candidate_count, 4, ET4000_MODE_640x480x4);
+
                 display_mode_info_t mode;
-                et4000_mode_t desired = (CONFIG_VIDEO_ET4000_MODE == CONFIG_VIDEO_ET4000_MODE_640x400)
-                    ? ET4000_MODE_640x400x8
-                    : ET4000_MODE_640x480x8;
-                if (et4000_set_mode(gpu, &mode, desired)) {
-                    display_manager_set_framebuffer_candidate("et4000", &mode);
+                int activated = 0;
+                uint16_t final_width = width;
+                uint16_t final_height = height;
+                uint8_t final_bpp = bpp;
+
+                for (size_t ci = 0; ci < candidate_count && !activated; ++ci) {
+                    uint16_t cw = 0;
+                    uint16_t ch = 0;
+                    uint8_t cb = 0;
+                    tseng_enum_to_dimensions(candidates[ci], &cw, &ch, &cb);
+                    if (et4k_set_mode(gpu, &mode, cw, ch, cb)) {
+                        final_width = mode.width;
+                        final_height = mode.height;
+                        final_bpp = mode.bpp;
+                        activated = 1;
+                        break;
+                    } else if (gpu_get_debug()) {
+                        console_write("[et4k] candidate ");
+                        console_write_dec(cw);
+                        console_write("x");
+                        console_write_dec(ch);
+                        console_write("x");
+                        console_write_dec(cb);
+                        console_writeln(" failed");
+                    }
+                }
+
+                if (activated) {
+                    const char* driver_name = (gpu->type == GPU_TYPE_ET4000AX) ? "et4000ax" : "et4000";
+                    display_manager_set_framebuffer_candidate(driver_name, &mode);
                     display_manager_activate_framebuffer();
                     video_switch_to_framebuffer(&mode);
+                    gpu_set_last_mode(gpu->name[0] ? gpu->name : "et4000", final_width, final_height, final_bpp);
+                    gpu_set_last_error("OK: Tseng framebuffer active");
                     g_active_fb_gpu = gpu;
                     g_framebuffer_active = 1;
                     return 1;
                 }
+
+                gpu_set_last_error("ERROR: Tseng framebuffer activation failed");
             }
             continue;
         }
@@ -270,6 +478,8 @@ void gpu_restore_text_mode(void) {
     g_framebuffer_active = 0;
     display_manager_activate_text();
     video_switch_to_text();
+    gpu_set_last_mode("text-mode", 0, 0, 0);
+    gpu_set_last_error("OK: text mode restored");
 }
 
 void gpu_debug_probe(int scan_legacy) {
@@ -326,69 +536,203 @@ void gpu_debug_probe(int scan_legacy) {
     console_writeln("gpu-probe: done");
 }
 
-int gpu_manual_activate_et4000(uint16_t width, uint16_t height, uint8_t bpp) {
-#if !CONFIG_VIDEO_ENABLE_ET4000
-    (void)width; (void)height; (void)bpp;
-    console_writeln("gpu-probe: Tseng driver disabled at build time (CONFIG_VIDEO_ENABLE_ET4000=0)");
-    return 0;
-#else
-    if (width != 640 || (height != 480 && height != 400) || bpp != 8) {
-        console_writeln("gpu-probe: manual activate expects 640x480 or 640x400 at 8bpp");
-        return 0;
-    }
-
-    console_writeln("gpu-probe: attempting to activate Tseng framebuffer");
-
-    gpu_info_t temp = {0};
-    et4000_set_debug_trace(1);
-    int detected = et4000_detect(&temp);
-    et4000_set_debug_trace(0);
-    if (!detected) {
-        console_writeln("gpu-probe: no Tseng ET4000 signature – cannot activate");
-        return 0;
-    }
-
+static gpu_info_t* gpu_acquire_slot_for_type(gpu_type_t type, const gpu_info_t* source) {
     gpu_info_t* slot = NULL;
     for (size_t i = 0; i < g_gpu_count; i++) {
-        if (g_gpu_infos[i].type == temp.type) {
+        if (g_gpu_infos[i].type == type) {
             slot = &g_gpu_infos[i];
             break;
         }
     }
     if (!slot) {
         if (g_gpu_count >= GPU_MAX_DEVICES) {
-            console_writeln("gpu-probe: device table full – cannot store Tseng info");
-            return 0;
+            return NULL;
         }
         slot = &g_gpu_infos[g_gpu_count++];
     }
-    *slot = temp;
+    if (source) {
+        *slot = *source;
+        slot->type = type;
+    } else {
+        gpu_memzero(slot, sizeof(*slot));
+        slot->type = type;
+    }
+    return slot;
+}
 
-    et4000_mode_t desired = (height == 400)
-        ? ET4000_MODE_640x400x8
-        : ET4000_MODE_640x480x8;
+static int tseng_mode_to_enum(uint16_t width, uint16_t height, uint8_t bpp, et4000_mode_t* out_mode) {
+    if (width == 640 && height == 480 && bpp == 8) {
+        if (out_mode) *out_mode = ET4000_MODE_640x480x8;
+        return 1;
+    }
+    if (width == 640 && height == 400 && bpp == 8) {
+        if (out_mode) *out_mode = ET4000_MODE_640x400x8;
+        return 1;
+    }
+    if (width == 640 && height == 480 && bpp == 4) {
+        if (out_mode) *out_mode = ET4000_MODE_640x480x4;
+        return 1;
+    }
+    return 0;
+}
 
-    display_mode_info_t mode;
-    if (!et4000_set_mode(slot, &mode, desired)) {
-        console_writeln("gpu-probe: et4000_set_mode failed");
+static void tseng_enum_to_dimensions(et4000_mode_t mode, uint16_t* width, uint16_t* height, uint8_t* bpp) {
+    switch (mode) {
+        case ET4000_MODE_640x480x8:
+            if (width) *width = 640;
+            if (height) *height = 480;
+            if (bpp) *bpp = 8;
+            break;
+        case ET4000_MODE_640x400x8:
+            if (width) *width = 640;
+            if (height) *height = 400;
+            if (bpp) *bpp = 8;
+            break;
+        case ET4000_MODE_640x480x4:
+        default:
+            if (width) *width = 640;
+            if (height) *height = 480;
+            if (bpp) *bpp = 4;
+            break;
+    }
+}
+
+static int tseng_candidate_contains(const et4000_mode_t* modes, size_t count, et4000_mode_t value) {
+    for (size_t i = 0; i < count; ++i) {
+        if (modes[i] == value) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void tseng_candidate_append(et4000_mode_t* modes, size_t* count, size_t capacity, et4000_mode_t value) {
+    if (!modes || !count) return;
+    if (tseng_candidate_contains(modes, *count, value)) return;
+    if (*count >= capacity) return;
+    modes[*count] = value;
+    (*count)++;
+}
+
+static int activate_tseng(uint16_t width, uint16_t height, uint8_t bpp, int force_ax_variant) {
+#if !CONFIG_VIDEO_ENABLE_ET4000
+    (void)width; (void)height; (void)bpp; (void)force_ax_variant;
+    gpu_set_last_error("ERROR: Tseng driver disabled at build time");
+    return 0;
+#else
+    int explicit_mode = (width != 0 && height != 0 && bpp != 0);
+    et4000_mode_t desired_mode = ET4000_MODE_640x480x8;
+    if (explicit_mode) {
+        if (!tseng_mode_to_enum(width, height, bpp, &desired_mode)) {
+            gpu_set_last_error("ERROR: unsupported Tseng mode");
+            gpu_debug_log("ERROR", "unsupported Tseng mode requested");
+            return 0;
+        }
+    }
+
+    if (force_ax_variant > 0) {
+        gpu_debug_log("INFO", "forcing ET4000AX variant");
+    } else if (force_ax_variant == 0) {
+        gpu_debug_log("INFO", "forcing ET4000 (non-AX) variant");
+    } else {
+        gpu_debug_log("INFO", "auto-selecting Tseng variant");
+    }
+
+    et4000_set_debug_trace(g_gpu_debug);
+
+    gpu_info_t detected = {0};
+    if (!et4000_detect(&detected)) {
+        gpu_set_last_error("ERROR: Tseng adapter not detected");
+        gpu_debug_log("ERROR", "Tseng signature not found");
+        return 0;
+    }
+    int detected_is_ax = (detected.type == GPU_TYPE_ET4000AX);
+    int target_is_ax = detected_is_ax;
+
+    if (force_ax_variant == 1 && detected.type != GPU_TYPE_ET4000AX) {
+        target_is_ax = 1;
+        g_is_ax_variant = 1;
+        detected.type = GPU_TYPE_ET4000AX;
+        gpu_copy_string(detected.name, sizeof(detected.name), "Tseng ET4000AX (forced)");
+        gpu_debug_log("WARN", "forcing AX variant despite detection");
+    } else if (force_ax_variant == 0 && detected.type == GPU_TYPE_ET4000AX) {
+        target_is_ax = 0;
+        g_is_ax_variant = 0;
+        detected.type = GPU_TYPE_ET4000;
+        gpu_copy_string(detected.name, sizeof(detected.name), "Tseng ET4000 (forced)");
+        gpu_debug_log("WARN", "forcing non-AX variant");
+    } else {
+        g_is_ax_variant = target_is_ax;
+    }
+
+    if (!explicit_mode) {
+        et4000_mode_t auto_mode = et4k_choose_default_mode(target_is_ax, detected.framebuffer_size);
+        desired_mode = auto_mode;
+        tseng_enum_to_dimensions(auto_mode, &width, &height, &bpp);
+        switch (auto_mode) {
+            case ET4000_MODE_640x480x8:
+                gpu_debug_log("INFO", "Tseng auto-selecting 640x480x8");
+                break;
+            case ET4000_MODE_640x400x8:
+                gpu_debug_log("INFO", "Tseng auto-selecting 640x400x8");
+                break;
+            default:
+                gpu_debug_log("INFO", "Tseng auto-selecting 640x480x4");
+                break;
+        }
+    }
+
+    gpu_info_t* slot = gpu_acquire_slot_for_type(detected.type, &detected);
+    if (!slot) {
+        gpu_set_last_error("ERROR: GPU table full");
+        gpu_debug_log("ERROR", "unable to reserve GPU slot");
         return 0;
     }
 
-    display_manager_set_framebuffer_candidate("et4000", &mode);
+    display_mode_info_t mode;
+    if (!et4k_set_mode(slot, &mode, width, height, bpp)) {
+        gpu_debug_log("ERROR", "et4k_set_mode() failed");
+        if (gpu_get_last_error()[0] == '\0') {
+            gpu_set_last_error("ERROR: Tseng set_mode failed");
+        }
+        return 0;
+    }
+
+    display_manager_set_framebuffer_candidate(target_is_ax ? "et4000ax" : "et4000", &mode);
     display_manager_activate_framebuffer();
     video_switch_to_framebuffer(&mode);
     g_active_fb_gpu = slot;
     g_framebuffer_active = 1;
 
-    console_write("gpu-probe: framebuffer active at ");
-    console_write_dec(mode.width);
-    console_write("x");
-    console_write_dec(mode.height);
-    console_write("x");
-    console_write_dec(mode.bpp);
-    console_write("\n");
+    gpu_set_last_mode(slot->name[0] ? slot->name : "Tseng", mode.width, mode.height, mode.bpp);
+    gpu_set_last_error("OK: Tseng framebuffer active");
+    gpu_debug_log("OK", "Tseng framebuffer active");
     return 1;
 #endif
+}
+
+int gpu_manual_activate_et4000(uint16_t width, uint16_t height, uint8_t bpp) {
+    return activate_tseng(width, height, bpp, -1);
+}
+
+int gpu_force_activate(gpu_type_t type, uint16_t width, uint16_t height, uint8_t bpp) {
+    switch (type) {
+        case GPU_TYPE_ET4000:
+            return activate_tseng(width, height, bpp, 0);
+        case GPU_TYPE_ET4000AX:
+            return activate_tseng(width, height, bpp, 1);
+        case GPU_TYPE_VGA:
+            gpu_restore_text_mode();
+            gpu_debug_log("INFO", "switched to VGA text mode");
+            return 1;
+        case GPU_TYPE_CIRRUS:
+            gpu_debug_log("WARN", "Cirrus manual activation not implemented");
+            gpu_set_last_error("ERROR: Cirrus manual activation not implemented");
+            return 0;
+        default:
+            gpu_set_last_error("ERROR: unsupported GPU type");
+            return 0;
+    }
 }
 
 void gpu_tseng_set_auto_enabled(int enabled) {
