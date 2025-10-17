@@ -15,12 +15,14 @@
 #include "version.h"
 #include <stddef.h>
 #include "memory.h"
+#include "debug_serial.h"
 
 #include "video_fb.h"
 #include "statusbar.h"
 
 void kmain(const boot_info_t* bootinfo)
 {
+    debug_serial_plugin_init(bootinfo);
     size_t pci_device_count = 0;
     display_manager_init(CONFIG_VIDEO_TARGET);
     statusbar_init();

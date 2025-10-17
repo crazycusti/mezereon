@@ -1,15 +1,16 @@
 #include "console.h"
 #include "console_backend.h"
 #include "statusbar.h"
+#include "debug_serial.h"
 
 void console_init(void)                  { cback_init(); statusbar_backend_ready(); }
 void console_clear(void)                 { cback_clear(); }
-void console_putc(char c)                { cback_putc(c); }
-void console_write(const char* s)        { cback_write(s); }
-void console_writeln(const char* s)      { cback_writeln(s); }
-void console_write_hex16(uint16_t v)     { cback_write_hex16(v); }
-void console_write_hex32(uint32_t v)     { cback_write_hex32(v); }
-void console_write_dec(uint32_t v)       { cback_write_dec(v); }
+void console_putc(char c)                { cback_putc(c); debug_serial_plugin_putc(c); }
+void console_write(const char* s)        { cback_write(s); debug_serial_plugin_write(s); }
+void console_writeln(const char* s)      { cback_writeln(s); debug_serial_plugin_writeln(s); }
+void console_write_hex16(uint16_t v)     { cback_write_hex16(v); debug_serial_plugin_write_hex16(v); }
+void console_write_hex32(uint32_t v)     { cback_write_hex32(v); debug_serial_plugin_write_hex32(v); }
+void console_write_dec(uint32_t v)       { cback_write_dec(v); debug_serial_plugin_write_dec(v); }
 void console_draw_status_right(const char* buf, int len) {
     if (!buf || len <= 0) {
         statusbar_legacy_set_right("");
