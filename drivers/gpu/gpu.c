@@ -16,10 +16,10 @@
 #endif
 
 #ifndef CONFIG_GPU_DEBUG
-#define CONFIG_GPU_DEBUG 0
+#define CONFIG_GPU_DEBUG 1
 #endif
 
-static int g_gpu_debug = CONFIG_GPU_DEBUG ? 1 : 0;
+static int g_gpu_debug = 1;
 static char g_gpu_last_error[128] = "OK";
 static char g_gpu_last_mode_name[16] = "none";
 static uint16_t g_gpu_last_mode_width = 0;

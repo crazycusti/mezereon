@@ -11,6 +11,7 @@ void keyboard_set_irq_mode(int enabled);
 void keyboard_isr_byte(uint8_t sc);
 // Debug helper: dumps recent raw scancodes to the console
 void keyboard_debug_dump(void);
+int keyboard_wait_key(void);
 
 // Special key codes (>255) returned by keyboard_poll_char when applicable
 #define KEY_UP    0x101

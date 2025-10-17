@@ -17,6 +17,7 @@ int et4k_set_mode(gpu_info_t* gpu, display_mode_info_t* out_mode, uint16_t width
 et4000_mode_t et4k_choose_default_mode(int is_ax_variant, uint32_t vram_bytes);
 void et4000_restore_text_mode(void);
 void et4000_dump_bank(uint8_t bank, uint32_t offset, uint32_t length);
+int et4000_capture_dump(uint8_t bank, uint32_t offset, uint32_t length);
 void et4000_debug_dump(void);
 void et4000_set_debug_trace(int enabled);
 int  et4k_debug_trace_enabled(void);

@@ -364,37 +364,48 @@ void shell_run(void) {
                     if (!buf[i]) {
                         console_writeln("usage: gpudump <bank> [offset] [len]");
                     } else {
+                        int capture_mode = 0;
+                        if (buf[i]=='c' && buf[i+1]=='a' && buf[i+2]=='p' && buf[i+3]=='t' && buf[i+4]=='u' && buf[i+5]=='r' && buf[i+6]=='e' &&
+                            (buf[i+7]==' ' || buf[i+7]==0)) {
+                            capture_mode = 1;
+                            i += 7;
+                            while (buf[i] == ' ') i++;
+                            if (!buf[i]) {
+                                console_writeln("usage: gpudump capture <bank> [offset] [len]");
+                                continue;
+                            }
+                        }
                         char token[16];
                         uint32_t bank = 0;
                         uint32_t offset = 0;
                         uint32_t length = 0x100u;
-                        int len = 0;
-                        while (buf[i] && buf[i] != ' ' && len < (int)(sizeof(token) - 1)) {
-                            token[len++] = buf[i++];
+                        int tok_len = 0;
+                        while (buf[i] && buf[i] != ' ' && tok_len < (int)(sizeof(token) - 1)) {
+                            token[tok_len++] = buf[i++];
                         }
-                        token[len] = '\0';
+                        token[tok_len] = '\0';
                         if (!shell_parse_u32(token, &bank)) {
                             console_writeln("gpudump: invalid bank value");
                             continue;
                         }
                         while (buf[i] == ' ') i++;
                         if (buf[i]) {
-                            len = 0;
-                            while (buf[i] && buf[i] != ' ' && len < (int)(sizeof(token) - 1)) {
-                                token[len++] = buf[i++];
+                            tok_len = 0;
+                            while (buf[i] && buf[i] != ' ' && tok_len < (int)(sizeof(token) - 1)) {
+                                token[tok_len++] = buf[i++];
                             }
-                            token[len] = '\0';
+                            token[tok_len] = '\0';
                             if (!shell_parse_u32(token, &offset)) {
                                 console_writeln("gpudump: invalid offset");
                                 continue;
                             }
                             while (buf[i] == ' ') i++;
                             if (buf[i]) {
-                                len = 0;
-                                while (buf[i] && buf[i] != ' ' && len < (int)(sizeof(token) - 1)) {
-                                    token[len++] = buf[i++];
+                                tok_len = 0;
+                                while (buf[i] && buf[i] != ' ' && tok_len < (int)(sizeof(token) - 1)) {
+                                    token[tok_len++] = buf[i++];
                                 }
-                                token[len] = '\0';
+                                token[tok_len] = '\0';
                                 if (!shell_parse_u32(token, &length)) {
                                     console_writeln("gpudump: invalid length");
                                     continue;
@@ -404,7 +415,13 @@ void shell_run(void) {
                         if (bank > 0x0Fu) {
                             console_writeln("gpudump: warning - bank index exceeds 0x0F");
                         }
-                        et4000_dump_bank((uint8_t)bank, offset, length);
+                        if (capture_mode) {
+                            if (!et4000_capture_dump((uint8_t)bank, offset, length)) {
+                                console_writeln("gpudump: capture failed");
+                            }
+                        } else {
+                            et4000_dump_bank((uint8_t)bank, offset, length);
+                        }
                     }
 #else
                     console_writeln("gpudump: Tseng driver disabled at build time");

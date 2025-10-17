@@ -180,3 +180,11 @@ static void keyboard_status_refresh(void) {
     buf[9] = 0;
     console_status_set_mid(buf);
 }
+
+int keyboard_wait_key(void) {
+    int ch = -1;
+    while (ch < 0) {
+        ch = keyboard_poll_char();
+    }
+    return ch;
+}

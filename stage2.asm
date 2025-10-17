@@ -979,7 +979,7 @@ read_chunk_lba:
     pop ax
     ret
 
-; Give floppy drives ~30ms to settle between BIOS disk calls (fallback if INT 15h fails)
+; Give floppy drives ~200ms to settle between BIOS disk calls (fallback if INT 15h fails)
 disk_wait_settle:
     push ax
     push bx
@@ -989,13 +989,17 @@ disk_wait_settle:
     cmp dl, 0x80
     jae .skip_wait
     mov ax, 0x8600
-    mov cx, 0
-    mov dx, 0x7530
+    mov cx, 0x0003
+    mov dx, 0x0D40
     int 0x15
     jnc .done
-    mov cx, 0xFFFF
-.busy_loop:
-    loop .busy_loop
+    mov cx, 0x0020
+.busy_outer:
+    mov bx, 0xFFFF
+.busy_inner:
+    dec bx
+    jnz .busy_inner
+    loop .busy_outer
 .done:
 .skip_wait:
     pop dx
