@@ -3,6 +3,7 @@ Mezereon — Minimal x86 OS path + SPARC OBP stub
 Quick start
 - Show available targets: `make help`
 - Shell command cheat-sheets: `docs/shell/README.md`
+- Serial debug plugin hardware notes: `docs/serial_debug_plugin.md`
 - x86 (QEMU i386)
   - Build: `make`
   - Run (floppy, terminal/curses): `make run-x86-floppy`

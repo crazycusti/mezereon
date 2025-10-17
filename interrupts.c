@@ -3,6 +3,7 @@
 #include "arch/x86/io.h"
 #include "console.h"
 #include "cpuidle.h"
+#include "debug_serial.h"
 
 // PIC remap as per OSDev
 void pic_remap(uint8_t offset1, uint8_t offset2) {
@@ -57,6 +58,7 @@ void interrupts_disable(void){ __asm__ volatile("cli"); }
 
 void irq0_handler_c(void) {
     ticks++;
+    debug_serial_plugin_timer_tick();
     // Update a small time indicator at top-right ~10 Hz
     if ((ticks % 10u) == 0u) {
         uint32_t t = ticks; // copy
