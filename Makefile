@@ -148,6 +148,9 @@ apps/keymusic_app.o: apps/keymusic_app.c ./mezapi.h
 apps/rotcube_app.o: apps/rotcube_app.c ./mezapi.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
+apps/mezcompose_app.o: apps/mezcompose_app.c ./mezapi.h ./config.h
+	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+
 apps/fbtest_color.o: apps/fbtest_color.c apps/fbtest_color.h display.h console.h drivers/gpu/gpu.h keyboard.h cpuidle.h netface.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
@@ -212,7 +215,7 @@ cpu.o: cpu.c cpu.h console.h
 cpuidle.o: cpuidle.c cpuidle.h config.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
-kernel_payload.elf: entry32.o kentry.o isr.o idt.o interrupts.o platform.o main.o memory.o paging.o video.o console.o debug_serial.o statusbar.o display.o fonts/font8x16.o $(CONSOLE_BACKEND_OBJ) netface.o net/ipv4.o net/tcp_min.o mezapi.o apps/keymusic_app.o apps/rotcube_app.o apps/fbtest_color.o apps/gpu_probe.o drivers/ne2000.o drivers/pcspeaker.o drivers/sb16.o drivers/pci.o drivers/gpu/gpu.o drivers/gpu/cirrus.o drivers/gpu/cirrus_accel.o drivers/gpu/et4000.o drivers/gpu/et4000ax.o drivers/gpu/fb_accel.o drivers/gpu/vga_hw.o drivers/ata.o drivers/fs/neelefs.o drivers/storage.o keyboard.o cpu.o cpuidle.o shell.o
+kernel_payload.elf: entry32.o kentry.o isr.o idt.o interrupts.o platform.o main.o memory.o paging.o video.o console.o debug_serial.o statusbar.o display.o fonts/font8x16.o $(CONSOLE_BACKEND_OBJ) netface.o net/ipv4.o net/tcp_min.o mezapi.o apps/keymusic_app.o apps/rotcube_app.o apps/mezcompose_app.o apps/fbtest_color.o apps/gpu_probe.o drivers/ne2000.o drivers/pcspeaker.o drivers/sb16.o drivers/pci.o drivers/gpu/gpu.o drivers/gpu/cirrus.o drivers/gpu/cirrus_accel.o drivers/gpu/et4000.o drivers/gpu/et4000ax.o drivers/gpu/fb_accel.o drivers/gpu/vga_hw.o drivers/ata.o drivers/fs/neelefs.o drivers/storage.o keyboard.o cpu.o cpuidle.o shell.o
 	$(LD) $(LDFLAGS) $^ -o $@
 
 # Erzeuge flaches Binary ohne führende 0x8000-Lücke

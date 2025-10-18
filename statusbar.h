@@ -2,6 +2,7 @@
 #define STATUSBAR_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 #define STATUSBAR_MAX_SLOTS 16
 #define STATUSBAR_TEXT_MAX  64
@@ -37,5 +38,8 @@ void statusbar_set_icon(statusbar_slot_t slot, char icon);
 void statusbar_legacy_set_left(const char* text);
 void statusbar_legacy_set_mid(const char* text);
 void statusbar_legacy_set_right(const char* text);
+
+/* Snapshot helpers */
+size_t statusbar_snapshot(char* out, size_t out_size);
 
 #endif /* STATUSBAR_H */

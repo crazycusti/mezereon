@@ -12,6 +12,7 @@ Provided services
 - Text mode helpers: `text_put(x,y,ch,attr)`, `text_fill_line(y,ch,attr)`
 - Statusbar:
   - Legacy Wrapper: `status_left(text)`, `status_right(text,len)`
+  - Snapshot: `status_snapshot(buffer, capacity)` kopiert die aktuelle 80-Spalten-Zeile für eigene Renderer
   - Slots: `status_register(pos, priority, flags, icon, initial_text)`, `status_update(slot, text)`, `status_release(slot)`
   - Position enum `mez_status_pos_t` (`LEFT/CENTER/RIGHT`), Flags (`MEZ_STATUS_FLAG_ICON_ONLY_ON_TRUNCATE`)
 - Framebuffer: `capabilities` bitmask (`MEZ_CAP_VIDEO_FB`, `MEZ_CAP_VIDEO_FB_ACCEL`), `video_fb_get_info()` → returns `NULL` oder `mez_fb_info32_t` (Breite, Höhe, Pitch, bpp, `framebuffer`), `video_fb_fill_rect(x,y,w,h,color)` für schnelle Flächenfüllungen (setzt `MEZ_CAP_VIDEO_FB_ACCEL` voraus).
@@ -79,5 +80,5 @@ if (fb && fb->bpp == 8) {
 ```
 
 See also
-- `apps/keymusic_app.c` oder `apps/rotcube_app.c` für Beispielanwendungen
+- `apps/keymusic_app.c`, `apps/rotcube_app.c` oder `apps/mezcompose_app.c` für Beispielanwendungen
 - `docs/shell/apps.md` für den Shell-Launcher
