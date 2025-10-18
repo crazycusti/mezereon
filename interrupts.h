@@ -9,6 +9,8 @@ void pic_mask_all(void);
 void pit_init(uint32_t hz);
 void interrupts_enable(void);
 void interrupts_disable(void);
+uint32_t interrupts_save_disable(void);
+void interrupts_restore(uint32_t flags);
 
 // Tick counter from PIT IRQ0
 uint32_t ticks_get(void);
