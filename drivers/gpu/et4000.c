@@ -137,6 +137,18 @@ static void et4k_log_dec(const char* label, uint32_t value) {
     console_write("\n");
 }
 
+#define ET4K_COM1_BASE 0x3F8u
+#define ET4K_UART_LSR_OFFSET 5u
+#define ET4K_UART_LSR_THRE 0x20u
+
+static inline void et4k_serial_heartbeat(uint8_t marker) {
+    uint8_t status = inb(ET4K_COM1_BASE + ET4K_UART_LSR_OFFSET);
+    if ((status & ET4K_UART_LSR_THRE) == 0u) {
+        return;
+    }
+    outb(ET4K_COM1_BASE, marker);
+}
+
 static void et4k_log_reg_write(const char* block, uint8_t index, uint8_t value) {
     if (!block || !et4k_trace_enabled()) return;
     console_write("[et4k] ");
@@ -417,7 +429,9 @@ static void et4k_shadow_upload(const et4k_fb_state_t* state) {
                         packed |= (uint8_t)(0x80u >> bit);
                     }
                 }
+                et4k_serial_heartbeat('<');
                 dst_line[byte_index] = packed;
+                et4k_serial_heartbeat('>');
             }
         }
     }
