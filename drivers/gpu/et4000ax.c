@@ -72,8 +72,7 @@ static void et4kax_writew(uint16_t port, uint16_t value) {
 
 static int et4kax_enable_register_window(void) {
     uint8_t attr = vga_attr_read(0x16);
-    vga_attr_write(0x16, (uint8_t)(attr | 0x40u));
-    vga_attr_reenable_video();
+    vga_attr_write_and_reenable(0x16, (uint8_t)(attr | 0x40u));
     uint8_t attr_check = vga_attr_read(0x16);
     vga_attr_reenable_video();
     if ((attr_check & 0x40u) == 0) {

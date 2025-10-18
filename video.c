@@ -85,7 +85,7 @@ static void video_force_8dot_text_mode(void) {
     }
     uint8_t attr_mode = vga_attr_read(0x10);
     if ((attr_mode & 0x04u) == 0) {
-        vga_attr_write(0x10, (uint8_t)(attr_mode | 0x04u));
+        vga_attr_write_and_reenable(0x10, (uint8_t)(attr_mode | 0x04u));
     }
 }
 #endif
