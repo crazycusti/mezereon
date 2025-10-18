@@ -95,6 +95,10 @@ static int g_et4k_debug_trace = 1;
 #define ET4K_PORT_ATTR        0x3C0
 #define ET4K_PORT_STATUS      0x3DA
 
+#define ET4K_STATUS_VRETRACE  0x08u
+#define ET4K_STATUS_HRETRACE  0x01u
+#define ET4K_SYNC_TIMEOUT_ITERATIONS 200000u
+
 static inline int et4k_trace_enabled(void) {
     return g_et4k_debug_trace;
 }
@@ -195,6 +199,26 @@ static inline uint8_t et4k_status_read(void) {
     uint8_t value = inb(ET4K_PORT_STATUS);
     et4k_io_wait();
     return value;
+}
+
+static int et4k_wait_status(uint8_t mask, uint8_t expected_bits) {
+    for (uint32_t i = 0; i < ET4K_SYNC_TIMEOUT_ITERATIONS; ++i) {
+        uint8_t status = et4k_status_read();
+        if ((status & mask) == expected_bits) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void et4k_wait_vblank_window(void) {
+    if (!et4k_wait_status(ET4K_STATUS_VRETRACE, 0)) {
+        et4k_log("wait_vblank: timeout waiting for display active (skipping sync)");
+        return;
+    }
+    if (!et4k_wait_status(ET4K_STATUS_VRETRACE, ET4K_STATUS_VRETRACE)) {
+        et4k_log("wait_vblank: timeout waiting for retrace (skipping sync)");
+    }
 }
 
 static inline void et4k_misc_write(uint8_t value) {
@@ -307,6 +331,8 @@ static void et4k_shadow_upload(const et4k_fb_state_t* state) {
         et4k_log("shadow_upload: skipped (VRAM window not mapped)");
         return;
     }
+
+    et4k_wait_vblank_window();
 
     uint32_t irq_flags = et4k_irq_guard_acquire();
 
