@@ -68,6 +68,20 @@ uint32_t et4k_detection_alias_limit_bytes(void) { return 0; }
 #define VGA_WINDOW_PHYS      0xA0000u
 #define VGA_WINDOW_SIZE      0x40000u
 
+#define X86_EFLAGS_IF        0x200u
+
+#if CONFIG_VIDEO_ET4000_FORCE_VGA_ONLY
+#define ET4K_FORCE_VGA_ONLY 1
+#else
+#define ET4K_FORCE_VGA_ONLY 0
+#endif
+
+#if CONFIG_VIDEO_ET4000_NO_VRAM_TOUCH
+#define ET4K_NO_VRAM_TOUCH 1
+#else
+#define ET4K_NO_VRAM_TOUCH 0
+#endif
+
 typedef struct {
     uint8_t* buffer;
     uint16_t width;
@@ -103,6 +117,16 @@ static int g_et4k_debug_trace = 1;
 
 static inline int et4k_trace_enabled(void) {
     return g_et4k_debug_trace;
+}
+
+static inline uint32_t et4k_cli_guard_acquire(void) {
+    return interrupts_save_disable();
+}
+
+static inline void et4k_cli_guard_release(uint32_t saved_flags) {
+    if ((saved_flags & X86_EFLAGS_IF) != 0u) {
+        interrupts_enable();
+    }
 }
 
 static inline uint32_t et4k_irq_guard_acquire(void) {
@@ -216,6 +240,10 @@ static inline uint8_t et4k_status_read(void) {
 }
 
 static void et4k_reset_window_registers(void) {
+    if (ET4K_FORCE_VGA_ONLY) {
+        et4k_log("reset_window: skipped (VGA-only)");
+        return;
+    }
     uint32_t irq_flags = et4k_irq_guard_acquire();
 
     uint8_t ext_before = inb(ET4K_EXT_PORT);
@@ -516,6 +544,11 @@ static void et4k_fb_sync(void* ctx) {
         et4k_log("fb_sync: skipped (clean)");
         return;
     }
+    if (ET4K_NO_VRAM_TOUCH) {
+        et4k_log("fb_sync: skipped (NO_VRAM_TOUCH)");
+        state->dirty = 0;
+        return;
+    }
     et4k_log("fb_sync: uploading shadow buffer");
     et4k_shadow_upload(state);
     state->dirty = 0;
@@ -554,26 +587,29 @@ static void et4k_load_palette16(void) {
 
 static void et4k_program_mode12(void) {
     et4k_log("program_mode12: enter");
-    uint32_t irq_flags = et4k_irq_guard_acquire();
+    uint32_t irq_flags = et4k_cli_guard_acquire();
     uint8_t saved_crt11 = et4k_crtc_read(0x11);
     et4k_log_hex("CRTC[0x11]_saved", saved_crt11);
 
+    et4k_serial_heartbeat('.');
     et4k_misc_write(0xE3);
     et4k_log_hex("MISC_WRITE", 0xE3);
+    et4k_serial_heartbeat('.');
 
-    et4k_log("program_mode12: asserting SR0 reset");
-    et4k_seq_write(0x00, 0x00);
-    et4k_log_reg_write("SEQ", 0x00, 0x00);
-    et4k_log("program_mode12: SR0 asserted");
+    et4k_serial_heartbeat('.');
+    et4k_log("program_mode12: sequencing safe VGA");
+    et4k_seq_write(0x00, 0x01);
+    et4k_log_reg_write("SEQ", 0x00, 0x01);
     for (uint8_t i = 1; i < 5; ++i) {
-        et4k_seq_write(i, k_seq_mode12[i]);
-        et4k_log_reg_write("SEQ12", i, k_seq_mode12[i]);
+        uint8_t value = k_seq_mode12[i];
+        et4k_seq_write(i, value);
+        et4k_log_reg_write("SEQ12", i, value);
     }
-    et4k_log("program_mode12: sequencer core programmed");
-    et4k_seq_write(0x00, 0x03);
-    et4k_log_reg_write("SEQ", 0x00, 0x03);
-    et4k_log("program_mode12: SR0 released");
+    et4k_seq_write(0x00, k_seq_mode12[0]);
+    et4k_log_reg_write("SEQ", 0x00, k_seq_mode12[0]);
+    et4k_serial_heartbeat('.');
 
+    et4k_serial_heartbeat('.');
     et4k_crtc_write(0x11, (uint8_t)(saved_crt11 & (uint8_t)~0x80u));
     et4k_log_reg_write("CRTC12", 0x11, (uint8_t)(saved_crt11 & (uint8_t)~0x80u));
     for (uint8_t i = 0; i < 25; ++i) {
@@ -582,33 +618,38 @@ static void et4k_program_mode12(void) {
     }
     et4k_crtc_write(0x11, saved_crt11);
     et4k_log_reg_write("CRTC12", 0x11, saved_crt11);
-    et4k_log("program_mode12: CRTC block programmed");
+    et4k_serial_heartbeat('.');
 
+    et4k_serial_heartbeat('.');
     for (uint8_t i = 0; i < 9; ++i) {
         et4k_gc_write(i, k_graph_mode12[i]);
         et4k_log_reg_write("GC12", i, k_graph_mode12[i]);
     }
-    et4k_log("program_mode12: GC block done");
+    et4k_serial_heartbeat('.');
 
+    et4k_serial_heartbeat('.');
     for (uint8_t i = 0; i < 21; ++i) {
         et4k_attr_write(i, k_attr_mode12[i]);
         et4k_log_reg_write("ATTR12", i, k_attr_mode12[i]);
     }
-    et4k_log("program_mode12: ATC palette done");
+    et4k_serial_heartbeat('.');
+
     vga_attr_reenable_video();
     et4k_log("program_mode12: ATC video enable on");
 
+    et4k_serial_heartbeat('.');
     vga_pel_mask_write(0xFF);
     et4k_io_wait();
     et4k_log_hex("PEL_MASK", 0xFF);
     et4k_load_palette16();
+    et4k_serial_heartbeat('.');
     et4k_log("program_mode12: exit");
-    et4k_irq_guard_release(irq_flags);
+    et4k_cli_guard_release(irq_flags);
 }
 
 static void et4k_program_text_mode(void) {
     et4k_log("program_text_mode: enter");
-    uint32_t irq_flags = et4k_irq_guard_acquire();
+    uint32_t irq_flags = et4k_cli_guard_acquire();
     uint8_t saved_crt11 = et4k_crtc_read(0x11);
     et4k_log_hex("CRTC[0x11]_saved", saved_crt11);
 
@@ -616,9 +657,8 @@ static void et4k_program_text_mode(void) {
     et4k_log_hex("MISC_WRITE", 0x67);
 
     et4k_log("program_text_mode: asserting SR0 reset");
-    et4k_seq_write(0x00, 0x00);
-    et4k_log_reg_write("SEQ", 0x00, 0x00);
-    et4k_log("program_text_mode: SR0 asserted");
+    et4k_seq_write(0x00, 0x01);
+    et4k_log_reg_write("SEQ", 0x00, 0x01);
     for (uint8_t i = 1; i < 5; ++i) {
         et4k_seq_write(i, k_seq_text[i]);
         et4k_log_reg_write("SEQTXT", i, k_seq_text[i]);
@@ -656,7 +696,7 @@ static void et4k_program_text_mode(void) {
     et4k_log_hex("PEL_MASK", 0xFF);
     vga_dac_reset_text_palette();
     et4k_log("program_text_mode: exit");
-    et4k_irq_guard_release(irq_flags);
+    et4k_cli_guard_release(irq_flags);
 }
 
 int et4000_detect(gpu_info_t* out_info) {
@@ -668,6 +708,20 @@ int et4000_detect(gpu_info_t* out_info) {
 
     et4k_bzero(out_info, (uint32_t)sizeof(*out_info));
     g_is_ax_variant = 0;
+
+    if (ET4K_FORCE_VGA_ONLY) {
+        et4k_log("detect: VGA-only flag active, skipping Tseng signature probes");
+        out_info->type = GPU_TYPE_ET4000;
+        et4k_copy_string(out_info->name, (uint32_t)sizeof(out_info->name), "Tseng ET4000 (VGA-only)");
+        out_info->framebuffer_bar = 0xFF;
+        out_info->framebuffer_base = VGA_WINDOW_PHYS;
+        out_info->framebuffer_size = VGA_WINDOW_SIZE;
+        out_info->capabilities = 0;
+        g_et4k_detect.detected = 1;
+        g_et4k_detect.signature_ok = 0;
+        gpu_debug_log("WARN", "et4k: VGA-only mode active, skipping extended detection");
+        return 1;
+    }
 
     uint32_t irq_flags = et4k_irq_guard_acquire();
     int result = 0;
@@ -853,7 +907,12 @@ int et4k_set_mode(gpu_info_t* gpu, display_mode_info_t* out_mode,
         console_write("\n");
     }
     et4k_fb_mark_dirty(&g_et4k_fb, 0, 0, g_et4k_fb.width, g_et4k_fb.height);
-    et4k_fb_sync(&g_et4k_fb);
+    if (ET4K_NO_VRAM_TOUCH) {
+        et4k_log("set_mode: NO_VRAM_TOUCH active, skipping initial VRAM sync");
+        g_et4k_fb.dirty = 0;
+    } else {
+        et4k_fb_sync(&g_et4k_fb);
+    }
 
     et4k_log("set_mode: registering framebuffer accelerator");
     fb_accel_register(&g_et4k_fb_ops, &g_et4k_fb);
