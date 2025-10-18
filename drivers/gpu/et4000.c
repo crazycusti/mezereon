@@ -63,6 +63,8 @@ uint32_t et4k_detection_alias_limit_bytes(void) { return 0; }
 
 #define ET4K_EXT_PORT        0x3BF
 #define ET4K_SIGNATURE_PORT  0x3CD
+#define ET4K_PORT_BANK       0x3CB
+#define ET4K_PORT_SEGMENT    ET4K_SIGNATURE_PORT
 #define VGA_WINDOW_PHYS      0xA0000u
 #define VGA_WINDOW_SIZE      0x40000u
 
@@ -199,6 +201,46 @@ static inline uint8_t et4k_status_read(void) {
     uint8_t value = inb(ET4K_PORT_STATUS);
     et4k_io_wait();
     return value;
+}
+
+static void et4k_reset_window_registers(void) {
+    uint32_t irq_flags = et4k_irq_guard_acquire();
+
+    uint8_t ext_before = inb(ET4K_EXT_PORT);
+    et4k_io_wait();
+    uint8_t seg_before = inb(ET4K_PORT_SEGMENT);
+    et4k_io_wait();
+    uint8_t bank_before = inb(ET4K_PORT_BANK);
+    et4k_io_wait();
+
+    uint8_t ext_unlock = (uint8_t)(ext_before | 0x03u);
+    if (ext_unlock != ext_before) {
+        outb(ET4K_EXT_PORT, ext_unlock);
+        et4k_io_wait();
+    }
+
+    outb(ET4K_PORT_SEGMENT, 0x00);
+    et4k_io_wait();
+    outb(ET4K_PORT_BANK, 0x00);
+    et4k_io_wait();
+
+    if (et4k_trace_enabled()) {
+        uint8_t seg_after = inb(ET4K_PORT_SEGMENT);
+        et4k_io_wait();
+        uint8_t bank_after = inb(ET4K_PORT_BANK);
+        et4k_io_wait();
+        et4k_log_hex("window.segment.before", seg_before);
+        et4k_log_hex("window.segment.after", seg_after);
+        et4k_log_hex("window.bank.before", bank_before);
+        et4k_log_hex("window.bank.after", bank_after);
+    }
+
+    if (ext_before != ext_unlock) {
+        outb(ET4K_EXT_PORT, ext_before);
+        et4k_io_wait();
+    }
+
+    et4k_irq_guard_release(irq_flags);
 }
 
 static int et4k_wait_status(uint8_t mask, uint8_t expected_bits) {
@@ -767,6 +809,9 @@ int et4k_set_mode(gpu_info_t* gpu, display_mode_info_t* out_mode,
     et4k_log("set_mode: programming VGA mode 12h");
     et4k_program_mode12();
     et4k_log("set_mode: mode12 staged OK (pre-framebuffer)");
+
+    et4k_log("set_mode: resetting Tseng window registers to bank 0");
+    et4k_reset_window_registers();
 
     if (!et4k_map_vram_window(VGA_WINDOW_PHYS)) {
         et4k_log("set_mode: VRAM window mapping failed");
