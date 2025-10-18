@@ -11,6 +11,11 @@
 #define CONFIG_NE2000_SCAN 1
 #endif
 
+// Mezcompose preview window manager toggle (default enabled)
+#ifndef CONFIG_MEZCOMPOSE_ENABLE
+#define CONFIG_MEZCOMPOSE_ENABLE 1
+#endif
+
 // Sound Blaster 16 (SB16) legacy ISA defaults
 #ifndef CONFIG_SB16_ENABLE
 #define CONFIG_SB16_ENABLE 1

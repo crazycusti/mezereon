@@ -9,5 +9,6 @@ The `app` command loads small userland helpers that are linked against the in-ke
 Bundled apps
 - `keymusic` — tone generator controlled by keyboard (C D E F G A H/B, Ctrl+Q to exit)
 - `rotcube` — MezAPI framebuffer demo with rotating cube (requires framebuffer + acceleration for best effect; Ctrl+Q or Esc to exit)
+- `mezcomp` — mezcompose preview window manager with synchronized framebuffer/text output (Esc or Ctrl+Q to exit)
 
 Applications obtain services (console, keyboard, timers, PC speaker, text mode) via `mez_api_get()`; see `docs/api/mezapi.md`.

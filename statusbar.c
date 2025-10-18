@@ -129,6 +129,30 @@ void statusbar_legacy_set_right(const char* text) {
     statusbar_set_text(g_legacy_right, text);
 }
 
+size_t statusbar_snapshot(char* out, size_t out_size) {
+    if (!out || out_size == 0) {
+        return 0;
+    }
+    if (!g_cached_valid) {
+        statusbar_render();
+    }
+    size_t limit = STATUSBAR_COLS;
+    if (limit > out_size) {
+        limit = out_size;
+    }
+    for (size_t i = 0; i < limit; i++) {
+        char ch = g_cached_line[i];
+        if (ch == '\0') {
+            ch = ' ';
+        }
+        out[i] = ch;
+    }
+    for (size_t i = limit; i < out_size; i++) {
+        out[i] = ' ';
+    }
+    return STATUSBAR_COLS;
+}
+
 static size_t compose_slot_string(const statusbar_slot_entry_t* slot, char* buffer, size_t buf_cap) {
     size_t pos = 0;
     if (slot->icon) {

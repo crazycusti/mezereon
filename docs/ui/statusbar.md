@@ -21,6 +21,7 @@ statusbar_slot_t statusbar_register(const statusbar_slot_desc_t* desc);
 void statusbar_set_text(statusbar_slot_t slot, const char* text);
 void statusbar_set_icon(statusbar_slot_t slot, char icon);
 void statusbar_release(statusbar_slot_t slot);
+size_t statusbar_snapshot(char* out, size_t out_size); // kopiert die aktuelle Zeile (80 Spalten)
 ```
 
 - Legacy-Helfer (`statusbar_legacy_set_left/mid/right`) speisen die alten `console_status_*` Wrapper.

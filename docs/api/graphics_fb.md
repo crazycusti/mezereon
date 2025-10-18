@@ -74,3 +74,4 @@ Weiterführend
 - `docs/hw/pci_gpu.md` — Hinweise zu Grafikhardware und `gpuinfo`
 - `apps/fbtest_color.c` — Farbbalken-Demo im Kernel (zeigt, wie Palette und Framebuffer genutzt werden)
 - `apps/rotcube_app.c` — MezAPI-Demo, die die beschleunigte `video_fb_fill_rect()` nutzt
+- `apps/mezcompose_app.c` — Fenster-Layout-Vorschau, die Framebuffer und Textmodus synchron hält

@@ -96,7 +96,7 @@ void shell_run(void) {
                 } else if (streq(buf, "kbdump")) {
                     keyboard_debug_dump();
                 } else if (streq(buf, "help")) {
-                    console_write("Commands: version, clear, help, cpuinfo, meminfo, ticks, wakeups, idle [n], timer <show|hz N|off|on>, ata, atadump [lba], autofs [show|rescan|mount <n>], ip [show|set <ip> <mask> [gw]|ping <ip> [count]], neele mount [lba], neele ls [path], neele cat <name|/path>, neele mkfs, neele mkdir </path>, neele write </path> <text>, neele verify [verbose] [path], pad </path>, netinfo, netrxdump, gpuprobe [scan|noscan] [auto|noauto] [activate <chip> <WxHxB>], gpudump <bank> [offset] [len], gpuinfo, fbtest, beep [freq] [ms], keymusic, rotcube, app [ls|run </path|name>], http [start [port]|stop|status|body <text>]\n");
+                    console_write("Commands: version, clear, help, cpuinfo, meminfo, ticks, wakeups, idle [n], timer <show|hz N|off|on>, ata, atadump [lba], autofs [show|rescan|mount <n>], ip [show|set <ip> <mask> [gw]|ping <ip> [count]], neele mount [lba], neele ls [path], neele cat <name|/path>, neele mkfs, neele mkdir </path>, neele write </path> <text>, neele verify [verbose] [path], pad </path>, netinfo, netrxdump, gpuprobe [scan|noscan] [auto|noauto] [activate <chip> <WxHxB>], gpudump <bank> [offset] [len], gpuinfo, fbtest, beep [freq] [ms], keymusic, rotcube, mezcomp, app [ls|run </path|name>], http [start [port]|stop|status|body <text>]\n");
                 } else if (streq(buf, "ata")) {
                     if (ata_present()) console_write("ATA present (selected device).\n");
                     else console_write("ATA not present.\n");
@@ -352,6 +352,9 @@ void shell_run(void) {
                 } else if (streq(buf, "rotcube")) {
                     extern int rotcube_app_main(const mez_api32_t*);
                     (void)rotcube_app_main(mez_api_get());
+                } else if (streq(buf, "mezcomp")) {
+                    extern int mezcompose_app_main(const mez_api32_t*);
+                    (void)mezcompose_app_main(mez_api_get());
                 } else if (streq(buf, "fbtest")) {
                     fbtest_run();
                 } else if (buf[0]=='g' && buf[1]=='p' && buf[2]=='u' && buf[3]=='p' && buf[4]=='r' && buf[5]=='o' && buf[6]=='b' && buf[7]=='e' && (buf[8]==0 || buf[8]==' ')) {
@@ -467,6 +470,9 @@ void shell_run(void) {
                             } else if (name[0]=='r'&&name[1]=='o'&&name[2]=='t'&&name[3]=='c'&&name[4]=='u'&&name[5]=='b'&&name[6]=='e'&&name[7]==0){
                                 extern int rotcube_app_main(const mez_api32_t*);
                                 (void)rotcube_app_main(mez_api_get());
+                            } else if (name[0]=='m'&&name[1]=='e'&&name[2]=='z'&&name[3]=='c'&&name[4]=='o'&&name[5]=='m'&&name[6]=='p'&&name[7]==0){
+                                extern int mezcompose_app_main(const mez_api32_t*);
+                                (void)mezcompose_app_main(mez_api_get());
                             } else {
                                 console_writeln("app: unknown name");
                             }

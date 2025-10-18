@@ -74,6 +74,10 @@ static void api_status_release(mez_status_slot_t slot) {
     statusbar_release((statusbar_slot_t)slot);
 }
 
+static size_t api_status_snapshot(char* buffer, size_t capacity) {
+    return statusbar_snapshot(buffer, capacity);
+}
+
 static const mez_fb_info32_t* api_video_fb_get_info(void)
 {
     uint32_t pitch; uint16_t width; uint16_t height; uint8_t bpp;
@@ -169,6 +173,7 @@ static mez_api32_t g_api = {
     .text_fill_line  = api_text_fill_line,
     .status_left     = console_status_set_left,
     .status_right    = console_draw_status_right,
+    .status_snapshot = api_status_snapshot,
 
     .status_register = api_status_register,
     .status_update   = api_status_update,

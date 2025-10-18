@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#include <stddef.h>
 
 // MezAPI v1 for 32-bit x86 (cdecl, little-endian)
 // Stable binary layout: new functions are appended; size guards compatibility.
@@ -77,6 +78,7 @@ typedef struct mez_api32 {
     void     (*text_fill_line)(int y, char ch, uint8_t attr);
     void     (*status_left)(const char* s);
     void     (*status_right)(const char* s, int len);
+    size_t   (*status_snapshot)(char* buffer, size_t capacity);
 
     // Advanced status bar management (optional)
     mez_status_slot_t (*status_register)(mez_status_pos_t pos, uint8_t priority, uint8_t flags, char icon, const char* initial_text);
