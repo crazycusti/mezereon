@@ -423,6 +423,11 @@ static void et4k_shadow_upload(const et4k_fb_state_t* state) {
     }
 
     et4k_seq_write(0x02, 0x0F);
+    et4k_gc_write(0x08, 0xFF);
+    if (et4k_trace_enabled()) {
+        et4k_log_reg_write("SEQ_PLANE", 0x02, 0x0F);
+        et4k_log_reg_write("GC_BITMASK", 0x08, 0xFF);
+    }
     et4k_log("shadow_upload: end");
 
     et4k_irq_guard_release(irq_flags);
