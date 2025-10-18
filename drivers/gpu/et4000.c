@@ -6,6 +6,7 @@
 #include "../../console.h"
 #if CONFIG_ARCH_X86
 #include "../../arch/x86/io.h"
+#include "../../interrupts.h"
 #endif
 
 #include <stdint.h>
@@ -95,6 +96,14 @@ static int g_et4k_debug_trace = 1;
 
 static inline int et4k_trace_enabled(void) {
     return g_et4k_debug_trace;
+}
+
+static inline uint32_t et4k_irq_guard_acquire(void) {
+    return interrupts_save_disable();
+}
+
+static inline void et4k_irq_guard_release(uint32_t flags) {
+    interrupts_restore(flags);
 }
 
 static void et4k_log(const char* msg) {
@@ -284,6 +293,8 @@ static void et4k_shadow_upload(const et4k_fb_state_t* state) {
         return;
     }
 
+    uint32_t irq_flags = et4k_irq_guard_acquire();
+
     const uint16_t width = state->width;
     const uint16_t height = state->height;
     const uint32_t pitch = state->pitch;
@@ -330,6 +341,8 @@ static void et4k_shadow_upload(const et4k_fb_state_t* state) {
 
     et4k_seq_write(0x02, 0x0F);
     et4k_log("shadow_upload: end");
+
+    et4k_irq_guard_release(irq_flags);
 }
 
 static int et4k_fb_fill_rect(void* ctx, uint16_t x, uint16_t y,
@@ -439,6 +452,7 @@ static void et4k_load_palette16(void) {
 
 static void et4k_program_mode12(void) {
     et4k_log("program_mode12: enter");
+    uint32_t irq_flags = et4k_irq_guard_acquire();
     uint8_t saved_crt11 = et4k_crtc_read(0x11);
     et4k_log_hex("CRTC[0x11]_saved", saved_crt11);
 
@@ -487,10 +501,12 @@ static void et4k_program_mode12(void) {
     et4k_log_hex("PEL_MASK", 0xFF);
     et4k_load_palette16();
     et4k_log("program_mode12: exit");
+    et4k_irq_guard_release(irq_flags);
 }
 
 static void et4k_program_text_mode(void) {
     et4k_log("program_text_mode: enter");
+    uint32_t irq_flags = et4k_irq_guard_acquire();
     uint8_t saved_crt11 = et4k_crtc_read(0x11);
     et4k_log_hex("CRTC[0x11]_saved", saved_crt11);
 
@@ -538,6 +554,7 @@ static void et4k_program_text_mode(void) {
     et4k_log_hex("PEL_MASK", 0xFF);
     vga_dac_reset_text_palette();
     et4k_log("program_text_mode: exit");
+    et4k_irq_guard_release(irq_flags);
 }
 
 int et4000_detect(gpu_info_t* out_info) {
@@ -549,6 +566,9 @@ int et4000_detect(gpu_info_t* out_info) {
 
     et4k_bzero(out_info, (uint32_t)sizeof(*out_info));
     g_is_ax_variant = 0;
+
+    uint32_t irq_flags = et4k_irq_guard_acquire();
+    int result = 0;
 
     uint8_t ext_before = inb(ET4K_EXT_PORT);
     io_delay();
@@ -622,7 +642,7 @@ int et4000_detect(gpu_info_t* out_info) {
         gpu_set_last_error("ERROR: Tseng ET4000 signature mismatch");
         gpu_debug_log("ERROR", "et4k: signature test via port 3CDh failed");
         et4k_log("detect: exit failure");
-        return 0;
+        goto cleanup;
     }
 
     if (!signature_ok && fallback_ok) {
@@ -654,7 +674,12 @@ int et4000_detect(gpu_info_t* out_info) {
         gpu_debug_log("WARN", "et4k: legacy Tseng ET4000 detected via CRTC fallback");
         et4k_log("detect: exit WARN (fallback)");
     }
-    return 1;
+
+    result = 1;
+
+cleanup:
+    et4k_irq_guard_release(irq_flags);
+    return result;
 }
 
 static int et4k_ensure_detected(void) {

@@ -47,8 +47,20 @@ void pit_init(uint32_t hz) {
     outb(0x40, (uint8_t)((div >> 8) & 0xFF));
 }
 
-void interrupts_enable(void){ __asm__ volatile("sti"); }
-void interrupts_disable(void){ __asm__ volatile("cli"); }
+void interrupts_enable(void){ __asm__ volatile("sti" ::: "memory"); }
+void interrupts_disable(void){ __asm__ volatile("cli" ::: "memory"); }
+
+uint32_t interrupts_save_disable(void) {
+    uint32_t flags;
+    __asm__ volatile ("pushfl\n\tcli\n\tpopl %0" : "=r"(flags) : : "memory");
+    return flags;
+}
+
+void interrupts_restore(uint32_t flags) {
+    if (flags & (1u << 9)) {
+        interrupts_enable();
+    }
+}
 
 // C handler for IRQ0 (timer)
 // For IRQ1 keyboard
