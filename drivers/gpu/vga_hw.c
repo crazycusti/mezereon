@@ -19,6 +19,19 @@ static inline void vga_attr_reset(void) {
 #endif
 }
 
+#if CONFIG_ARCH_X86
+static inline void vga_attr_write_sequence(uint8_t index, uint8_t value) {
+    vga_attr_reset();
+    outb(0x3C0, index);
+    outb(0x3C0, value);
+}
+
+static inline void vga_attr_video_enable_sequence(void) {
+    vga_attr_reset();
+    outb(0x3C0, 0x20);
+}
+#endif
+
 uint8_t vga_seq_read(uint8_t index) {
 #if CONFIG_ARCH_X86
     outb(0x3C4, index);
@@ -79,8 +92,10 @@ void vga_gc_write(uint8_t index, uint8_t value) {
 uint8_t vga_attr_read(uint8_t index) {
 #if CONFIG_ARCH_X86
     vga_attr_reset();
-    outb(0x3C0, (uint8_t)(index | 0x20));
-    return inb(0x3C1);
+    outb(0x3C0, index);
+    uint8_t value = inb(0x3C1);
+    vga_attr_video_enable_sequence();
+    return value;
 #else
     (void)index;
     return 0;
@@ -97,9 +112,16 @@ uint8_t vga_misc_read(void) {
 
 void vga_attr_write(uint8_t index, uint8_t value) {
 #if CONFIG_ARCH_X86
-    vga_attr_reset();
-    outb(0x3C0, index);
-    outb(0x3C0, value);
+    vga_attr_write_sequence(index, value);
+#else
+    (void)index; (void)value;
+#endif
+}
+
+void vga_attr_write_and_reenable(uint8_t index, uint8_t value) {
+#if CONFIG_ARCH_X86
+    vga_attr_write_sequence(index, value);
+    vga_attr_video_enable_sequence();
 #else
     (void)index; (void)value;
 #endif
@@ -107,8 +129,7 @@ void vga_attr_write(uint8_t index, uint8_t value) {
 
 void vga_attr_reenable_video(void) {
 #if CONFIG_ARCH_X86
-    vga_attr_reset();
-    outb(0x3C0, 0x20);
+    vga_attr_video_enable_sequence();
 #endif
 }
 
@@ -197,7 +218,7 @@ void vga_attr_mask(uint8_t index, uint8_t mask, uint8_t value) {
 #if CONFIG_ARCH_X86
     uint8_t current = vga_attr_read(index);
     current = (uint8_t)((current & ~mask) | (value & mask));
-    vga_attr_write(index, current);
+    vga_attr_write_and_reenable(index, current);
 #else
     (void)index; (void)mask; (void)value;
 #endif

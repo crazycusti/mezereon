@@ -11,6 +11,7 @@ uint8_t vga_gc_read(uint8_t index);
 void    vga_gc_write(uint8_t index, uint8_t value);
 uint8_t vga_attr_read(uint8_t index);
 void    vga_attr_write(uint8_t index, uint8_t value);
+void    vga_attr_write_and_reenable(uint8_t index, uint8_t value);
 void    vga_attr_reenable_video(void);
 uint8_t vga_misc_read(void);
 void    vga_misc_write(uint8_t value);
