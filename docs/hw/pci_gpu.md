@@ -26,7 +26,7 @@ Shell usage
 Tseng ET4000 (ISA) notes
 ------------------------
 - Detection toggles the Tseng-specific bank/segment registers (`0x3CB/0x3CD`). Activation is gated by `CONFIG_VIDEO_ENABLE_ET4000` (default: on).
-- The driver exposes einen banked Framebuffer über ein Shadow-Buffer: per `CONFIG_VIDEO_ET4000_MODE` lässt sich zwischen 640×480×8 (Default) und 640×400×8 wählen. Letzteres vermeidet Skalierungsprobleme auf vielen TFTs/Notebooks.
+- The driver exposes einen banked Framebuffer über ein Shadow-Buffer: per `CONFIG_VIDEO_ET4000_MODE` ist 640×480×4 aktuell der Standard; eine 640×400×8-Option bleibt für spätere AX-/Linear-Aperture-Unterstützung vorgesehen.
 - `gpuinfo` marks the adapter as “legacy/ISA” (no PCI coordinates) and the console automatically switches to the framebuffer path when `CONFIG_VIDEO_TARGET` is set to `auto` or `framebuffer`.
 - Text-mode restore is supported (`gpu_restore_text_mode`), so shell commands like `fbtest`/`gpuinfo` leave the adapter in a sane state.
 
