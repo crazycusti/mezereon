@@ -76,6 +76,7 @@ typedef struct {
 } et4k_fb_state_t;
 
 static uint8_t g_et4k_shadow[640u * 480u];
+static volatile uint8_t* g_et4k_vram_window = NULL;
 static et4k_fb_state_t g_et4k_fb = { NULL, 0, 0, 0, 0, 0 };
 
 static struct {
@@ -281,9 +282,29 @@ static const fb_accel_ops_t g_et4k_fb_ops = {
     et4k_fb_mark_dirty
 };
 
+static int et4k_map_vram_window(uint32_t phys_base) {
+    if (g_et4k_vram_window) {
+        return 1;
+    }
+    if (phys_base != VGA_WINDOW_PHYS) {
+        et4k_log("map_vram_window: unsupported base requested");
+        return 0;
+    }
+    g_et4k_vram_window = (volatile uint8_t*)(uintptr_t)phys_base;
+    if (et4k_trace_enabled()) {
+        et4k_log_hex("map_vram_window.phys", phys_base);
+    }
+    return 1;
+}
+
 static void et4k_shadow_upload(const et4k_fb_state_t* state) {
     if (!state || !state->buffer || state->width == 0 || state->height == 0) {
         et4k_log("shadow_upload: skipped (invalid state)");
+        return;
+    }
+
+    if (!g_et4k_vram_window) {
+        et4k_log("shadow_upload: skipped (VRAM window not mapped)");
         return;
     }
 
@@ -293,7 +314,7 @@ static void et4k_shadow_upload(const et4k_fb_state_t* state) {
     const uint16_t height = state->height;
     const uint32_t pitch = state->pitch;
     const uint32_t bytes_per_line = width / 8u;
-    volatile uint8_t* vram = (volatile uint8_t*)(uintptr_t)VGA_WINDOW_PHYS;
+    volatile uint8_t* vram = g_et4k_vram_window;
 
     if (et4k_trace_enabled()) {
         et4k_log("shadow_upload: begin");
@@ -721,6 +742,11 @@ int et4k_set_mode(gpu_info_t* gpu, display_mode_info_t* out_mode,
     et4k_program_mode12();
     et4k_log("set_mode: mode12 staged OK (pre-framebuffer)");
 
+    if (!et4k_map_vram_window(VGA_WINDOW_PHYS)) {
+        et4k_log("set_mode: VRAM window mapping failed");
+        return 0;
+    }
+
     et4k_log("set_mode: initializing shadow framebuffer");
     et4k_bzero(g_et4k_shadow, (uint32_t)sizeof(g_et4k_shadow));
     g_et4k_fb.buffer = g_et4k_shadow;
@@ -736,8 +762,8 @@ int et4k_set_mode(gpu_info_t* gpu, display_mode_info_t* out_mode,
         console_write_dec((uint32_t)sizeof(g_et4k_shadow));
         console_write("\n");
     }
-    et4k_shadow_upload(&g_et4k_fb);
-    g_et4k_fb.dirty = 0;
+    et4k_fb_mark_dirty(&g_et4k_fb, 0, 0, g_et4k_fb.width, g_et4k_fb.height);
+    et4k_fb_sync(&g_et4k_fb);
 
     et4k_log("set_mode: registering framebuffer accelerator");
     fb_accel_register(&g_et4k_fb_ops, &g_et4k_fb);
@@ -819,6 +845,7 @@ void et4000_restore_text_mode(void) {
     et4k_log("restore_text_mode: enter");
     et4k_program_text_mode();
     et4k_log("restore_text_mode: text core staged OK");
+    g_et4k_vram_window = NULL;
     g_et4k_fb.buffer = NULL;
     g_et4k_fb.width = 0;
     g_et4k_fb.height = 0;
