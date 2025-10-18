@@ -209,12 +209,6 @@ static inline void et4k_attr_write(uint8_t index, uint8_t value) {
     et4k_io_wait();
 }
 
-static inline void et4k_attr_enable_video(void) {
-    (void)et4k_status_read();
-    outb(ET4K_PORT_ATTR, 0x20);
-    et4k_io_wait();
-}
-
 static void et4k_memset8(void* dst, uint8_t value, uint32_t count) {
     uint8_t* ptr = (uint8_t*)dst;
     for (uint32_t i = 0; i < count; ++i) {
@@ -478,8 +472,8 @@ static void et4k_program_mode12(void) {
         et4k_crtc_write(i, k_crtc_mode12[i]);
         et4k_log_reg_write("CRTC12", i, k_crtc_mode12[i]);
     }
-    et4k_crtc_write(0x11, (uint8_t)(saved_crt11 | 0x80u));
-    et4k_log_reg_write("CRTC12", 0x11, (uint8_t)(saved_crt11 | 0x80u));
+    et4k_crtc_write(0x11, saved_crt11);
+    et4k_log_reg_write("CRTC12", 0x11, saved_crt11);
     et4k_log("program_mode12: CRTC block programmed");
 
     for (uint8_t i = 0; i < 9; ++i) {
@@ -493,7 +487,7 @@ static void et4k_program_mode12(void) {
         et4k_log_reg_write("ATTR12", i, k_attr_mode12[i]);
     }
     et4k_log("program_mode12: ATC palette done");
-    et4k_attr_enable_video();
+    vga_attr_reenable_video();
     et4k_log("program_mode12: ATC video enable on");
 
     vga_pel_mask_write(0xFF);
@@ -532,8 +526,8 @@ static void et4k_program_text_mode(void) {
         et4k_crtc_write(i, k_crtc_text[i]);
         et4k_log_reg_write("CRTCTX", i, k_crtc_text[i]);
     }
-    et4k_crtc_write(0x11, (uint8_t)(saved_crt11 | 0x80u));
-    et4k_log_reg_write("CRTCTX", 0x11, (uint8_t)(saved_crt11 | 0x80u));
+    et4k_crtc_write(0x11, saved_crt11);
+    et4k_log_reg_write("CRTCTX", 0x11, saved_crt11);
     et4k_log("program_text_mode: CRTC block programmed");
 
     for (uint8_t i = 0; i < 9; ++i) {
@@ -546,7 +540,7 @@ static void et4k_program_text_mode(void) {
         et4k_log_reg_write("ATTRTX", i, k_attr_text[i]);
     }
     et4k_log("program_text_mode: ATC palette done");
-    et4k_attr_enable_video();
+    vga_attr_reenable_video();
     et4k_log("program_text_mode: ATC video enable on");
 
     vga_pel_mask_write(0xFF);
