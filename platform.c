@@ -1,6 +1,8 @@
 #include "platform.h"
 #include "interrupts.h"
 
+static uint32_t g_timer_hz = 100;
+
 void platform_interrupts_init(void) {
     // x86: basic IDT + PIC remap
     idt_init();
@@ -9,11 +11,11 @@ void platform_interrupts_init(void) {
 
 void platform_timer_init(uint32_t hz) {
     // x86: PIT 8253
+    uint32_t effective = hz ? hz : 100;
+    g_timer_hz = effective;
     pic_mask_all();
-    pit_init(hz ? hz : 100);
+    pit_init(effective);
 }
-
-static uint32_t g_timer_hz = 100;
 
 void platform_timer_set_hz(uint32_t hz) {
     if (hz == 0) hz = 1;

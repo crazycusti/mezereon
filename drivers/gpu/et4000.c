@@ -7,6 +7,7 @@
 #if CONFIG_ARCH_X86
 #include "../../arch/x86/io.h"
 #include "../../interrupts.h"
+#include "../../paging.h"
 #endif
 
 #include <stdint.h>
@@ -258,6 +259,13 @@ static void et4k_reset_window_registers(void) {
         outb(ET4K_EXT_PORT, ext_unlock);
         et4k_io_wait();
     }
+    et4k_log("reset_window: extended registers unlocked");
+
+    outb(ET4K_PORT_SEGMENT, 0x00);
+    et4k_io_wait();
+    outb(ET4K_PORT_BANK, 0x00);
+    et4k_io_wait();
+    et4k_log("reset_window: segment/bank set to 0");
 
     outb(ET4K_PORT_SEGMENT, 0x00);
     et4k_io_wait();
@@ -275,10 +283,9 @@ static void et4k_reset_window_registers(void) {
         et4k_log_hex("window.bank.after", bank_after);
     }
 
-    if (ext_before != ext_unlock) {
-        outb(ET4K_EXT_PORT, ext_before);
-        et4k_io_wait();
-    }
+    outb(ET4K_EXT_PORT, ext_before);
+    et4k_io_wait();
+    et4k_log("reset_window: extended registers locked");
 
     et4k_irq_guard_release(irq_flags);
 }
@@ -316,6 +323,57 @@ static inline void et4k_attr_write(uint8_t index, uint8_t value) {
     et4k_io_wait();
 }
 
+static inline void et4k_attr_enable_video(void) {
+    (void)et4k_status_read();
+    outb(ET4K_PORT_ATTR, 0x20);
+    et4k_io_wait();
+}
+
+#if CONFIG_ARCH_X86
+#define ET4K_PAGE_PRESENT 0x001u
+#define ET4K_PAGE_RW      0x002u
+#define ET4K_PAGE_PWT     0x008u
+#define ET4K_PAGE_PCD     0x010u
+
+static int et4k_verify_vram_mapping(void) {
+    if (!paging_is_enabled()) {
+        et4k_log("verify_vram_mapping: paging disabled (assuming identity)");
+        return 1;
+    }
+
+    uint32_t cr3;
+    __asm__ volatile ("mov %%cr3, %0" : "=r"(cr3));
+    uint32_t* page_directory = (uint32_t*)(uintptr_t)(cr3 & ~0xFFFu);
+    const uint32_t required_flags = ET4K_PAGE_PRESENT | ET4K_PAGE_RW | ET4K_PAGE_PWT | ET4K_PAGE_PCD;
+
+    for (uint32_t addr = VGA_WINDOW_PHYS; addr < (VGA_WINDOW_PHYS + VGA_WINDOW_SIZE); addr += 0x1000u) {
+        uint32_t pde_index = addr >> 22;
+        uint32_t pte_index = (addr >> 12) & 0x3FFu;
+        uint32_t pde = page_directory[pde_index];
+        if ((pde & ET4K_PAGE_PRESENT) == 0) {
+            et4k_log_hex("verify_vram_mapping: PDE missing for", addr);
+            return 0;
+        }
+        uint32_t* pt = (uint32_t*)(uintptr_t)(pde & ~0xFFFu);
+        uint32_t pte = pt[pte_index];
+        if ((pte & required_flags) != required_flags) {
+            et4k_log_hex("verify_vram_mapping: bad flags at", addr);
+            return 0;
+        }
+        uint32_t phys = pte & ~0xFFFu;
+        if (phys != addr) {
+            et4k_log_hex("verify_vram_mapping: phys mismatch", phys);
+            return 0;
+        }
+    }
+
+    et4k_log("verify_vram_mapping: PASSED");
+    return 1;
+}
+#else
+static int et4k_verify_vram_mapping(void) { return 1; }
+#endif
+
 static void et4k_memset8(void* dst, uint8_t value, uint32_t count) {
     uint8_t* ptr = (uint8_t*)dst;
     for (uint32_t i = 0; i < count; ++i) {
@@ -341,7 +399,7 @@ static void et4k_copy_string(char* dst, uint32_t dst_len, const char* src) {
     dst[i] = '\0';
 }
 
-static const uint8_t k_seq_mode12[5] = { 0x03, 0x01, 0x0F, 0x00, 0x02 };
+static const uint8_t k_seq_mode12[5] = { 0x03, 0x01, 0x0F, 0x00, 0x03 };
 static const uint8_t k_crtc_mode12[25] = {
     0x5F,0x4F,0x50,0x82,0x54,0x80,0x0B,0x3E,
     0x00,0x40,0x00,0x00,0x00,0x00,0x00,0x00,
@@ -396,6 +454,10 @@ static int et4k_map_vram_window(uint32_t phys_base) {
         et4k_log("map_vram_window: unsupported base requested");
         return 0;
     }
+    if (!et4k_verify_vram_mapping()) {
+        et4k_log("map_vram_window: paging validation failed");
+        return 0;
+    }
     g_et4k_vram_window = (volatile uint8_t*)(uintptr_t)phys_base;
     if (et4k_trace_enabled()) {
         et4k_log_hex("map_vram_window.phys", phys_base);
@@ -421,6 +483,11 @@ static void et4k_shadow_upload(const et4k_fb_state_t* state) {
     const uint16_t width = state->width;
     const uint16_t height = state->height;
     const uint32_t pitch = state->pitch;
+    if ((width & 7u) != 0u) {
+        et4k_log("shadow_upload: width not divisible by 8; aborting");
+        et4k_irq_guard_release(irq_flags);
+        return;
+    }
     const uint32_t bytes_per_line = width / 8u;
     volatile uint8_t* vram = g_et4k_vram_window;
 
@@ -429,6 +496,7 @@ static void et4k_shadow_upload(const et4k_fb_state_t* state) {
         et4k_log_dec("shadow.width", width);
         et4k_log_dec("shadow.height", height);
         et4k_log_dec("shadow.pitch", pitch);
+        et4k_log_dec("shadow.bytes_per_line", bytes_per_line);
         et4k_log_hex("shadow.vram_base", VGA_WINDOW_PHYS);
     }
 
@@ -469,6 +537,7 @@ static void et4k_shadow_upload(const et4k_fb_state_t* state) {
     if (et4k_trace_enabled()) {
         et4k_log_reg_write("SEQ_PLANE", 0x02, 0x0F);
         et4k_log_reg_write("GC_BITMASK", 0x08, 0xFF);
+        et4k_log("shadow_upload: planes restored to default mask");
     }
     et4k_log("shadow_upload: end");
 
@@ -592,8 +661,8 @@ static void et4k_program_mode12(void) {
     et4k_log_hex("CRTC[0x11]_saved", saved_crt11);
 
     et4k_serial_heartbeat('.');
-    et4k_misc_write(0xE3);
-    et4k_log_hex("MISC_WRITE", 0xE3);
+    et4k_misc_write(0xE7);
+    et4k_log_hex("MISC_WRITE", 0xE7);
     et4k_serial_heartbeat('.');
 
     et4k_serial_heartbeat('.');
@@ -631,6 +700,10 @@ static void et4k_program_mode12(void) {
     for (uint8_t i = 0; i < 21; ++i) {
         et4k_attr_write(i, k_attr_mode12[i]);
         et4k_log_reg_write("ATTR12", i, k_attr_mode12[i]);
+        if (i == 0x10) {
+            vga_attr_reenable_video();
+            et4k_log("program_mode12: ATC[10] written, video re-enabled");
+        }
     }
     et4k_serial_heartbeat('.');
 
@@ -686,6 +759,10 @@ static void et4k_program_text_mode(void) {
     for (uint8_t i = 0; i < 21; ++i) {
         et4k_attr_write(i, k_attr_text[i]);
         et4k_log_reg_write("ATTRTX", i, k_attr_text[i]);
+        if (i == 0x10) {
+            vga_attr_reenable_video();
+            et4k_log("program_text_mode: ATC[10] written, video re-enabled");
+        }
     }
     et4k_log("program_text_mode: ATC palette done");
     vga_attr_reenable_video();
@@ -800,6 +877,9 @@ int et4000_detect(gpu_info_t* out_info) {
         et4k_log("detect: exit failure");
         goto cleanup;
     }
+
+    et4000_set_debug_trace(1);
+    et4k_log("detect: debug tracing forced on");
 
     if (!signature_ok && fallback_ok) {
         gpu_set_last_error("WARN: Tseng ET4000 detected via CRTC fallback");

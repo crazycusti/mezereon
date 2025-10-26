@@ -4,6 +4,7 @@
 #include "console.h"
 #include "cpuidle.h"
 #include "debug_serial.h"
+#include "platform.h"
 
 // PIC remap as per OSDev
 void pic_remap(uint8_t offset1, uint8_t offset2) {
@@ -37,6 +38,20 @@ void pic_mask_all(void) {
 }
 
 static volatile uint32_t ticks;
+static volatile uint32_t g_statusbar_pending_ticks;
+static volatile uint32_t g_statusbar_last_update_tick;
+
+static inline uint32_t statusbar_update_interval_ticks(void) {
+    uint32_t hz = platform_timer_get_hz();
+    if (hz == 0u) {
+        hz = 100u;
+    }
+    uint32_t interval = hz / 10u;
+    if (interval == 0u) {
+        interval = 1u;
+    }
+    return interval;
+}
 uint32_t ticks_get(void){ return ticks; }
 
 void pit_init(uint32_t hz) {
@@ -71,32 +86,11 @@ void interrupts_restore(uint32_t flags) {
 void irq0_handler_c(void) {
     ticks++;
     debug_serial_plugin_timer_tick();
-    // Update a small time indicator at top-right ~10 Hz
-    if ((ticks % 10u) == 0u) {
-        uint32_t t = ticks; // copy
-        uint32_t sec = t / 100u;
-        uint32_t tenths = (t % 100u) / 10u;
-
-        // Render "T 12345.6s I 12345" right-aligned in first row
-        char buf[32];
-        int pos = 0;
-        buf[pos++] = 'T'; buf[pos++] = ' ';
-        // decimal seconds
-        char tmp[10]; int ti=0;
-        if (sec == 0) { tmp[ti++]='0'; }
-        else { while (sec && ti < 10) { tmp[ti++] = (char)('0' + (sec % 10)); sec/=10; } }
-        while (ti--) buf[pos++] = tmp[ti];
-        buf[pos++] = '.'; buf[pos++] = (char)('0' + (int)tenths);
-        buf[pos++] = 's'; buf[pos++] = ' '; buf[pos++] = 'I'; buf[pos++] = ' ';
-        // wakeups
-        uint32_t w = cpuidle_wakeups_get(); ti=0;
-        if (w == 0) { tmp[ti++]='0'; }
-        else { while (w && ti < 10) { tmp[ti++] = (char)('0' + (w % 10)); w/=10; } }
-        while (ti--) buf[pos++] = tmp[ti];
-        int len = pos;
-
-        // Write through the video module (no direct VGA access here)
-        console_draw_status_right(buf, len);
+    uint32_t t = ticks;
+    uint32_t interval = statusbar_update_interval_ticks();
+    if ((uint32_t)(t - g_statusbar_last_update_tick) >= interval) {
+        g_statusbar_last_update_tick = t;
+        g_statusbar_pending_ticks = t;
     }
     // Acknowledge PIC
     outb(0x20, 0x20);
@@ -119,6 +113,70 @@ void irq3_handler_c(void) {
     // Delegate to netface (driver-specific ack/latch), then EOI
     netface_irq();
     outb(0x20, 0x20);
+}
+
+void interrupts_statusbar_poll(void) {
+    uint32_t pending = 0;
+    uint32_t flags = interrupts_save_disable();
+    if (g_statusbar_pending_ticks != 0u) {
+        pending = g_statusbar_pending_ticks;
+        g_statusbar_pending_ticks = 0;
+    }
+    interrupts_restore(flags);
+    if (pending == 0u) {
+        return;
+    }
+
+    uint32_t hz = platform_timer_get_hz();
+    if (hz == 0u) {
+        hz = 100u;
+    }
+    uint32_t sec = pending / hz;
+    uint32_t tenths = (pending % hz) * 10u / hz;
+    if (tenths > 9u) {
+        tenths = 9u;
+    }
+
+    char buf[32];
+    int pos = 0;
+    buf[pos++] = 'T';
+    buf[pos++] = ' ';
+
+    char tmp[10];
+    int ti = 0;
+    if (sec == 0u) {
+        tmp[ti++] = '0';
+    } else {
+        while (sec && ti < (int)sizeof(tmp)) {
+            tmp[ti++] = (char)('0' + (sec % 10u));
+            sec /= 10u;
+        }
+    }
+    while (ti--) {
+        buf[pos++] = tmp[ti];
+    }
+    buf[pos++] = '.';
+    buf[pos++] = (char)('0' + (int)tenths);
+    buf[pos++] = 's';
+    buf[pos++] = ' ';
+    buf[pos++] = 'I';
+    buf[pos++] = ' ';
+
+    uint32_t wakeups = cpuidle_wakeups_get();
+    ti = 0;
+    if (wakeups == 0u) {
+        tmp[ti++] = '0';
+    } else {
+        while (wakeups && ti < (int)sizeof(tmp)) {
+            tmp[ti++] = (char)('0' + (wakeups % 10u));
+            wakeups /= 10u;
+        }
+    }
+    while (ti--) {
+        buf[pos++] = tmp[ti];
+    }
+    int len = pos;
+    console_draw_status_right(buf, len);
 }
 
 static void halt_forever(void) {

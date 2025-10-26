@@ -49,6 +49,7 @@
 
 %define STAGE3_FLAG_USE_LBA          0x00000001
 %define STAGE3_FLAG_KERNEL_PRELOADED 0x00000002
+%define STAGE3_FLAG_A20_ENABLED      0x00000004
 
 ; Bootsektor-Hilfswerte (Stage 1)
 %ifndef BOOT_DRIVE_OFFSET
