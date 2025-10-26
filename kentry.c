@@ -56,7 +56,24 @@ static inline void port_debug_e9(char c) {
 }
 #endif
 
+extern unsigned char __bss_start;
+extern unsigned char _end;
+
+// Stage3 copies only the loaded image; zero the kernel's .bss so globals
+// start from a clean slate even when the loader doesn't pre-clear memory.
+static void kentry_zero_bss(void) {
+    unsigned char* start = &__bss_start;
+    unsigned char* end = &_end;
+    if (!start || !end) {
+        return;
+    }
+    while (start < end) {
+        *start++ = 0;
+    }
+}
+
 void kentry(void* bi) {
+    kentry_zero_bss();
 #if CONFIG_ARCH_X86
     port_debug_e9('K');
     early_debug('K');  // Kernel entered
