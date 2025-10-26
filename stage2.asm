@@ -34,6 +34,13 @@ ORG 0
 %define STAGE2_FORCE_CHS 0
 %endif
 
+%define A20_STATE_UNKNOWN         0
+%define A20_STATE_ENABLED         1
+%define A20_STATE_UNAVAILABLE     2
+%define A20_BIOS_UNKNOWN          0
+%define A20_BIOS_SUPPORTED        1
+%define A20_BIOS_UNAVAILABLE      2
+
 start:
     cli
     xor ax, ax
@@ -46,6 +53,8 @@ start:
 
     mov [boot_drive], dl
 %if STAGE2_VERBOSE_DEBUG
+    mov si, msg_newline
+    call debug_print_str
     mov si, msg_s2_start
     call debug_print_str
     mov al, [boot_drive]
@@ -53,6 +62,8 @@ start:
     mov si, msg_newline
     call debug_print_str
 %endif
+
+    call ensure_a20
 
 %if STAGE2_DEBUG
     mov al, '2'
@@ -251,8 +262,6 @@ load_complete:
     call debug_print_str
     pop es
 %endif
-
-    call ensure_a20
 
 %if STAGE2_VERBOSE_DEBUG
     mov si, msg_sel_code
@@ -1030,6 +1039,10 @@ populate_stage3_params:
     mov [stage3_params + STAGE3_PARAM_STAGE3_SECTORS], eax
     movzx eax, byte [use_lba]
     and eax, 1
+    cmp byte [a20_state], A20_STATE_ENABLED
+    jne .flags_store
+    or eax, STAGE3_FLAG_A20_ENABLED
+.flags_store:
     mov [stage3_params + STAGE3_PARAM_FLAGS], eax
     mov ax, [sectors_per_track]
     mov [stage3_params + STAGE3_PARAM_GEOM_SPT], ax
@@ -1122,35 +1135,117 @@ preload_kernel_if_needed:
     pop ax
     ret
 
-; Ensure A20 gate enabled via Fast A20 toggle with keyboard controller fallback
+; Ensure A20 gate enabled via Fast A20, INT 15h, then KBC fallback
 ensure_a20:
-    push ax
+    push cx
     push dx
+%if STAGE2_VERBOSE_DEBUG
+    mov si, msg_newline
+    call debug_print_str
+    mov si, msg_a20_probe
+    call debug_print_str
+%endif
+    mov al, [a20_state]
+    cmp al, A20_STATE_UNKNOWN
+    jne .report
+
+    call test_a20_wrap
+    test ax, ax
+    jnz .already_enabled
+%if STAGE2_VERBOSE_DEBUG
+    mov si, msg_newline
+    call debug_print_str
+    mov si, msg_a20_need
+    call debug_print_str
+%endif
+
+.attempt_enable:
     mov cx, 3
 .fast_retry:
+%if STAGE2_VERBOSE_DEBUG
+    mov al, 'f'
+    call debug_char
+%endif
     call enable_a20_fast
     call test_a20_wrap
-    cmp al, 0
-    jne .done
+    test ax, ax
+    jnz .success
     loop .fast_retry
+
+    cmp byte [a20_bios_capability], A20_BIOS_UNKNOWN
+    jne .skip_probe
+    call probe_a20_bios_capability
+.skip_probe:
+    cmp byte [a20_bios_capability], A20_BIOS_SUPPORTED
+    jne .after_bios
+%if STAGE2_VERBOSE_DEBUG
+    mov al, 'b'
+    call debug_char
+%endif
+    call enable_a20_bios_int15
+    call test_a20_wrap
+    test ax, ax
+    jnz .success
+.after_bios:
+
 %if ENABLE_A20_KBC
     mov cx, 5
 .kbc_retry:
+%if STAGE2_VERBOSE_DEBUG
+    mov al, 'k'
+    call debug_char
+%endif
     call enable_a20_kbc
     call test_a20_wrap
-    cmp al, 0
-    jne .done
+    test ax, ax
+    jnz .success
     loop .kbc_retry
 %endif
-    jmp .fatal
-.done:
+
+    mov byte [a20_state], A20_STATE_UNAVAILABLE
+%if STAGE2_VERBOSE_DEBUG
+    mov si, msg_newline
+    call debug_print_str
+    mov si, msg_a20_fail
+    call debug_print_str
+%endif
+    jmp .report
+
+.already_enabled:
+%if STAGE2_VERBOSE_DEBUG
+    mov si, msg_newline
+    call debug_print_str
+    mov si, msg_a20_already
+    call debug_print_str
+%endif
+    jmp .success
+
+.success:
+    mov byte [a20_state], A20_STATE_ENABLED
+
+.report:
+%if STAGE2_VERBOSE_DEBUG
+    mov al, [a20_state]
+    cmp al, A20_STATE_ENABLED
+    jne .dbg_off
+    mov al, 1
+    call report_a20
+    jmp .dbg_done
+.dbg_off:
+    xor al, al
+    call report_a20
+.dbg_done:
+%endif
     pop dx
-    pop ax
+    pop cx
+    mov al, [a20_state]
+    cmp al, A20_STATE_ENABLED
+    jne .ret_zero
+    mov al, 1
     ret
-.fatal:
-    pop dx
-    pop ax
-    jmp fatal_halt
+.ret_zero:
+    xor al, al
+    ret
 
 test_a20_wrap:
     push bx
@@ -1205,6 +1300,50 @@ enable_a20_fast:
     in al, 0x92
     or al, 0x02
     out 0x92, al
+    ret
+
+probe_a20_bios_capability:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov ax, 0x2402
+    int 0x15
+    jc .no_support
+    cmp ah, 0
+    jne .no_support
+    mov byte [a20_bios_capability], A20_BIOS_SUPPORTED
+    jmp .done
+.no_support:
+    mov byte [a20_bios_capability], A20_BIOS_UNAVAILABLE
+.done:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+enable_a20_bios_int15:
+    push ax
+    push bx
+    push cx
+    push dx
+    cmp byte [a20_bios_capability], A20_BIOS_SUPPORTED
+    jne .done
+    mov ax, 0x2403
+    int 0x15
+    jc .done
+    cmp ah, 0
+    jne .done
+    test al, al
+    jz .done
+    mov ax, 0x2401
+    int 0x15
+.done:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 %if ENABLE_A20_KBC
@@ -1297,6 +1436,10 @@ msg_cr0a:            db ' CR0a=0x',0
 msg_pm_jump:         db 'S2:PM',0
 msg_a20_on:          db 'A20=1',0
 msg_a20_off:         db 'A20=0',0
+msg_a20_probe:       db 'A20?',0
+msg_a20_need:        db 'A20 enabling',0
+msg_a20_already:     db 'A20 already enabled',0
+msg_a20_fail:        db 'A20 enable failed',0
 msg_err_chs:         db 'CHS!',0
 msg_err_lba:         db 'LBA!',0
 msg_sel_code:        db 'SELc=0x',0
@@ -1312,6 +1455,8 @@ msg_newline:         db 0x0D,0x0A,0
 stage3_signature:    db 0xB8,0x21,0x47,0x53,0x33,0x31,0xC0
 
 boot_drive:           db 0
+a20_state:            db A20_STATE_UNKNOWN
+a20_bios_capability:  db A20_BIOS_UNKNOWN
 use_lba:              db 0
 remaining_sectors:    dw 0
 chunk_size:           dw 0

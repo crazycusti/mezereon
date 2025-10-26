@@ -95,10 +95,6 @@ start:
     call print_char
 %endif
 
-%if ENABLE_STAGE1_A20
-    call enable_a20_fast
-%endif
-
     jmp STAGE2_LOAD_SEGMENT:0000
 
 error:
@@ -122,17 +118,6 @@ print_char:
     pop bx
     pop ax
     ret
-
-%if ENABLE_STAGE1_A20
-enable_a20_fast:
-    in al, 0x92
-    test al, 2
-    jnz .done
-    or al, 2
-    out 0x92, al
-.done:
-    ret
-%endif
 
 times BOOT_DRIVE_OFFSET - ($-$$) db 0
 boot_drive db 0

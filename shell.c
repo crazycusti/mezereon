@@ -78,6 +78,7 @@ void shell_run(void) {
     print_prompt();
 
     for (;;) {
+        interrupts_statusbar_poll();
         video_cursor_tick();
         int ch = keyboard_poll_char();
         if (ch < 0) { netface_poll(); cpuidle_idle(); continue; }
