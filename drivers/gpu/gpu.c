@@ -2,6 +2,7 @@
 #include "cirrus.h"
 #include "../../config.h"
 #include "et4000.h"
+#include "avga2.h"
 #include "../../console.h"
 #include "../../display.h"
 #include "../../video_fb.h"
@@ -256,6 +257,70 @@ static void tseng_enum_to_dimensions(et4000_mode_t mode, uint16_t* width, uint16
 static int tseng_candidate_contains(const et4000_mode_t* modes, size_t count, et4000_mode_t value);
 static void tseng_candidate_append(et4000_mode_t* modes, size_t* count, size_t capacity, et4000_mode_t value);
 
+size_t gpu_get_mode_catalog(const gpu_info_t* gpu,
+                            gpu_mode_option_t* out_modes,
+                            size_t capacity) {
+    size_t count = 0;
+    if (!gpu) {
+        return 0;
+    }
+
+    switch (gpu->type) {
+        case GPU_TYPE_CIRRUS: {
+            size_t mode_count = 0;
+            const cirrus_mode_desc_t* modes = cirrus_get_modes(&mode_count);
+            uint32_t vram = gpu->framebuffer_size;
+            for (size_t i = 0; i < mode_count; ++i) {
+                const cirrus_mode_desc_t* mode = &modes[i];
+                uint32_t required = cirrus_mode_vram_required(mode);
+                if (required == 0) {
+                    continue;
+                }
+                if (vram != 0 && required > vram) {
+                    continue;
+                }
+                if (out_modes && count < capacity) {
+                    out_modes[count].width = mode->width;
+                    out_modes[count].height = mode->height;
+                    out_modes[count].bpp = (uint8_t)mode->bpp;
+                }
+                ++count;
+            }
+            break;
+        }
+        case GPU_TYPE_ET4000:
+        case GPU_TYPE_ET4000AX:
+        case GPU_TYPE_AVGA2: {
+            static const et4000_mode_t k_tseng_modes[] = {
+                ET4000_MODE_640x480x8,
+                ET4000_MODE_640x400x8,
+                ET4000_MODE_640x480x4,
+            };
+            for (size_t i = 0; i < sizeof(k_tseng_modes) / sizeof(k_tseng_modes[0]); ++i) {
+                et4000_mode_t mode = k_tseng_modes[i];
+                if (gpu->type == GPU_TYPE_ET4000 && mode != ET4000_MODE_640x480x4) {
+                    continue;
+                }
+                uint16_t w = 0;
+                uint16_t h = 0;
+                uint8_t bpp = 0;
+                tseng_enum_to_dimensions(mode, &w, &h, &bpp);
+                if (out_modes && count < capacity) {
+                    out_modes[count].width = w;
+                    out_modes[count].height = h;
+                    out_modes[count].bpp = bpp;
+                }
+                ++count;
+            }
+            break;
+        }
+        default:
+            break;
+    }
+
+    return count;
+}
+
 static gpu_info_t g_gpu_infos[GPU_MAX_DEVICES];
 static size_t g_gpu_count = 0;
 static gpu_info_t* g_active_fb_gpu = NULL;
@@ -294,6 +359,7 @@ void gpu_init(void) {
     if (g_gpu_count < GPU_MAX_DEVICES) {
         gpu_info_t info = {0};
         if (et4000_detect(&info)) {
+            avga2_classify_info(&info);
             g_gpu_infos[g_gpu_count++] = info;
             if (!g_tseng_auto_enabled) {
                 console_writeln("gpu: Tseng auto activation disabled (use 'gpuprobe auto' to re-enable)");
@@ -332,6 +398,10 @@ void gpu_dump_details(void) {
             case GPU_TYPE_CIRRUS:
                 cirrus_dump_state(&gpu->pci);
                 break;
+            case GPU_TYPE_AVGA2:
+                avga2_dump_state();
+                et4000_debug_dump();
+                break;
             default:
                 console_writeln("      (no detailed dump available for this adapter)");
                 break;
@@ -368,7 +438,9 @@ int gpu_request_framebuffer_mode(uint16_t width, uint16_t height, uint8_t bpp) {
             continue;
         }
 #if CONFIG_VIDEO_ENABLE_ET4000
-        if (gpu->type == GPU_TYPE_ET4000 || gpu->type == GPU_TYPE_ET4000AX) {
+        if (gpu->type == GPU_TYPE_ET4000 ||
+            gpu->type == GPU_TYPE_ET4000AX ||
+            gpu->type == GPU_TYPE_AVGA2) {
             if (!g_tseng_auto_enabled) {
                 console_writeln("gpu: Tseng auto activation suppressed (debug mode)");
                 continue;
@@ -434,7 +506,12 @@ int gpu_request_framebuffer_mode(uint16_t width, uint16_t height, uint8_t bpp) {
                 }
 
                 if (activated) {
-                    const char* driver_name = (gpu->type == GPU_TYPE_ET4000AX) ? "et4000ax" : "et4000";
+                    const char* driver_name = "et4000";
+                    if (gpu->type == GPU_TYPE_ET4000AX) {
+                        driver_name = "et4000ax";
+                    } else if (gpu->type == GPU_TYPE_AVGA2) {
+                        driver_name = "avga2";
+                    }
                     display_manager_set_framebuffer_candidate(driver_name, &mode);
                     display_manager_activate_framebuffer();
                     video_switch_to_framebuffer(&mode);
@@ -467,7 +544,9 @@ void gpu_restore_text_mode(void) {
         cirrus_accel_disable();
     }
 #if CONFIG_VIDEO_ENABLE_ET4000
-    if (g_active_fb_gpu && (g_active_fb_gpu->type == GPU_TYPE_ET4000 || g_active_fb_gpu->type == GPU_TYPE_ET4000AX)) {
+    if (g_active_fb_gpu && (g_active_fb_gpu->type == GPU_TYPE_ET4000 ||
+                            g_active_fb_gpu->type == GPU_TYPE_ET4000AX ||
+                            g_active_fb_gpu->type == GPU_TYPE_AVGA2)) {
         et4000_restore_text_mode();
         g_active_fb_gpu->framebuffer_ptr = NULL;
         g_active_fb_gpu->framebuffer_width = 0;
@@ -501,6 +580,7 @@ void gpu_debug_probe(int scan_legacy) {
                 case GPU_TYPE_CIRRUS: console_write("cirrus"); break;
                 case GPU_TYPE_ET4000: console_write("et4000"); break;
                 case GPU_TYPE_ET4000AX: console_write("et4000ax"); break;
+                case GPU_TYPE_AVGA2: console_write("avga2"); break;
                 default: console_write("unknown"); break;
             }
             console_write(" name=\"");
@@ -518,16 +598,28 @@ void gpu_debug_probe(int scan_legacy) {
 #else
         console_writeln("gpu-probe: Tseng driver disabled (CONFIG_VIDEO_ENABLE_ET4000=0)");
 #endif
+        if (avga2_signature_present()) {
+            console_writeln("gpu-probe: Acumos AVGA2 BIOS signature located");
+        } else {
+            console_writeln("gpu-probe: no Acumos AVGA2 BIOS signature detected");
+        }
         console_writeln("gpu-probe: running Tseng ET4000 manual scan");
         gpu_info_t info = {0};
         et4000_set_debug_trace(1);
         int tseng_found = et4000_detect(&info);
         et4000_set_debug_trace(0);
         if (tseng_found) {
+            avga2_classify_info(&info);
             console_write("  scan result: detected ");
             console_write(info.name[0] ? info.name : "Tseng ET4000");
             console_write(" (type=");
-            console_write(info.type == GPU_TYPE_ET4000AX ? "et4000ax" : "et4000");
+            const char* type_name = "et4000";
+            if (info.type == GPU_TYPE_ET4000AX) {
+                type_name = "et4000ax";
+            } else if (info.type == GPU_TYPE_AVGA2) {
+                type_name = "avga2";
+            }
+            console_write(type_name);
             console_write(")\n");
         } else {
             console_writeln("  scan result: no Tseng ET4000 signature");
@@ -649,6 +741,7 @@ static int activate_tseng(uint16_t width, uint16_t height, uint8_t bpp, int forc
         gpu_debug_log("ERROR", "Tseng signature not found");
         return 0;
     }
+    avga2_classify_info(&detected);
     int detected_is_ax = (detected.type == GPU_TYPE_ET4000AX);
     int target_is_ax = detected_is_ax;
 
@@ -701,7 +794,11 @@ static int activate_tseng(uint16_t width, uint16_t height, uint8_t bpp, int forc
         return 0;
     }
 
-    display_manager_set_framebuffer_candidate(target_is_ax ? "et4000ax" : "et4000", &mode);
+    const char* driver_name = target_is_ax ? "et4000ax" : "et4000";
+    if (!target_is_ax && detected.type == GPU_TYPE_AVGA2) {
+        driver_name = "avga2";
+    }
+    display_manager_set_framebuffer_candidate(driver_name, &mode);
     display_manager_activate_framebuffer();
     video_switch_to_framebuffer(&mode);
     g_active_fb_gpu = slot;
@@ -724,6 +821,8 @@ int gpu_force_activate(gpu_type_t type, uint16_t width, uint16_t height, uint8_t
             return activate_tseng(width, height, bpp, 0);
         case GPU_TYPE_ET4000AX:
             return activate_tseng(width, height, bpp, 1);
+        case GPU_TYPE_AVGA2:
+            return activate_tseng(width, height, bpp, -1);
         case GPU_TYPE_VGA:
             gpu_restore_text_mode();
             gpu_debug_log("INFO", "switched to VGA text mode");
@@ -744,7 +843,9 @@ void gpu_tseng_set_auto_enabled(int enabled) {
     console_write("gpu: Tseng auto activation ");
     console_writeln(g_tseng_auto_enabled ? "enabled" : "disabled");
     if (!g_tseng_auto_enabled && g_active_fb_gpu &&
-        (g_active_fb_gpu->type == GPU_TYPE_ET4000 || g_active_fb_gpu->type == GPU_TYPE_ET4000AX)) {
+        (g_active_fb_gpu->type == GPU_TYPE_ET4000 ||
+         g_active_fb_gpu->type == GPU_TYPE_ET4000AX ||
+         g_active_fb_gpu->type == GPU_TYPE_AVGA2)) {
         console_writeln("gpu: auto disabled while framebuffer active – consider gpuinfo or gpuprobe activate to re-enable manually");
     }
 #else

@@ -170,7 +170,7 @@ drivers/sb16.o: drivers/sb16.c drivers/sb16.h config.h arch/x86/io.h
 drivers/pci.o: drivers/pci.c drivers/pci.h config.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
-drivers/gpu/gpu.o: drivers/gpu/gpu.c drivers/gpu/gpu.h drivers/gpu/cirrus.h drivers/pci.h
+drivers/gpu/gpu.o: drivers/gpu/gpu.c drivers/gpu/gpu.h drivers/gpu/cirrus.h drivers/gpu/avga2.h drivers/pci.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
 drivers/gpu/cirrus.o: drivers/gpu/cirrus.c drivers/gpu/cirrus.h drivers/gpu/gpu.h drivers/pci.h
@@ -186,6 +186,9 @@ drivers/gpu/et4000.o: drivers/gpu/et4000.c drivers/gpu/et4000.h drivers/gpu/gpu.
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
 drivers/gpu/et4000ax.o: drivers/gpu/et4000ax.c drivers/gpu/et4000ax.h drivers/gpu/vga_hw.h drivers/gpu/et4000.h
+	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+
+drivers/gpu/avga2.o: drivers/gpu/avga2.c drivers/gpu/avga2.h drivers/gpu/gpu.h drivers/gpu/vga_hw.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
 drivers/gpu/vga_hw.o: drivers/gpu/vga_hw.c drivers/gpu/vga_hw.h config.h
@@ -212,7 +215,7 @@ cpu.o: cpu.c cpu.h console.h
 cpuidle.o: cpuidle.c cpuidle.h config.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
-kernel_payload.elf: entry32.o kentry.o isr.o idt.o interrupts.o platform.o main.o memory.o paging.o video.o console.o debug_serial.o statusbar.o display.o fonts/font8x16.o $(CONSOLE_BACKEND_OBJ) netface.o net/ipv4.o net/tcp_min.o mezapi.o apps/keymusic_app.o apps/rotcube_app.o apps/fbtest_color.o apps/gpu_probe.o drivers/ne2000.o drivers/pcspeaker.o drivers/sb16.o drivers/pci.o drivers/gpu/gpu.o drivers/gpu/cirrus.o drivers/gpu/cirrus_accel.o drivers/gpu/et4000.o drivers/gpu/et4000ax.o drivers/gpu/fb_accel.o drivers/gpu/vga_hw.o drivers/ata.o drivers/fs/neelefs.o drivers/storage.o keyboard.o cpu.o cpuidle.o shell.o
+kernel_payload.elf: entry32.o kentry.o isr.o idt.o interrupts.o platform.o main.o memory.o paging.o video.o console.o debug_serial.o statusbar.o display.o fonts/font8x16.o $(CONSOLE_BACKEND_OBJ) netface.o net/ipv4.o net/tcp_min.o mezapi.o apps/keymusic_app.o apps/rotcube_app.o apps/fbtest_color.o apps/gpu_probe.o drivers/ne2000.o drivers/pcspeaker.o drivers/sb16.o drivers/pci.o drivers/gpu/gpu.o drivers/gpu/cirrus.o drivers/gpu/cirrus_accel.o drivers/gpu/et4000.o drivers/gpu/et4000ax.o drivers/gpu/avga2.o drivers/gpu/fb_accel.o drivers/gpu/vga_hw.o drivers/ata.o drivers/fs/neelefs.o drivers/storage.o keyboard.o cpu.o cpuidle.o shell.o
 	$(LD) $(LDFLAGS) $^ -o $@
 
 # Erzeuge flaches Binary ohne führende 0x8000-Lücke

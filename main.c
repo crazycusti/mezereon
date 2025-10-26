@@ -29,9 +29,9 @@ void kmain(const boot_info_t* bootinfo)
     console_init();
     console_writeln("kmain: entering");
     memory_init(bootinfo);
-    /* Automatische Aktivierung des Bootloader-Framebuffers, falls vorhanden */
+    /* Registriere Bootloader-Framebuffer, bleibe aber im Textmodus für Debug-Zwecke */
     if (bootinfo && bootinfo->framebuffer_phys != 0 && bootinfo->vbe_width && bootinfo->vbe_height && bootinfo->vbe_bpp == 8) {
-    volatile uint8_t* fb_ptr = (volatile uint8_t*)(uintptr_t)bootinfo->framebuffer_phys;
+        volatile uint8_t* fb_ptr = (volatile uint8_t*)(uintptr_t)bootinfo->framebuffer_phys;
         display_mode_info_t mode = {
             .kind = DISPLAY_MODE_KIND_FRAMEBUFFER,
             .pixel_format = DISPLAY_PIXEL_FORMAT_PAL_256,
@@ -43,9 +43,7 @@ void kmain(const boot_info_t* bootinfo)
             .framebuffer = fb_ptr
         };
         display_manager_set_framebuffer_candidate("bootinfo-lfb", &mode);
-        display_manager_activate_framebuffer();
-        video_switch_to_framebuffer(&mode);
-        console_writeln("Display: Bootloader-Framebuffer aktiviert.");
+        console_writeln("Display: Bootloader-Framebuffer verfügbar (Textmodus erzwungen, gpuprobe nutzen).");
     }
     console_writeln("Initializing Mezereon... Video initialized.");
     display_manager_log_state();
@@ -62,37 +60,7 @@ void kmain(const boot_info_t* bootinfo)
     gpu_init();
     gpu_log_summary();
 
-    if (CONFIG_VIDEO_TARGET != CONFIG_VIDEO_TARGET_TEXT) {
-        uint16_t preferred_height = 480;
-#if CONFIG_VIDEO_ENABLE_ET4000
-        if (CONFIG_VIDEO_ET4000_MODE == CONFIG_VIDEO_ET4000_MODE_640x400x8) {
-            preferred_height = 400;
-        }
-#endif
-        int fb_enabled = gpu_request_framebuffer_mode(640, preferred_height, 8);
-        if (!fb_enabled && preferred_height != 480) {
-            fb_enabled = gpu_request_framebuffer_mode(640, 480, 8);
-        }
-        if (fb_enabled) {
-            const display_state_t* st = display_manager_state();
-            if (st && st->active_mode.kind == DISPLAY_MODE_KIND_FRAMEBUFFER) {
-                console_write("Display: Framebuffer ");
-                console_write_dec(st->active_mode.width);
-                console_write("x");
-                console_write_dec(st->active_mode.height);
-                console_write("@");
-                console_write_dec(st->active_mode.bpp);
-                console_write(" via ");
-                console_write(st->active_driver_name ? st->active_driver_name : "(unbekannt)");
-                console_writeln(".");
-            } else {
-                console_writeln("Display: Framebuffer aktiviert.");
-            }
-            display_manager_log_state();
-        } else if (CONFIG_VIDEO_TARGET == CONFIG_VIDEO_TARGET_FRAMEBUFFER) {
-            console_writeln("Display: Framebuffer angefordert, aber kein passender Adapter.");
-        }
-    }
+    console_writeln("Display: Textmodus bleibt aktiv, Framebuffer bei Bedarf mit gpuprobe laden.");
 
     console_status_set_right(GIT_REV);
 

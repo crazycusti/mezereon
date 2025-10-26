@@ -10,6 +10,7 @@
 #define MEZ_CAP_VIDEO_FB        (1u << 0)
 #define MEZ_CAP_VIDEO_FB_ACCEL  (1u << 1)
 #define MEZ_CAP_SOUND_SB16      (1u << 2)
+#define MEZ_CAP_VIDEO_GPU_INFO  (1u << 3)
 
 #define MEZ_SOUND_BACKEND_NONE    0u
 #define MEZ_SOUND_BACKEND_PCSPK   (1u << 0)
@@ -37,6 +38,38 @@ typedef struct {
     uint8_t  reserved0;
     uint8_t  reserved1;
 } mez_sound_info32_t;
+
+// GPU feature levels roughly map to the rendering pipelines we can expose.
+typedef enum {
+    MEZ_GPU_FEATURELEVEL_TEXTMODE            = 0u,   // reine Textausgabe, keine Bank-/Linear-FB-Unterstützung
+    MEZ_GPU_FEATURELEVEL_BANKED_FB           = 100u, // 64-KiB-Bankfenster (ET4000, AVGA2)
+    MEZ_GPU_FEATURELEVEL_BANKED_FB_ACCEL     = 200u, // Banked Framebuffer mit rudimentärer Beschleunigung (ET4000AX)
+    MEZ_GPU_FEATURELEVEL_LINEAR_FB           = 300u, // Lineares Framebuffer ohne dedizierte 2D-Engine
+    MEZ_GPU_FEATURELEVEL_LINEAR_FB_ACCEL     = 400u, // Lineares Framebuffer mit 2D-Beschleunigung (z. B. Cirrus BitBLT)
+} mez_gpu_feature_level_t;
+
+typedef enum {
+    MEZ_GPU_ADAPTER_NONE            = 0u,
+    MEZ_GPU_ADAPTER_TEXTMODE        = 1u,
+    MEZ_GPU_ADAPTER_CIRRUS          = 2u,
+    MEZ_GPU_ADAPTER_TSENG_ET4000    = 3u,
+    MEZ_GPU_ADAPTER_TSENG_ET4000AX  = 4u,
+    MEZ_GPU_ADAPTER_ACUMOS_AVGA2    = 5u,
+} mez_gpu_adapter_t;
+
+#define MEZ_GPU_CAP_LINEAR_FB   (1u << 0)
+#define MEZ_GPU_CAP_ACCEL_2D    (1u << 1)
+#define MEZ_GPU_CAP_HW_CURSOR   (1u << 2)
+#define MEZ_GPU_CAP_VBE_BIOS    (1u << 3)
+#define MEZ_GPU_CAP_BANKED_FB   (1u << 4)
+
+typedef struct {
+    uint32_t feature_level;    // mez_gpu_feature_level_t
+    uint32_t adapter_type;     // mez_gpu_adapter_t
+    uint32_t capabilities;     // MEZ_GPU_CAP_* Bits
+    uint32_t vram_bytes;       // erkannter Videospeicher (falls bekannt)
+    char     name[32];         // Adaptername (0-terminiert)
+} mez_gpu_info32_t;
 
 typedef enum {
     MEZ_STATUS_POS_LEFT = 0,
@@ -89,6 +122,9 @@ typedef struct mez_api32 {
 
     // Sound stack metadata (legacy + PCM pipelines)
     const mez_sound_info32_t* (*sound_get_info)(void);
+
+    // GPU metadata (detected adapters + featurelevel)
+    const mez_gpu_info32_t* (*video_gpu_get_info)(void);
 } mez_api32_t;
 
 // Provider from kernel
