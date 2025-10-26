@@ -5,6 +5,7 @@
 #include "drivers/pcspeaker.h"
 #include "drivers/sb16.h"
 #include "drivers/gpu/fb_accel.h"
+#include "drivers/gpu/gpu.h"
 #include "video_fb.h"
 #include <stddef.h>
 #include <stdint.h>
@@ -42,6 +43,171 @@ static void api_sound_tone_off(void){ pcspeaker_off(); }
 
 static mez_fb_info32_t g_fb_info;
 static mez_sound_info32_t g_sound_info;
+static mez_gpu_info32_t g_gpu_info;
+
+static void mez_copy_string(char* dst, size_t len, const char* src)
+{
+    if (!dst || len == 0) {
+        return;
+    }
+    if (!src) {
+        dst[0] = '\0';
+        return;
+    }
+    size_t i = 0;
+    while (i + 1 < len && src[i]) {
+        dst[i] = src[i];
+        i++;
+    }
+    dst[i] = '\0';
+}
+
+static uint32_t mez_gpu_map_caps(const gpu_info_t* gpu)
+{
+    uint32_t caps = 0;
+    if (!gpu) {
+        return 0;
+    }
+    if (gpu->capabilities & GPU_CAP_LINEAR_FB) {
+        caps |= MEZ_GPU_CAP_LINEAR_FB;
+    }
+    if (gpu->capabilities & GPU_CAP_ACCEL_2D) {
+        caps |= MEZ_GPU_CAP_ACCEL_2D;
+    }
+    if (gpu->capabilities & GPU_CAP_HW_CURSOR) {
+        caps |= MEZ_GPU_CAP_HW_CURSOR;
+    }
+    if (gpu->capabilities & GPU_CAP_VBE_BIOS) {
+        caps |= MEZ_GPU_CAP_VBE_BIOS;
+    }
+    switch (gpu->type) {
+        case GPU_TYPE_ET4000:
+        case GPU_TYPE_ET4000AX:
+        case GPU_TYPE_AVGA2:
+        case GPU_TYPE_VGA:
+            caps |= MEZ_GPU_CAP_BANKED_FB;
+            break;
+        default:
+            break;
+    }
+    return caps;
+}
+
+static mez_gpu_feature_level_t mez_gpu_classify(const gpu_info_t* gpu)
+{
+    if (!gpu) {
+        return MEZ_GPU_FEATURELEVEL_TEXTMODE;
+    }
+    switch (gpu->type) {
+        case GPU_TYPE_CIRRUS:
+            if (gpu->capabilities & GPU_CAP_ACCEL_2D) {
+                return MEZ_GPU_FEATURELEVEL_LINEAR_FB_ACCEL;
+            }
+            return MEZ_GPU_FEATURELEVEL_LINEAR_FB;
+        case GPU_TYPE_ET4000AX:
+            return MEZ_GPU_FEATURELEVEL_BANKED_FB_ACCEL;
+        case GPU_TYPE_ET4000:
+        case GPU_TYPE_AVGA2:
+            return MEZ_GPU_FEATURELEVEL_BANKED_FB;
+        default:
+            return MEZ_GPU_FEATURELEVEL_TEXTMODE;
+    }
+}
+
+static uint32_t mez_gpu_map_adapter(const gpu_info_t* gpu)
+{
+    if (!gpu) {
+        return MEZ_GPU_ADAPTER_TEXTMODE;
+    }
+    switch (gpu->type) {
+        case GPU_TYPE_CIRRUS:
+            return MEZ_GPU_ADAPTER_CIRRUS;
+        case GPU_TYPE_ET4000:
+            return MEZ_GPU_ADAPTER_TSENG_ET4000;
+        case GPU_TYPE_ET4000AX:
+            return MEZ_GPU_ADAPTER_TSENG_ET4000AX;
+        case GPU_TYPE_AVGA2:
+            return MEZ_GPU_ADAPTER_ACUMOS_AVGA2;
+        default:
+            return MEZ_GPU_ADAPTER_TEXTMODE;
+    }
+}
+
+static const char* mez_gpu_default_name(uint32_t adapter_type)
+{
+    switch (adapter_type) {
+        case MEZ_GPU_ADAPTER_CIRRUS:
+            return "Cirrus Logic";
+        case MEZ_GPU_ADAPTER_TSENG_ET4000:
+            return "Tseng ET4000";
+        case MEZ_GPU_ADAPTER_TSENG_ET4000AX:
+            return "Tseng ET4000AX";
+        case MEZ_GPU_ADAPTER_ACUMOS_AVGA2:
+            return "Acumos AVGA2";
+        case MEZ_GPU_ADAPTER_TEXTMODE:
+            return "VGA Text-Mode";
+        default:
+            return "Unknown GPU";
+    }
+}
+
+static void mez_gpu_info_reset(mez_gpu_info32_t* info)
+{
+    if (!info) {
+        return;
+    }
+    info->feature_level = MEZ_GPU_FEATURELEVEL_TEXTMODE;
+    info->adapter_type = MEZ_GPU_ADAPTER_TEXTMODE;
+    info->capabilities = 0;
+    info->vram_bytes = 0;
+    info->name[0] = '\0';
+}
+
+static const mez_gpu_info32_t* api_video_gpu_get_info(void)
+{
+    size_t count = 0;
+    const gpu_info_t* devices = gpu_get_devices(&count);
+    const gpu_info_t* best_gpu = NULL;
+    mez_gpu_feature_level_t best_level = MEZ_GPU_FEATURELEVEL_TEXTMODE;
+    uint32_t best_caps = 0;
+    uint32_t best_vram = 0;
+
+    if (devices && count) {
+        for (size_t i = 0; i < count; ++i) {
+            const gpu_info_t* gpu = &devices[i];
+            mez_gpu_feature_level_t level = mez_gpu_classify(gpu);
+            uint32_t caps = mez_gpu_map_caps(gpu);
+            uint32_t vram = gpu->framebuffer_size;
+            if (!best_gpu || level > best_level ||
+                (level == best_level && caps > best_caps) ||
+                (level == best_level && caps == best_caps && vram > best_vram)) {
+                best_gpu = gpu;
+                best_level = level;
+                best_caps = caps;
+                best_vram = vram;
+            }
+        }
+    }
+
+    mez_gpu_info_reset(&g_gpu_info);
+
+    if (best_gpu) {
+        uint32_t adapter = mez_gpu_map_adapter(best_gpu);
+        g_gpu_info.feature_level = best_level;
+        g_gpu_info.adapter_type = adapter;
+        g_gpu_info.capabilities = best_caps;
+        g_gpu_info.vram_bytes = best_vram;
+        if (best_gpu->name[0]) {
+            mez_copy_string(g_gpu_info.name, sizeof(g_gpu_info.name), best_gpu->name);
+        } else {
+            mez_copy_string(g_gpu_info.name, sizeof(g_gpu_info.name), mez_gpu_default_name(adapter));
+        }
+    } else {
+        mez_copy_string(g_gpu_info.name, sizeof(g_gpu_info.name), mez_gpu_default_name(MEZ_GPU_ADAPTER_TEXTMODE));
+    }
+
+    return &g_gpu_info;
+}
 
 static statusbar_pos_t mez_pos_to_statusbar(mez_status_pos_t pos) {
     switch (pos) {
@@ -179,6 +345,7 @@ static mez_api32_t g_api = {
     .video_fb_fill_rect = api_video_fb_fill_rect,
 
     .sound_get_info    = api_sound_get_info,
+    .video_gpu_get_info = api_video_gpu_get_info,
 };
 
 const mez_api32_t* mez_api_get(void)
@@ -194,6 +361,9 @@ const mez_api32_t* mez_api_get(void)
     }
     if (sb16_present()) {
         caps |= MEZ_CAP_SOUND_SB16;
+    }
+    if (api_video_gpu_get_info()) {
+        caps |= MEZ_CAP_VIDEO_GPU_INFO;
     }
     g_api.capabilities = caps;
     return &g_api;
