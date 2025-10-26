@@ -23,6 +23,10 @@ static int parse_chip_token(const char* token, gpu_type_t* out_type) {
         *out_type = GPU_TYPE_ET4000AX;
         return 1;
     }
+    if (token_equals(token, "avga2")) {
+        *out_type = GPU_TYPE_AVGA2;
+        return 1;
+    }
     if (token_equals(token, "cirrus")) {
         *out_type = GPU_TYPE_CIRRUS;
         return 1;
@@ -81,8 +85,83 @@ static int parse_legacy_height(const char* token, uint16_t* height) {
     return 0;
 }
 
+static int gpuprobe_type_is_tseng(gpu_type_t type) {
+    return (type == GPU_TYPE_ET4000 || type == GPU_TYPE_ET4000AX || type == GPU_TYPE_AVGA2);
+}
+
+static int gpuprobe_type_matches(gpu_type_t requested, gpu_type_t actual) {
+    if (requested == actual) {
+        return 1;
+    }
+    if (gpuprobe_type_is_tseng(requested) && gpuprobe_type_is_tseng(actual)) {
+        return 1;
+    }
+    return 0;
+}
+
+static const char* gpuprobe_chip_token(gpu_type_t type) {
+    switch (type) {
+        case GPU_TYPE_ET4000: return "et4000";
+        case GPU_TYPE_ET4000AX: return "et4000ax";
+        case GPU_TYPE_AVGA2: return "avga2";
+        case GPU_TYPE_CIRRUS: return "cirrus";
+        case GPU_TYPE_VGA: return "vga";
+        default: return "et4000";
+    }
+}
+
+static const gpu_info_t* gpuprobe_find_device(const gpu_info_t* devices,
+                                              size_t count,
+                                              gpu_type_t requested_type) {
+    if (!devices) {
+        return NULL;
+    }
+    for (size_t i = 0; i < count; ++i) {
+        const gpu_info_t* dev = &devices[i];
+        if (gpuprobe_type_matches(requested_type, dev->type)) {
+            return dev;
+        }
+    }
+    return NULL;
+}
+
+static void gpuprobe_print_mode_catalog(const gpu_info_t* gpu) {
+    if (!gpu) {
+        console_writeln("gpuprobe: no matching GPU found for mode listing");
+        return;
+    }
+
+    gpu_mode_option_t options[16];
+    size_t total = gpu_get_mode_catalog(gpu, options, sizeof(options) / sizeof(options[0]));
+    if (total == 0) {
+        console_writeln("gpuprobe: no framebuffer modes available for this adapter");
+        return;
+    }
+
+    const char* name = gpu->name[0] ? gpu->name : "GPU";
+    console_write("gpuprobe: available modes for ");
+    console_write(name);
+    console_writeln(":");
+    size_t listed = (total > (sizeof(options) / sizeof(options[0]))) ? (sizeof(options) / sizeof(options[0])) : total;
+    for (size_t i = 0; i < listed; ++i) {
+        console_write("  - ");
+        console_write_dec(options[i].width);
+        console_write("x");
+        console_write_dec(options[i].height);
+        console_write("x");
+        console_write_dec(options[i].bpp);
+        console_writeln(" bpp");
+    }
+    if (listed < total) {
+        console_writeln("  (additional modes omitted)");
+    }
+    console_write("  -> activate using 'gpuprobe activate ");
+    console_write(gpuprobe_chip_token(gpu->type));
+    console_writeln(" <width>x<height>x<bpp>'");
+}
+
 void gpu_probe_run(const char* args) {
-    int scan = 1;
+    int scan_requested = 0;
     int toggle_auto = -1; // -1=no change
     int status_requested = 0;
     int debug_toggle = -2; // -2=no change, 0=off,1=on
@@ -194,9 +273,9 @@ void gpu_probe_run(const char* args) {
         if (token[0] == '\0') {
             continue;
         } else if (token_equals(token, "noscan")) {
-            scan = 0;
+            scan_requested = 0;
         } else if (token_equals(token, "scan")) {
-            scan = 1;
+            scan_requested = 1;
         } else if (token_equals(token, "activate")) {
             manual_requested = 1;
             manual_ready = 0;
@@ -236,11 +315,39 @@ void gpu_probe_run(const char* args) {
         gpu_set_debug(debug_toggle);
     }
 
-    console_writeln("gpuprobe: starting diagnostics");
-    if (!scan) {
-        console_writeln("gpuprobe: legacy scan disabled (pass 'scan' to force)");
+    size_t device_count = 0;
+    const gpu_info_t* devices = gpu_get_devices(&device_count);
+    const gpu_info_t* manual_device = NULL;
+    if (manual_requested && manual_type != GPU_TYPE_VGA) {
+        manual_device = gpuprobe_find_device(devices, device_count, manual_type);
     }
-    gpu_debug_probe(scan);
+
+    int run_legacy_scan = scan_requested;
+    if (!run_legacy_scan && manual_requested && manual_type != GPU_TYPE_VGA && !manual_device &&
+        gpuprobe_type_is_tseng(manual_type)) {
+        run_legacy_scan = 1;
+    }
+
+    console_writeln("gpuprobe: starting diagnostics");
+    if (!run_legacy_scan) {
+        console_writeln("gpuprobe: legacy Tseng scan skipped (use 'scan' to force)");
+    } else if (!scan_requested) {
+        console_writeln("gpuprobe: forcing legacy Tseng scan for requested activation");
+    }
+    gpu_debug_probe(run_legacy_scan);
+
+    if (manual_requested && manual_type != GPU_TYPE_VGA) {
+        devices = gpu_get_devices(&device_count);
+        manual_device = gpuprobe_find_device(devices, device_count, manual_type);
+        if (!manual_device) {
+            console_write("gpuprobe: no detected ");
+            console_write(gpuprobe_chip_token(manual_type));
+            console_writeln(" adapter (activation skipped)");
+            manual_ready = 0;
+        } else {
+            gpuprobe_print_mode_catalog(manual_device);
+        }
+    }
 
     if (toggle_auto != -1) {
         gpu_tseng_set_auto_enabled(toggle_auto);
@@ -250,13 +357,7 @@ void gpu_probe_run(const char* args) {
         if (!manual_ready) {
             console_writeln("gpuprobe: activation aborted (missing or invalid mode)");
         } else {
-            const char* chip_name = "et4000";
-            switch (manual_type) {
-                case GPU_TYPE_ET4000AX: chip_name = "et4000ax"; break;
-                case GPU_TYPE_CIRRUS: chip_name = "cirrus"; break;
-                case GPU_TYPE_VGA: chip_name = "vga"; break;
-                default: chip_name = "et4000"; break;
-            }
+            const char* chip_name = gpuprobe_chip_token(manual_type);
             console_write("gpuprobe: activating ");
             console_write(chip_name);
             if (manual_width && manual_height) {

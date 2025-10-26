@@ -7,6 +7,7 @@ MezAPI Grafikzugriff (Framebuffer)
 - Unterstützung erkennt man am Flag `MEZ_CAP_VIDEO_FB` im Feld `capabilities` der API-Tabelle.
 - Der Framebuffer entspricht dem aktuellen Konsolen-Backend (z. B. Cirrus Linear Framebuffer 640×480×8).
 - Falls kein Framebuffer aktiv ist (reiner Textmodus oder andere Architektur), bleibt das Flag 0 und `video_fb_get_info()` liefert `NULL`.
+- Zusätzlich liefert `MEZ_CAP_VIDEO_GPU_INFO` zusammen mit `video_gpu_get_info()` eine Klassifizierung der erkannten GPU (Featurelevel von reinem Textmodus bis linearem Framebuffer mit 2D-Beschleuniger).
 
 Strukturen & Funktionen
 -----------------------
@@ -33,6 +34,40 @@ Nutzungsschritte
 3. Breite, Höhe, Pitch und bpp auswerten. Bei 8 bpp handelt es sich um Palettenindizes (Standard-VGA-Palette wird beim Umschalten geladen).
 4. Malen wie gewohnt: `framebuffer[y * pitch + x] = farbindex;`
 5. Optional: Bei `MEZ_CAP_VIDEO_FB_ACCEL` steht `video_fb_fill_rect()` als schnelle Flächenfüllung zur Verfügung. Der Kernel nutzt dabei Hardwarebeschleunigung (z. B. Cirrus BitBLT) und fällt sonst auf eine CPU-Schleife zurück.
+
+GPU-Eignung einschätzen
+-----------------------
+```c
+const mez_gpu_info32_t* gpu = NULL;
+if ((api->capabilities & MEZ_CAP_VIDEO_GPU_INFO) && api->video_gpu_get_info) {
+    gpu = api->video_gpu_get_info();
+}
+if (gpu) {
+    switch (gpu->feature_level) {
+        case MEZ_GPU_FEATURELEVEL_LINEAR_FB_ACCEL:
+            api->console_writeln("GPU: linear framebuffer + accel");
+            break;
+        case MEZ_GPU_FEATURELEVEL_LINEAR_FB:
+            api->console_writeln("GPU: linear framebuffer");
+            break;
+        case MEZ_GPU_FEATURELEVEL_BANKED_FB_ACCEL:
+            api->console_writeln("GPU: banked framebuffer (AX accel)");
+            break;
+        case MEZ_GPU_FEATURELEVEL_BANKED_FB:
+            api->console_writeln("GPU: banked framebuffer window");
+            break;
+        default:
+            api->console_writeln("GPU: text-only backend");
+            break;
+    }
+}
+```
+
+Aktuell setzt der Kernel folgende Featurelevels:
+- Textmodus (kein Framebuffer): `MEZ_GPU_FEATURELEVEL_TEXTMODE`
+- Tseng ET4000 / Acumos AVGA2 (64-KiB-Bankfenster): `MEZ_GPU_FEATURELEVEL_BANKED_FB`
+- Tseng ET4000AX (Banked + rudimentäre AX-Beschleunigung): `MEZ_GPU_FEATURELEVEL_BANKED_FB_ACCEL`
+- Cirrus Logic GD5446 (QEMU) lineares 8bpp LFB, BitBLT: `MEZ_GPU_FEATURELEVEL_LINEAR_FB_ACCEL`
 
 Minimalbeispiel
 ---------------
