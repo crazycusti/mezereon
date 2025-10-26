@@ -10,9 +10,9 @@ GPU shell commands
 `gpuprobe`
 ---------
 - Syntax: `gpuprobe [scan|noscan] [auto|noauto] [status] [debug <on|off>] [activate <chip> <WxHxB>]`
-- Standardlauf (ohne Argumente): nutzt ausschließlich die bereits registrierten Adapter aus der Kernel-Tabelle. Der Tseng-Legacy-Scan bleibt deaktiviert, solange kein manueller ET4000/AVGA2-Aufruf erfolgt (`scan` erzwingt ihn explizit). Cirrus-Geräte erscheinen jetzt genauso wie Tseng-Karten in der Übersicht.
+- Standardlauf (ohne Argumente): führt Legacy-Scan + PCI-Diagnose aus, protokolliert Adapter, zeigt Tseng-Autopilot-Status und verweist auf Fehlerspeicher.
 - `activate <chip> <WxHxB>` erzwingt eine Framebuffer-Aktivierung. Unterstützte `chip`-Tokens: `et4000`, `et4000ax`, `avga2`, `cirrus`, `vga`.
-- Vor der eigentlichen Umschaltung blendet `gpuprobe` alle bekannten Framebuffer-Modi für den gewählten Chip ein (z. B. `640x480x8 bpp`). Die Ausgabe enthält bereits den passenden `gpuprobe activate <chip> ...`-Aufruf mit dem konkreten Chip-Token, sodass sich eine passende Auflösung/Farbtiefe auswählen lässt, bevor der Framebuffer scharf geschaltet wird. Fehlt ein passender Eintrag in der Gerätetabelle, wird keine Aktivierung mehr versucht.
+- Vor der eigentlichen Umschaltung blendet `gpuprobe` alle bekannten Framebuffer-Modi für den gewählten Chip ein (z. B. `640x480x8 bpp`). Die Ausgabe enthält bereits den passenden `gpuprobe activate <chip> ...`-Aufruf mit dem konkreten Chip-Token, sodass sich eine passende Auflösung/Farbtiefe auswählen lässt, bevor der Framebuffer scharf geschaltet wird.
 - Fehlende oder ungültige Modusangaben (`640x400x8`, `800x600x8`, …) werden abgefangen; das Tool erinnert daran, mit `gpuprobe activate <chip> <WxHxB>` zu wiederholen.
 - `status` gibt den zuletzt aktivierten Modus und die Autokonfiguration aus; `debug on|off` steuert zusätzliche Register-Dumps.
 

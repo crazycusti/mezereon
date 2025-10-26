@@ -22,7 +22,7 @@ Shell usage
 -----------
 - `gpuinfo` — dumps every supported adapter with bus/device/function, vendor/device IDs, BAR information, and capability flags.
 - `gpuinfo detail` — includes Cirrus register snapshots (Sequencer, CRTC, Graphics, Attribute) to aid bring-up and debugging.
-- `gpuprobe [scan|noscan] [auto|noauto] [status] [debug <on|off>] [activate <chip> <WxHxB>]` — nutzt zunächst ausschließlich die registrierten Geräte aus `gpu_init`. Der Tseng-Legacy-Scan (`et4000_detect`) läuft nur noch bei explizitem `scan` oder wenn ein manueller ET4000/AVGA2-Start angefordert wird. Vor einer Aktivierung blendet das Tool die erkannten Framebuffer-Modi für den gewählten Chip ein (Auflösung × Farbtiefe) und verweist direkt auf die passende `activate`-Syntax.
+- `gpuprobe [scan|noscan] [auto|noauto] [status] [debug <on|off>] [activate <chip> <WxHxB>]` — führt den bekannten Diagnosepfad im Textmodus aus. Vor einer manuellen Aktivierung blendet das Tool die erkannten Framebuffer-Modi für den gewählten Chip ein (Auflösung × Farbtiefe) und verweist direkt auf die passende `activate`-Syntax.
 - Boot-Log-Zeilen spiegeln die `gpuinfo`-Kurzfassung wider. Da der Bootvorgang im Textmodus verbleibt, muss ein Framebuffer nun bewusst via `gpuprobe activate ...` gewählt werden. `gpuinfo` listet weiterhin die bekannten Modi (gefiltert nach VRAM), während `gpuprobe` den Satz unmittelbar vor dem Umschalten zeigt.
 
 Tseng ET4000 (ISA) notes

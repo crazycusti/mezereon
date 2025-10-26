@@ -85,15 +85,12 @@ static int parse_legacy_height(const char* token, uint16_t* height) {
     return 0;
 }
 
-static int gpuprobe_type_is_tseng(gpu_type_t type) {
-    return (type == GPU_TYPE_ET4000 || type == GPU_TYPE_ET4000AX || type == GPU_TYPE_AVGA2);
-}
-
 static int gpuprobe_type_matches(gpu_type_t requested, gpu_type_t actual) {
     if (requested == actual) {
         return 1;
     }
-    if (gpuprobe_type_is_tseng(requested) && gpuprobe_type_is_tseng(actual)) {
+    if ((requested == GPU_TYPE_ET4000 || requested == GPU_TYPE_ET4000AX || requested == GPU_TYPE_AVGA2) &&
+        (actual == GPU_TYPE_ET4000 || actual == GPU_TYPE_ET4000AX || actual == GPU_TYPE_AVGA2)) {
         return 1;
     }
     return 0;
@@ -110,35 +107,31 @@ static const char* gpuprobe_chip_token(gpu_type_t type) {
     }
 }
 
-static const gpu_info_t* gpuprobe_find_device(const gpu_info_t* devices,
-                                              size_t count,
-                                              gpu_type_t requested_type) {
-    if (!devices) {
-        return NULL;
-    }
-    for (size_t i = 0; i < count; ++i) {
+static void gpuprobe_print_mode_catalog(gpu_type_t requested_type) {
+    size_t device_count = 0;
+    const gpu_info_t* devices = gpu_get_devices(&device_count);
+    const gpu_info_t* match = NULL;
+    for (size_t i = 0; i < device_count; ++i) {
         const gpu_info_t* dev = &devices[i];
         if (gpuprobe_type_matches(requested_type, dev->type)) {
-            return dev;
+            match = dev;
+            break;
         }
     }
-    return NULL;
-}
 
-static void gpuprobe_print_mode_catalog(const gpu_info_t* gpu) {
-    if (!gpu) {
+    if (!match) {
         console_writeln("gpuprobe: no matching GPU found for mode listing");
         return;
     }
 
     gpu_mode_option_t options[16];
-    size_t total = gpu_get_mode_catalog(gpu, options, sizeof(options) / sizeof(options[0]));
+    size_t total = gpu_get_mode_catalog(match, options, sizeof(options) / sizeof(options[0]));
     if (total == 0) {
         console_writeln("gpuprobe: no framebuffer modes available for this adapter");
         return;
     }
 
-    const char* name = gpu->name[0] ? gpu->name : "GPU";
+    const char* name = match->name[0] ? match->name : "GPU";
     console_write("gpuprobe: available modes for ");
     console_write(name);
     console_writeln(":");
@@ -156,7 +149,7 @@ static void gpuprobe_print_mode_catalog(const gpu_info_t* gpu) {
         console_writeln("  (additional modes omitted)");
     }
     console_write("  -> activate using 'gpuprobe activate ");
-    console_write(gpuprobe_chip_token(gpu->type));
+    console_write(gpuprobe_chip_token(requested_type));
     console_writeln(" <width>x<height>x<bpp>'");
 }
 
@@ -347,6 +340,10 @@ void gpu_probe_run(const char* args) {
         } else {
             gpuprobe_print_mode_catalog(manual_device);
         }
+    }
+
+    if (manual_requested && manual_type != GPU_TYPE_VGA) {
+        gpuprobe_print_mode_catalog(manual_type);
     }
 
     if (toggle_auto != -1) {

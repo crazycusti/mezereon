@@ -62,4 +62,3 @@
 2025-09-22 12:34:00 (codex@worktree) - gpu: auto-enable Tseng ET4000 framebuffer (640x480@8, legacy ISA detect)
 2025-09-22 12:34:00 (codex@worktree) - docs: document ET4000 support/config toggle in README + docs/hw/pci_gpu.md
 2025-10-26 09:27:45 (codex@worktree) - gpuprobe: list framebuffer modes before manual activation; update shell help + docs
-2025-10-26 09:52:00 (codex@worktree) - gpuprobe: rely on detected adapters before scanning; skip activation when no match
