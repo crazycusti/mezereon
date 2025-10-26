@@ -154,7 +154,7 @@ static void gpuprobe_print_mode_catalog(gpu_type_t requested_type) {
 }
 
 void gpu_probe_run(const char* args) {
-    int scan = 1;
+    int scan_requested = 0;
     int toggle_auto = -1; // -1=no change
     int status_requested = 0;
     int debug_toggle = -2; // -2=no change, 0=off,1=on
@@ -266,9 +266,9 @@ void gpu_probe_run(const char* args) {
         if (token[0] == '\0') {
             continue;
         } else if (token_equals(token, "noscan")) {
-            scan = 0;
+            scan_requested = 0;
         } else if (token_equals(token, "scan")) {
-            scan = 1;
+            scan_requested = 1;
         } else if (token_equals(token, "activate")) {
             manual_requested = 1;
             manual_ready = 0;
@@ -308,11 +308,39 @@ void gpu_probe_run(const char* args) {
         gpu_set_debug(debug_toggle);
     }
 
-    console_writeln("gpuprobe: starting diagnostics");
-    if (!scan) {
-        console_writeln("gpuprobe: legacy scan disabled (pass 'scan' to force)");
+    size_t device_count = 0;
+    const gpu_info_t* devices = gpu_get_devices(&device_count);
+    const gpu_info_t* manual_device = NULL;
+    if (manual_requested && manual_type != GPU_TYPE_VGA) {
+        manual_device = gpuprobe_find_device(devices, device_count, manual_type);
     }
-    gpu_debug_probe(scan);
+
+    int run_legacy_scan = scan_requested;
+    if (!run_legacy_scan && manual_requested && manual_type != GPU_TYPE_VGA && !manual_device &&
+        gpuprobe_type_is_tseng(manual_type)) {
+        run_legacy_scan = 1;
+    }
+
+    console_writeln("gpuprobe: starting diagnostics");
+    if (!run_legacy_scan) {
+        console_writeln("gpuprobe: legacy Tseng scan skipped (use 'scan' to force)");
+    } else if (!scan_requested) {
+        console_writeln("gpuprobe: forcing legacy Tseng scan for requested activation");
+    }
+    gpu_debug_probe(run_legacy_scan);
+
+    if (manual_requested && manual_type != GPU_TYPE_VGA) {
+        devices = gpu_get_devices(&device_count);
+        manual_device = gpuprobe_find_device(devices, device_count, manual_type);
+        if (!manual_device) {
+            console_write("gpuprobe: no detected ");
+            console_write(gpuprobe_chip_token(manual_type));
+            console_writeln(" adapter (activation skipped)");
+            manual_ready = 0;
+        } else {
+            gpuprobe_print_mode_catalog(manual_device);
+        }
+    }
 
     if (manual_requested && manual_type != GPU_TYPE_VGA) {
         gpuprobe_print_mode_catalog(manual_type);
