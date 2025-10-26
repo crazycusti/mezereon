@@ -11,6 +11,7 @@
 #endif
 
 #include <stdint.h>
+#include <stddef.h>
 
 int g_is_ax_variant = 0;
 
@@ -160,6 +161,49 @@ static void et4k_log_dec(const char* label, uint32_t value) {
     console_write("=");
     console_write_dec(value);
     console_write("\n");
+}
+
+static void et4k_print_byte_hex(uint8_t v) {
+    static const char hex[] = "0123456789ABCDEF";
+    char buf[3];
+    buf[0] = hex[(v >> 4) & 0x0F];
+    buf[1] = hex[v & 0x0F];
+    buf[2] = '\0';
+    console_write(buf);
+}
+
+static void et4k_dump_block(const char* title,
+                            uint8_t (*reader)(uint8_t),
+                            const uint8_t* indices,
+                            size_t count) {
+    if (!title || !reader || !indices || count == 0) {
+        return;
+    }
+
+    console_write("      ");
+    console_writeln(title);
+    for (size_t i = 0; i < count; ++i) {
+        uint8_t reg = indices[i];
+        console_write("        ");
+        switch (title[0]) {
+            case 'S': console_write("SR"); break;
+            case 'C': console_write("CR"); break;
+            case 'G': console_write("GR"); break;
+            case 'A': console_write("AR"); break;
+            default:  console_write("R");  break;
+        }
+        et4k_print_byte_hex(reg);
+        console_write("=");
+        et4k_print_byte_hex(reader(reg));
+        if (((i & 0x03u) == 0x03u) || (i + 1 == count)) {
+            console_writeln("");
+        } else {
+            console_write("  ");
+        }
+    }
+    if ((count & 0x03u) != 0u) {
+        console_writeln("");
+    }
 }
 
 #define ET4K_COM1_BASE 0x3F8u
@@ -1102,9 +1146,98 @@ int et4000_capture_dump(uint8_t bank, uint32_t offset, uint32_t length) {
 
 void et4000_debug_dump(void) {
     et4k_log("debug_dump: enter");
-    console_writeln("et4000-debug: legacy ET4000 detection summary");
-    console_write("  signature: ");
+
+    console_writeln("      Tseng ET4000 diagnostics:");
+    console_write("        variant: ");
+    console_writeln(g_is_ax_variant ? "ET4000AX" : "ET4000/compatible");
+
+    console_write("        detection: toggle=");
+    console_write(et4k_detection_toggle_ok() ? "OK" : "FAIL");
+    console_write(", latch=");
+    console_write(et4k_detection_latch_ok() ? "OK" : "FAIL");
+    console_write(", signature=");
     console_writeln(g_et4k_detect.signature_ok ? "OK" : "FAIL");
+
+    if (et4k_detection_alias_limited()) {
+        console_write("        alias-limit bytes=0x");
+        console_write_hex32(et4k_detection_alias_limit_bytes());
+        console_writeln("");
+    }
+
+    uint8_t ext = inb(ET4K_EXT_PORT);
+    uint8_t bank = inb(ET4K_PORT_BANK);
+    uint8_t segment = inb(ET4K_PORT_SEGMENT);
+    console_write("        ext[3BF]=0x");
+    et4k_print_byte_hex(ext);
+    console_write("  bank[3CB]=0x");
+    et4k_print_byte_hex(bank);
+    console_write("  segment[3CD]=0x");
+    et4k_print_byte_hex(segment);
+    console_writeln("");
+
+    static const uint8_t seq_main[] = {
+        0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,
+        0x08,0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F
+    };
+    static const uint8_t seq_ext[] = {
+        0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,
+        0x18,0x19,0x1A,0x1B,0x1C,0x1D,0x1E,0x1F
+    };
+    static const uint8_t crtc_main[] = {
+        0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,
+        0x08,0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F,
+        0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,
+        0x18
+    };
+    static const uint8_t crtc_ext[] = {
+        0x19,0x1A,0x1B,0x1C,0x1D,0x1E,0x1F,0x22,
+        0x24,0x27,0x2D,0x2E,0x30,0x31,0x32,0x33
+    };
+    static const uint8_t gc_main[] = {
+        0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,
+        0x08,0x09
+    };
+    static const uint8_t gc_ext[] = {
+        0x0A,0x0B,0x0C,0x0D,0x0E,0x0F,0x10,0x11,
+        0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,
+        0x1A,0x1B,0x1C,0x1D,0x1E,0x1F
+    };
+    static const uint8_t attr_idx[] = {
+        0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,
+        0x10,0x12,0x13,0x14
+    };
+
+    et4k_dump_block("Seq regs:", vga_seq_read, seq_main, sizeof(seq_main));
+    et4k_dump_block("Seq ext:", vga_seq_read, seq_ext, sizeof(seq_ext));
+    et4k_dump_block("CRTC regs:", vga_crtc_read, crtc_main, sizeof(crtc_main));
+    et4k_dump_block("CRTC ext:", vga_crtc_read, crtc_ext, sizeof(crtc_ext));
+    et4k_dump_block("Graphics regs:", vga_gc_read, gc_main, sizeof(gc_main));
+    et4k_dump_block("Graphics ext:", vga_gc_read, gc_ext, sizeof(gc_ext));
+
+    console_write("      Attr regs:");
+    for (size_t i = 0; i < sizeof(attr_idx); ++i) {
+        if ((i & 0x03u) == 0u) {
+            console_writeln("");
+            console_write("        ");
+        }
+        console_write("AR");
+        et4k_print_byte_hex(attr_idx[i]);
+        console_write("=");
+        et4k_print_byte_hex(vga_attr_read(attr_idx[i]));
+        if ((i & 0x03u) != 0x03u && i + 1 < sizeof(attr_idx)) {
+            console_write("  ");
+        }
+    }
+    console_writeln("");
+
+    console_write("      Misc=0x");
+    et4k_print_byte_hex(vga_misc_read());
+    console_write("  PelMask=0x");
+    et4k_print_byte_hex(vga_pel_mask_read());
+    console_write("  Status[3DA]=0x");
+    et4k_print_byte_hex(inb(ET4K_PORT_STATUS));
+    console_writeln("");
+
     et4k_log("debug_dump: exit");
 }
 

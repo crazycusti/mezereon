@@ -47,6 +47,7 @@ void gpu_init(void);
 const gpu_info_t* gpu_get_devices(size_t* count);
 void gpu_log_summary(void);
 void gpu_dump_details(void);
+void gpu_dump_registers(const gpu_info_t* gpu);
 int  gpu_request_framebuffer_mode(uint16_t width, uint16_t height, uint8_t bpp);
 void gpu_restore_text_mode(void);
 void gpu_debug_probe(int scan_legacy);

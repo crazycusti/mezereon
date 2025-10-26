@@ -252,6 +252,30 @@ static void log_device(const gpu_info_t* gpu) {
     }
 }
 
+void gpu_dump_registers(const gpu_info_t* gpu) {
+    if (!gpu) {
+        console_writeln("      (no adapter information available)");
+        return;
+    }
+
+    switch (gpu->type) {
+        case GPU_TYPE_CIRRUS:
+            cirrus_dump_state(&gpu->pci);
+            break;
+        case GPU_TYPE_AVGA2:
+            avga2_dump_state();
+            et4000_debug_dump();
+            break;
+        case GPU_TYPE_ET4000:
+        case GPU_TYPE_ET4000AX:
+            et4000_debug_dump();
+            break;
+        default:
+            console_writeln("      (no detailed dump available for this adapter)");
+            break;
+    }
+}
+
 static int tseng_mode_to_enum(uint16_t width, uint16_t height, uint8_t bpp, et4000_mode_t* out_mode);
 static void tseng_enum_to_dimensions(et4000_mode_t mode, uint16_t* width, uint16_t* height, uint8_t* bpp);
 static int tseng_candidate_contains(const et4000_mode_t* modes, size_t count, et4000_mode_t value);
@@ -322,6 +346,8 @@ size_t gpu_get_mode_catalog(const gpu_info_t* gpu,
     return count;
 }
 
+static gpu_info_t* gpu_acquire_slot_for_type(gpu_type_t type, const gpu_info_t* source);
+
 static gpu_info_t g_gpu_infos[GPU_MAX_DEVICES];
 static size_t g_gpu_count = 0;
 static gpu_info_t* g_active_fb_gpu = NULL;
@@ -333,6 +359,7 @@ void gpu_init(void) {
     gpu_debug_log("INFO", "initialising GPU subsystem");
     g_gpu_count = 0;
     size_t pci_count = 0;
+    int has_pci_gpu = 0;
     const pci_device_t* pci_devices = pci_get_devices(&pci_count);
     for (size_t i = 0; i < pci_count && g_gpu_count < GPU_MAX_DEVICES; i++) {
         const pci_device_t* dev = &pci_devices[i];
@@ -352,12 +379,15 @@ void gpu_init(void) {
 
         if (cirrus_gpu_detect(dev, &info)) {
             g_gpu_infos[g_gpu_count++] = info;
+            if (info.pci.vendor_id || info.pci.device_id) {
+                has_pci_gpu = 1;
+            }
             continue;
         }
     }
 
 #if CONFIG_VIDEO_ENABLE_ET4000
-    if (g_gpu_count < GPU_MAX_DEVICES) {
+    if (!has_pci_gpu && g_gpu_count < GPU_MAX_DEVICES) {
         gpu_info_t info = {0};
         if (et4000_detect(&info)) {
             avga2_classify_info(&info);
@@ -395,18 +425,7 @@ void gpu_dump_details(void) {
     for (size_t i = 0; i < g_gpu_count; i++) {
         const gpu_info_t* gpu = &g_gpu_infos[i];
         log_device(gpu);
-        switch (gpu->type) {
-            case GPU_TYPE_CIRRUS:
-                cirrus_dump_state(&gpu->pci);
-                break;
-            case GPU_TYPE_AVGA2:
-                avga2_dump_state();
-                et4000_debug_dump();
-                break;
-            default:
-                console_writeln("      (no detailed dump available for this adapter)");
-                break;
-        }
+        gpu_dump_registers(gpu);
     }
 }
 
@@ -447,7 +466,7 @@ int gpu_request_framebuffer_mode(uint16_t width, uint16_t height, uint8_t bpp) {
                 display_manager_activate_framebuffer();
                 cirrus_accel_enable(&mode);
                 video_switch_to_framebuffer(&mode);
-                gpu_set_last_mode(gpu->name[0] ? gpu->name : "cirrus", mode.width, mode.height, mode.bpp);
+                gpu_set_last_mode(gpu->name[0] ? gpu->name : "Cirrus GD5446", mode.width, mode.height, mode.bpp);
                 gpu_set_last_error("OK: Cirrus framebuffer active");
                 g_active_fb_gpu = gpu;
                 g_framebuffer_active = 1;
@@ -597,7 +616,7 @@ void gpu_debug_probe(int scan_legacy) {
             console_write_dec((uint32_t)i);
             console_write(": type=");
             switch (gpu->type) {
-                case GPU_TYPE_CIRRUS: console_write("cirrus"); break;
+                case GPU_TYPE_CIRRUS: console_write("cirrus gd5446"); break;
                 case GPU_TYPE_ET4000: console_write("et4000"); break;
                 case GPU_TYPE_ET4000AX: console_write("et4000ax"); break;
                 case GPU_TYPE_AVGA2: console_write("avga2"); break;
@@ -630,6 +649,10 @@ void gpu_debug_probe(int scan_legacy) {
         et4000_set_debug_trace(0);
         if (tseng_found) {
             avga2_classify_info(&info);
+            gpu_info_t* slot = gpu_acquire_slot_for_type(info.type, &info);
+            if (!slot) {
+                console_writeln("  scan result: gpu table full, unable to store Tseng adapter");
+            }
             console_write("  scan result: detected ");
             console_write(info.name[0] ? info.name : "Tseng ET4000");
             console_write(" (type=");
@@ -775,7 +798,7 @@ static int activate_cirrus(uint16_t width, uint16_t height, uint8_t bpp) {
     video_switch_to_framebuffer(&fb_mode);
     g_active_fb_gpu = gpu;
     g_framebuffer_active = 1;
-    gpu_set_last_mode(gpu->name[0] ? gpu->name : "Cirrus", fb_mode.width, fb_mode.height, fb_mode.bpp);
+    gpu_set_last_mode(gpu->name[0] ? gpu->name : "Cirrus GD5446", fb_mode.width, fb_mode.height, fb_mode.bpp);
     gpu_set_last_error("OK: Cirrus framebuffer active");
     gpu_debug_log("OK", "Cirrus framebuffer active");
     return 1;

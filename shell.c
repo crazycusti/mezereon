@@ -12,8 +12,8 @@
 #include "net/ipv4.h"
 #include "drivers/pcspeaker.h"
 #include "drivers/gpu/gpu.h"
-#include "drivers/gpu/et4000.h"
 #include "apps/fbtest_color.h"
+#include "apps/gpu_dump.h"
 #include "apps/gpu_probe.h"
 #include "video_fb.h"
 #include "mezapi.h"
@@ -38,34 +38,6 @@ static void shell_write_u64_hex(uint64_t v) {
     } else {
         console_write_hex32(lo);
     }
-}
-
-static int shell_parse_u32(const char* text, uint32_t* out) {
-    if (!text || !*text || !out) return 0;
-    uint32_t value = 0;
-    int base = 10;
-    const char* p = text;
-    if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) {
-        base = 16;
-        p += 2;
-        if (!*p) return 0;
-    }
-    while (*p) {
-        char c = *p++;
-        int digit;
-        if (c >= '0' && c <= '9') {
-            digit = c - '0';
-        } else if (base == 16 && c >= 'a' && c <= 'f') {
-            digit = 10 + (c - 'a');
-        } else if (base == 16 && c >= 'A' && c <= 'F') {
-            digit = 10 + (c - 'A');
-        } else {
-            return 0;
-        }
-        value = value * (uint32_t)base + (uint32_t)digit;
-    }
-    *out = value;
-    return 1;
 }
 
 static uint32_t shell_clamp_u64_to_u32(uint64_t v) {
@@ -97,7 +69,7 @@ void shell_run(void) {
                 } else if (streq(buf, "kbdump")) {
                     keyboard_debug_dump();
                 } else if (streq(buf, "help")) {
-                    console_write("Commands: version, clear, help, cpuinfo, meminfo, ticks, wakeups, idle [n], timer <show|hz N|off|on>, ata, atadump [lba], autofs [show|rescan|mount <n>], ip [show|set <ip> <mask> [gw]|ping <ip> [count]], neele mount [lba], neele ls [path], neele cat <name|/path>, neele mkfs, neele mkdir </path>, neele write </path> <text>, neele verify [verbose] [path], pad </path>, netinfo, netrxdump, gpuprobe [scan|noscan] [auto|noauto] [status] [debug <on|off>] [activate <chip> <WxHxB>], gpudump <bank> [offset] [len], gpuinfo, fbtest, beep [freq] [ms], keymusic, rotcube, app [ls|run </path|name>], http [start [port]|stop|status|body <text>]\n");
+                    console_write("Commands: version, clear, help, cpuinfo, meminfo, ticks, wakeups, idle [n], timer <show|hz N|off|on>, ata, atadump [lba], autofs [show|rescan|mount <n>], ip [show|set <ip> <mask> [gw]|ping <ip> [count]], neele mount [lba], neele ls [path], neele cat <name|/path>, neele mkfs, neele mkdir </path>, neele write </path> <text>, neele verify [verbose] [path], pad </path>, netinfo, netrxdump, gpuprobe [scan|noscan] [auto|noauto] [status] [debug <on|off>] [activate <chip> <WxHxB>], gpudump [regs [chip|all]|bank <bank> [offset] [len]|capture <bank> [offset] [len]], gpuinfo, fbtest, beep [freq] [ms], keymusic, rotcube, app [ls|run </path|name>], http [start [port]|stop|status|body <text>]\n");
                 } else if (streq(buf, "ata")) {
                     if (ata_present()) console_write("ATA present (selected device).\n");
                     else console_write("ATA not present.\n");
@@ -361,72 +333,7 @@ void shell_run(void) {
                 } else if (buf[0]=='g' && buf[1]=='p' && buf[2]=='u' && buf[3]=='d' && buf[4]=='u' && buf[5]=='m' && buf[6]=='p' && (buf[7]==0 || buf[7]==' ')) {
                     int i = 7;
                     while (buf[i] == ' ') i++;
-#if CONFIG_VIDEO_ENABLE_ET4000
-                    if (!buf[i]) {
-                        console_writeln("usage: gpudump <bank> [offset] [len]");
-                    } else {
-                        int capture_mode = 0;
-                        if (buf[i]=='c' && buf[i+1]=='a' && buf[i+2]=='p' && buf[i+3]=='t' && buf[i+4]=='u' && buf[i+5]=='r' && buf[i+6]=='e' &&
-                            (buf[i+7]==' ' || buf[i+7]==0)) {
-                            capture_mode = 1;
-                            i += 7;
-                            while (buf[i] == ' ') i++;
-                            if (!buf[i]) {
-                                console_writeln("usage: gpudump capture <bank> [offset] [len]");
-                                continue;
-                            }
-                        }
-                        char token[16];
-                        uint32_t bank = 0;
-                        uint32_t offset = 0;
-                        uint32_t length = 0x100u;
-                        int tok_len = 0;
-                        while (buf[i] && buf[i] != ' ' && tok_len < (int)(sizeof(token) - 1)) {
-                            token[tok_len++] = buf[i++];
-                        }
-                        token[tok_len] = '\0';
-                        if (!shell_parse_u32(token, &bank)) {
-                            console_writeln("gpudump: invalid bank value");
-                            continue;
-                        }
-                        while (buf[i] == ' ') i++;
-                        if (buf[i]) {
-                            tok_len = 0;
-                            while (buf[i] && buf[i] != ' ' && tok_len < (int)(sizeof(token) - 1)) {
-                                token[tok_len++] = buf[i++];
-                            }
-                            token[tok_len] = '\0';
-                            if (!shell_parse_u32(token, &offset)) {
-                                console_writeln("gpudump: invalid offset");
-                                continue;
-                            }
-                            while (buf[i] == ' ') i++;
-                            if (buf[i]) {
-                                tok_len = 0;
-                                while (buf[i] && buf[i] != ' ' && tok_len < (int)(sizeof(token) - 1)) {
-                                    token[tok_len++] = buf[i++];
-                                }
-                                token[tok_len] = '\0';
-                                if (!shell_parse_u32(token, &length)) {
-                                    console_writeln("gpudump: invalid length");
-                                    continue;
-                                }
-                            }
-                        }
-                        if (bank > 0x0Fu) {
-                            console_writeln("gpudump: warning - bank index exceeds 0x0F");
-                        }
-                        if (capture_mode) {
-                            if (!et4000_capture_dump((uint8_t)bank, offset, length)) {
-                                console_writeln("gpudump: capture failed");
-                            }
-                        } else {
-                            et4000_dump_bank((uint8_t)bank, offset, length);
-                        }
-                    }
-#else
-                    console_writeln("gpudump: Tseng driver disabled at build time");
-#endif
+                    gpu_dump_run(buf[i] ? buf + i : NULL);
                 } else if (buf[0]=='g' && buf[1]=='p' && buf[2]=='u' && buf[3]=='i' && buf[4]=='n' && buf[5]=='f' && buf[6]=='o' && (buf[7]==0 || buf[7]==' ')) {
                     int i=7; while (buf[i]==' ') i++;
                     if (!buf[i]) {

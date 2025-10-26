@@ -62,3 +62,5 @@
 2025-09-22 12:34:00 (codex@worktree) - gpu: auto-enable Tseng ET4000 framebuffer (640x480@8, legacy ISA detect)
 2025-09-22 12:34:00 (codex@worktree) - docs: document ET4000 support/config toggle in README + docs/hw/pci_gpu.md
 2025-10-26 09:27:45 (codex@worktree) - gpuprobe: list framebuffer modes before manual activation; update shell help + docs
+2025-10-27 14:12:00 (codex@worktree) - gpuprobe: avoid Cirrus/Tseng double-detect, add "cirrus gd5446" token, guard Cirrus mode switch, docs updated
+2025-10-27 14:12:00 (codex@worktree) - gpudump: add universal register dumps with MezAPI auto-selection and keep Tseng bank/capture tools
