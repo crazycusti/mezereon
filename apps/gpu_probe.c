@@ -23,6 +23,10 @@ static int parse_chip_token(const char* token, gpu_type_t* out_type) {
         *out_type = GPU_TYPE_ET4000AX;
         return 1;
     }
+    if (token_equals(token, "avga2")) {
+        *out_type = GPU_TYPE_AVGA2;
+        return 1;
+    }
     if (token_equals(token, "cirrus")) {
         *out_type = GPU_TYPE_CIRRUS;
         return 1;
@@ -79,6 +83,61 @@ static int parse_legacy_height(const char* token, uint16_t* height) {
         return 1;
     }
     return 0;
+}
+
+static int gpuprobe_type_matches(gpu_type_t requested, gpu_type_t actual) {
+    if (requested == actual) {
+        return 1;
+    }
+    if ((requested == GPU_TYPE_ET4000 || requested == GPU_TYPE_ET4000AX || requested == GPU_TYPE_AVGA2) &&
+        (actual == GPU_TYPE_ET4000 || actual == GPU_TYPE_ET4000AX || actual == GPU_TYPE_AVGA2)) {
+        return 1;
+    }
+    return 0;
+}
+
+static void gpuprobe_print_mode_catalog(gpu_type_t requested_type) {
+    size_t device_count = 0;
+    const gpu_info_t* devices = gpu_get_devices(&device_count);
+    const gpu_info_t* match = NULL;
+    for (size_t i = 0; i < device_count; ++i) {
+        const gpu_info_t* dev = &devices[i];
+        if (gpuprobe_type_matches(requested_type, dev->type)) {
+            match = dev;
+            break;
+        }
+    }
+
+    if (!match) {
+        console_writeln("gpuprobe: no matching GPU found for mode listing");
+        return;
+    }
+
+    gpu_mode_option_t options[16];
+    size_t total = gpu_get_mode_catalog(match, options, sizeof(options) / sizeof(options[0]));
+    if (total == 0) {
+        console_writeln("gpuprobe: no framebuffer modes available for this adapter");
+        return;
+    }
+
+    const char* name = match->name[0] ? match->name : "GPU";
+    console_write("gpuprobe: available modes for ");
+    console_write(name);
+    console_writeln(":");
+    size_t listed = (total > (sizeof(options) / sizeof(options[0]))) ? (sizeof(options) / sizeof(options[0])) : total;
+    for (size_t i = 0; i < listed; ++i) {
+        console_write("  - ");
+        console_write_dec(options[i].width);
+        console_write("x");
+        console_write_dec(options[i].height);
+        console_write("x");
+        console_write_dec(options[i].bpp);
+        console_writeln(" bpp");
+    }
+    if (listed < total) {
+        console_writeln("  (additional modes omitted)");
+    }
+    console_writeln("  -> activate using 'gpuprobe activate <chip> <width>x<height>x<bpp>'");
 }
 
 void gpu_probe_run(const char* args) {
@@ -242,6 +301,10 @@ void gpu_probe_run(const char* args) {
     }
     gpu_debug_probe(scan);
 
+    if (manual_requested && manual_type != GPU_TYPE_VGA) {
+        gpuprobe_print_mode_catalog(manual_type);
+    }
+
     if (toggle_auto != -1) {
         gpu_tseng_set_auto_enabled(toggle_auto);
     }
@@ -253,6 +316,7 @@ void gpu_probe_run(const char* args) {
             const char* chip_name = "et4000";
             switch (manual_type) {
                 case GPU_TYPE_ET4000AX: chip_name = "et4000ax"; break;
+                case GPU_TYPE_AVGA2: chip_name = "avga2"; break;
                 case GPU_TYPE_CIRRUS: chip_name = "cirrus"; break;
                 case GPU_TYPE_VGA: chip_name = "vga"; break;
                 default: chip_name = "et4000"; break;

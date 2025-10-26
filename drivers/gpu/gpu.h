@@ -13,6 +13,7 @@ typedef enum {
     GPU_TYPE_ET4000,
     GPU_TYPE_ET4000AX,
     GPU_TYPE_VGA,
+    GPU_TYPE_AVGA2,
 } gpu_type_t;
 
 #define GPU_CAP_LINEAR_FB   (1u << 0)
@@ -36,6 +37,12 @@ typedef struct {
     volatile uint8_t* framebuffer_ptr;
 } gpu_info_t;
 
+typedef struct {
+    uint16_t width;
+    uint16_t height;
+    uint8_t  bpp;
+} gpu_mode_option_t;
+
 void gpu_init(void);
 const gpu_info_t* gpu_get_devices(size_t* count);
 void gpu_log_summary(void);
@@ -56,5 +63,8 @@ void gpu_set_last_mode(const char* name, uint16_t width, uint16_t height, uint8_
 void gpu_get_last_mode(char* out_name, size_t name_len, uint16_t* width, uint16_t* height, uint8_t* bpp);
 void gpu_print_status(void);
 int  gpu_force_activate(gpu_type_t type, uint16_t width, uint16_t height, uint8_t bpp);
+size_t gpu_get_mode_catalog(const gpu_info_t* gpu,
+                            gpu_mode_option_t* out_modes,
+                            size_t capacity);
 
 #endif // DRIVERS_GPU_GPU_H

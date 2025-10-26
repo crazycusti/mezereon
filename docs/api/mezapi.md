@@ -15,6 +15,7 @@ Provided services
   - Slots: `status_register(pos, priority, flags, icon, initial_text)`, `status_update(slot, text)`, `status_release(slot)`
   - Position enum `mez_status_pos_t` (`LEFT/CENTER/RIGHT`), Flags (`MEZ_STATUS_FLAG_ICON_ONLY_ON_TRUNCATE`)
 - Framebuffer: `capabilities` bitmask (`MEZ_CAP_VIDEO_FB`, `MEZ_CAP_VIDEO_FB_ACCEL`), `video_fb_get_info()` → returns `NULL` oder `mez_fb_info32_t` (Breite, Höhe, Pitch, bpp, `framebuffer`), `video_fb_fill_rect(x,y,w,h,color)` für schnelle Flächenfüllungen (setzt `MEZ_CAP_VIDEO_FB_ACCEL` voraus).
+- GPU-Metadaten: `video_gpu_get_info()` liefert `mez_gpu_info32_t` (Featurelevel, Adaptertyp, CAP-Flags). `MEZ_CAP_VIDEO_GPU_INFO` signalisiert, dass der Kernel mindestens den Textmodus beschreibt; Featurelevel > `MEZ_GPU_FEATURELEVEL_TEXTMODE` stehen für erkannte Framebuffer-Hardware (Cirrus, Tseng, Acumos AVGA2).
 
 Usage pattern
 1. Call `mez_api_get()` and verify `abi_version >= MEZ_ABI32_V1` and `arch == MEZ_ARCH_X86_32`.
@@ -62,6 +63,36 @@ if (snd && (snd->backends & MEZ_SOUND_BACKEND_SB16)) {
     api->console_writeln("SB16 detected via MezAPI.");
 }
 ```
+
+GPU feature levels
+```c
+const mez_gpu_info32_t* gpu = api->video_gpu_get_info ? api->video_gpu_get_info() : NULL;
+if (gpu && gpu->feature_level >= MEZ_GPU_FEATURELEVEL_BANKED_FB) {
+    api->console_write("GPU: ");
+    api->console_writeln(gpu->name);
+    switch (gpu->feature_level) {
+        case MEZ_GPU_FEATURELEVEL_LINEAR_FB_ACCEL:
+            api->console_writeln("linear framebuffer + 2D accel");
+            break;
+        case MEZ_GPU_FEATURELEVEL_LINEAR_FB:
+            api->console_writeln("linear framebuffer (no accel)");
+            break;
+        case MEZ_GPU_FEATURELEVEL_BANKED_FB_ACCEL:
+            api->console_writeln("banked framebuffer + AX accel");
+            break;
+        default:
+            api->console_writeln("banked framebuffer window");
+            break;
+    }
+}
+```
+
+Featurelevel-Klassifizierung
+- `MEZ_GPU_FEATURELEVEL_TEXTMODE`: Nur Textmodus aktiv (z. B. Standard-VGA Mode 3).
+- `MEZ_GPU_FEATURELEVEL_BANKED_FB`: 64-KiB-Fenster für Framebuffer, kein Linear-Frame (Tseng ET4000, Acumos AVGA2).
+- `MEZ_GPU_FEATURELEVEL_BANKED_FB_ACCEL`: wie oben, jedoch mit AX-Beschleuniger (ET4000AX).
+- `MEZ_GPU_FEATURELEVEL_LINEAR_FB`: Linearer Framebuffer ohne spezielle 2D-Einheit.
+- `MEZ_GPU_FEATURELEVEL_LINEAR_FB_ACCEL`: Linearer Framebuffer mit 2D-Beschleuniger (z. B. Cirrus BitBLT).
 
 Framebuffer usage
 ```c
