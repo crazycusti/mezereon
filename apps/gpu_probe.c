@@ -27,7 +27,7 @@ static int parse_chip_token(const char* token, gpu_type_t* out_type) {
         *out_type = GPU_TYPE_AVGA2;
         return 1;
     }
-    if (token_equals(token, "cirrus")) {
+    if (token_equals(token, "cirrus") || token_equals(token, "cirrus-gd5446")) {
         *out_type = GPU_TYPE_CIRRUS;
         return 1;
     }
@@ -126,7 +126,7 @@ static const char* gpuprobe_chip_token(gpu_type_t type) {
         case GPU_TYPE_ET4000: return "et4000";
         case GPU_TYPE_ET4000AX: return "et4000ax";
         case GPU_TYPE_AVGA2: return "avga2";
-        case GPU_TYPE_CIRRUS: return "cirrus";
+        case GPU_TYPE_CIRRUS: return "cirrus gd5446";
         case GPU_TYPE_VGA: return "vga";
         default: return "et4000";
     }
@@ -266,6 +266,9 @@ void gpu_probe_run(const char* args) {
         }
 
         if (expect_mode) {
+            if (manual_type == GPU_TYPE_CIRRUS && token_equals(token, "gd5446")) {
+                continue;
+            }
             uint16_t w = 0, h = 0;
             uint8_t bits = 0;
             if (parse_mode_token(token, &w, &h, &bits)) {
@@ -365,7 +368,11 @@ void gpu_probe_run(const char* args) {
         if (!manual_device) {
             console_write("gpuprobe: no detected ");
             console_write(gpuprobe_chip_token(manual_type));
-            console_writeln(" adapter (activation skipped)");
+            if (gpuprobe_type_is_tseng(manual_type)) {
+                console_writeln(" adapter (activation skipped, try 'gpuprobe scan')");
+            } else {
+                console_writeln(" adapter (activation skipped)");
+            }
             manual_ready = 0;
         } else {
             gpuprobe_print_mode_catalog(manual_type);

@@ -137,7 +137,7 @@ static const char* mez_gpu_default_name(uint32_t adapter_type)
 {
     switch (adapter_type) {
         case MEZ_GPU_ADAPTER_CIRRUS:
-            return "Cirrus Logic";
+            return "Cirrus GD5446";
         case MEZ_GPU_ADAPTER_TSENG_ET4000:
             return "Tseng ET4000";
         case MEZ_GPU_ADAPTER_TSENG_ET4000AX:

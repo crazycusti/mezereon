@@ -2,6 +2,7 @@
 #include "../pci.h"
 #include "vga_hw.h"
 #include "../../console.h"
+#include "../../interrupts.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -348,54 +349,62 @@ int cirrus_set_mode_desc(const pci_device_t* dev,
         return 0;
     }
 
-    vga_program_standard_mode(0xE3, std_seq_640x480, std_crtc_640x480, std_graph_640x480, std_attr_640x480);
+    uint32_t irq_flags = interrupts_save_disable();
+    int result = 0;
 
-    uint16_t cmd = pci_config_read16(dev->bus, dev->device, dev->function, 0x04);
-    cmd |= 0x0002; // Memory Space
-    cmd |= 0x0004; // Bus Master
-    pci_config_write16(dev->bus, dev->device, dev->function, 0x04, cmd);
+    do {
+        vga_program_standard_mode(0xE3, std_seq_640x480, std_crtc_640x480, std_graph_640x480, std_attr_640x480);
 
-    vga_misc_write(0xE3);
-    vga_seq_write(0x06, 0x12);
-    cirrus_apply_reglist(mode->seq, cirrus_write_seq);
-    if (mode->graph) {
-        cirrus_apply_reglist(mode->graph, cirrus_write_graph);
-    }
-    cirrus_apply_reglist(mode->crtc, cirrus_write_crtc);
+        uint16_t cmd = pci_config_read16(dev->bus, dev->device, dev->function, 0x04);
+        cmd |= 0x0002; // Memory Space
+        cmd |= 0x0004; // Bus Master
+        pci_config_write16(dev->bus, dev->device, dev->function, 0x04, cmd);
 
-    vga_pel_mask_write(0x00);
-    vga_pel_mask_read(); vga_pel_mask_read(); vga_pel_mask_read(); vga_pel_mask_read();
-    vga_pel_mask_write(0x00);
-    vga_pel_mask_write(0xFF);
+        vga_misc_write(0xE3);
+        vga_seq_write(0x06, 0x12);
+        cirrus_apply_reglist(mode->seq, cirrus_write_seq);
+        if (mode->graph) {
+            cirrus_apply_reglist(mode->graph, cirrus_write_graph);
+        }
+        cirrus_apply_reglist(mode->crtc, cirrus_write_crtc);
 
-    vga_attr_mask(0x10, 0x01, 0x01);
-    vga_attr_index_write(0x20);
+        vga_pel_mask_write(0x00);
+        vga_pel_mask_read(); vga_pel_mask_read(); vga_pel_mask_read(); vga_pel_mask_read();
+        vga_pel_mask_write(0x00);
+        vga_pel_mask_write(0xFF);
 
-    uint32_t pitch = ((uint32_t)mode->width * (uint32_t)mode->bpp + 7u) / 8u;
-    uint8_t crt1D = vga_crtc_read(0x1D);
-    crt1D |= 0x08; // Linear Framebuffer aktivieren
-    vga_crtc_write(0x1D, crt1D);
+        vga_attr_mask(0x10, 0x01, 0x01);
+        vga_attr_index_write(0x20);
 
-    uint32_t base = gpu->framebuffer_base;
-    vga_crtc_write(0x1A, (uint8_t)((base >> 24) & 0x0F));
-    vga_crtc_write(0x1C, (uint8_t)((base >> 16) & 0xFF));
+        uint32_t pitch = ((uint32_t)mode->width * (uint32_t)mode->bpp + 7u) / 8u;
+        uint8_t crt1D = vga_crtc_read(0x1D);
+        crt1D |= 0x08; // Linear Framebuffer aktivieren
+        vga_crtc_write(0x1D, crt1D);
 
-    out_mode->kind = DISPLAY_MODE_KIND_FRAMEBUFFER;
-    out_mode->pixel_format = pixel_format;
-    out_mode->width = mode->width;
-    out_mode->height = mode->height;
-    out_mode->bpp = mode->bpp;
-    out_mode->pitch = pitch;
-    out_mode->phys_base = base;
-    out_mode->framebuffer = (volatile uint8_t*)(uintptr_t)base;
+        uint32_t base = gpu->framebuffer_base;
+        vga_crtc_write(0x1A, (uint8_t)((base >> 24) & 0x0F));
+        vga_crtc_write(0x1C, (uint8_t)((base >> 16) & 0xFF));
 
-    gpu->framebuffer_width = mode->width;
-    gpu->framebuffer_height = mode->height;
-    gpu->framebuffer_pitch = pitch;
-    gpu->framebuffer_bpp = mode->bpp;
-    gpu->framebuffer_ptr = out_mode->framebuffer;
+        out_mode->kind = DISPLAY_MODE_KIND_FRAMEBUFFER;
+        out_mode->pixel_format = pixel_format;
+        out_mode->width = mode->width;
+        out_mode->height = mode->height;
+        out_mode->bpp = mode->bpp;
+        out_mode->pitch = pitch;
+        out_mode->phys_base = base;
+        out_mode->framebuffer = (volatile uint8_t*)(uintptr_t)base;
 
-    return 1;
+        gpu->framebuffer_width = mode->width;
+        gpu->framebuffer_height = mode->height;
+        gpu->framebuffer_pitch = pitch;
+        gpu->framebuffer_bpp = mode->bpp;
+        gpu->framebuffer_ptr = out_mode->framebuffer;
+
+        result = 1;
+    } while (0);
+
+    interrupts_restore(irq_flags);
+    return result;
 }
 
 int cirrus_set_mode_640x480x8(const pci_device_t* dev, display_mode_info_t* out_mode, gpu_info_t* gpu) {
