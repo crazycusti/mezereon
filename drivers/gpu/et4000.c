@@ -102,7 +102,7 @@ static struct {
     int signature_ok;
 } g_et4k_detect = { 0, 0 };
 
-static int g_et4k_debug_trace = 1;
+static int g_et4k_debug_trace = 0;
 
 #define ET4K_PORT_SEQ_INDEX   0x3C4
 #define ET4K_PORT_SEQ_DATA    0x3C5
@@ -118,7 +118,7 @@ static int g_et4k_debug_trace = 1;
 #define ET4K_SYNC_TIMEOUT_ITERATIONS 200000u
 
 static inline int et4k_trace_enabled(void) {
-    return g_et4k_debug_trace;
+    return g_et4k_debug_trace && g_et4k_detect.detected;
 }
 
 static inline uint32_t et4k_cli_guard_acquire(void) {
@@ -1242,6 +1242,11 @@ void et4000_debug_dump(void) {
 }
 
 void et4000_set_debug_trace(int enabled) {
+    if (enabled && !g_et4k_detect.detected) {
+        g_et4k_debug_trace = 0;
+        gpu_debug_log("WARN", "et4k: debug trace requested but no adapter detected");
+        return;
+    }
     g_et4k_debug_trace = enabled ? 1 : 0;
     gpu_debug_log("INFO", enabled ? "et4k: debug trace enabled" : "et4k: debug trace disabled");
     et4k_log(enabled ? "trace: enabled" : "trace: disabled");

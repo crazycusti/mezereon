@@ -28,4 +28,9 @@ GPU shell commands
 - `fbtest` versucht den Framebuffer im Kernel zu aktivieren und zeigt Farbbalken; eignet sich nach erfolgreichem `gpuprobe activate` zur schnellen Sichtkontrolle.
 - `gpu_restore_text_mode` wird am Ende aufgerufen, sodass der Shell-Textmodus erhalten bleibt.
 
+`gfxprobe`
+---------
+- `gfxprobe` lädt bei Bedarf automatisch den bevorzugten Framebuffer-Modus (Standard: 640×480×8), setzt die VGA-Palette zurück und zeichnet ein Testpattern.
+- Nach einer Tasteneingabe wird der Textmodus wiederhergestellt; Ausgabe und Statusleiste bestätigen die Rückkehr in den sicheren Textbetrieb.
+
 Siehe zusätzlich `docs/hw/pci_gpu.md` für Hintergrundinformationen zu den Treibern und Feature-Levels.

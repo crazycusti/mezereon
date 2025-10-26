@@ -56,6 +56,7 @@ void kmain(const boot_info_t* bootinfo)
     console_write("PCI: detected ");
     console_write_dec((uint32_t)pci_device_count);
     console_writeln(" device(s).");
+    pci_log_summary();
 
     gpu_init();
     gpu_log_summary();
@@ -123,7 +124,7 @@ void kmain(const boot_info_t* bootinfo)
         console_write_dec((uint32_t)info->version_minor);
         console_write("\n");
     } else {
-        console_writeln("audio: sb16 not detected");
+        console_writeln("audio: sb16 not present");
     }
 
     if (netface_init()) {

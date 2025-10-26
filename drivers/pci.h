@@ -7,6 +7,13 @@
 #define PCI_MAX_DEVICES 32
 
 typedef struct {
+    uint32_t raw;
+    uint32_t raw_upper;
+    uint64_t base;
+    uint64_t size;
+} pci_bar_info_t;
+
+typedef struct {
     uint8_t  bus;
     uint8_t  device;
     uint8_t  function;
@@ -18,12 +25,13 @@ typedef struct {
     uint8_t  revision_id;
     uint8_t  header_type;
     uint8_t  interrupt_line;
-    uint32_t bars[6];
+    pci_bar_info_t bars[6];
 } pci_device_t;
 
 void pci_init(void);
 const pci_device_t* pci_get_devices(size_t* count);
 pci_device_t* pci_find_device(uint16_t vendor, uint16_t device);
+void pci_log_summary(void);
 uint32_t pci_config_read32(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset);
 uint16_t pci_config_read16(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset);
 uint8_t  pci_config_read8(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset);
