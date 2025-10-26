@@ -256,6 +256,7 @@ static int tseng_mode_to_enum(uint16_t width, uint16_t height, uint8_t bpp, et40
 static void tseng_enum_to_dimensions(et4000_mode_t mode, uint16_t* width, uint16_t* height, uint8_t* bpp);
 static int tseng_candidate_contains(const et4000_mode_t* modes, size_t count, et4000_mode_t value);
 static void tseng_candidate_append(et4000_mode_t* modes, size_t* count, size_t capacity, et4000_mode_t value);
+static int activate_cirrus(uint16_t width, uint16_t height, uint8_t bpp);
 
 size_t gpu_get_mode_catalog(const gpu_info_t* gpu,
                             gpu_mode_option_t* out_modes,
@@ -421,20 +422,39 @@ int gpu_request_framebuffer_mode(uint16_t width, uint16_t height, uint8_t bpp) {
     for (size_t i = 0; i < g_gpu_count; i++) {
         gpu_info_t* gpu = &g_gpu_infos[i];
         if (gpu->type == GPU_TYPE_CIRRUS) {
-            if (width == 640 && height == 480 && bpp == 8) {
-                display_mode_info_t mode;
-                if (cirrus_set_mode_640x480x8(&gpu->pci, &mode, gpu)) {
-                    display_manager_set_framebuffer_candidate("cirrus-lfb", &mode);
-                    display_manager_activate_framebuffer();
-                    cirrus_accel_enable(&mode);
-                    video_switch_to_framebuffer(&mode);
-                    gpu_set_last_mode("cirrus", mode.width, mode.height, mode.bpp);
-                    gpu_set_last_error("OK: Cirrus framebuffer active");
-                    g_active_fb_gpu = gpu;
-                    g_framebuffer_active = 1;
-                    return 1;
+            const cirrus_mode_desc_t* requested_mode = NULL;
+            uint32_t vram = gpu->framebuffer_size;
+            int explicit_request = (width != 0 || height != 0 || bpp != 0);
+            if (explicit_request) {
+                requested_mode = cirrus_find_mode(width, height, bpp, vram);
+                if (!requested_mode) {
+                    gpu_set_last_error("ERROR: unsupported Cirrus mode");
+                    gpu_debug_log("ERROR", "Cirrus framebuffer request outside supported set");
+                    continue;
+                }
+            } else {
+                requested_mode = cirrus_default_mode(vram);
+                if (!requested_mode) {
+                    gpu_set_last_error("ERROR: no Cirrus modes fit VRAM");
+                    gpu_debug_log("ERROR", "Cirrus default mode selection failed");
+                    continue;
                 }
             }
+
+            display_mode_info_t mode;
+            if (cirrus_set_mode_desc(&gpu->pci, requested_mode, &mode, gpu)) {
+                display_manager_set_framebuffer_candidate("cirrus-lfb", &mode);
+                display_manager_activate_framebuffer();
+                cirrus_accel_enable(&mode);
+                video_switch_to_framebuffer(&mode);
+                gpu_set_last_mode(gpu->name[0] ? gpu->name : "cirrus", mode.width, mode.height, mode.bpp);
+                gpu_set_last_error("OK: Cirrus framebuffer active");
+                g_active_fb_gpu = gpu;
+                g_framebuffer_active = 1;
+                return 1;
+            }
+
+            gpu_set_last_error("ERROR: Cirrus framebuffer activation failed");
             continue;
         }
 #if CONFIG_VIDEO_ENABLE_ET4000
@@ -709,6 +729,58 @@ static void tseng_candidate_append(et4000_mode_t* modes, size_t* count, size_t c
     (*count)++;
 }
 
+static int activate_cirrus(uint16_t width, uint16_t height, uint8_t bpp) {
+    gpu_info_t* gpu = NULL;
+    for (size_t i = 0; i < g_gpu_count; ++i) {
+        if (g_gpu_infos[i].type == GPU_TYPE_CIRRUS) {
+            gpu = &g_gpu_infos[i];
+            break;
+        }
+    }
+    if (!gpu) {
+        gpu_set_last_error("ERROR: no Cirrus adapter detected");
+        gpu_debug_log("ERROR", "Cirrus manual activation requested but no adapter present");
+        return 0;
+    }
+
+    const cirrus_mode_desc_t* mode = NULL;
+    uint32_t vram = gpu->framebuffer_size;
+    int explicit_mode = (width != 0 && height != 0 && bpp != 0);
+    if (explicit_mode) {
+        mode = cirrus_find_mode(width, height, bpp, vram);
+        if (!mode) {
+            gpu_set_last_error("ERROR: unsupported Cirrus mode");
+            gpu_debug_log("ERROR", "Cirrus manual activation requested unsupported mode");
+            return 0;
+        }
+    } else {
+        mode = cirrus_default_mode(vram);
+        if (!mode) {
+            gpu_set_last_error("ERROR: no Cirrus framebuffer modes fit VRAM");
+            gpu_debug_log("ERROR", "Cirrus default mode selection failed");
+            return 0;
+        }
+    }
+
+    display_mode_info_t fb_mode;
+    if (!cirrus_set_mode_desc(&gpu->pci, mode, &fb_mode, gpu)) {
+        gpu_set_last_error("ERROR: Cirrus set_mode failed");
+        gpu_debug_log("ERROR", "cirrus_set_mode_desc() failed");
+        return 0;
+    }
+
+    display_manager_set_framebuffer_candidate("cirrus-lfb", &fb_mode);
+    display_manager_activate_framebuffer();
+    cirrus_accel_enable(&fb_mode);
+    video_switch_to_framebuffer(&fb_mode);
+    g_active_fb_gpu = gpu;
+    g_framebuffer_active = 1;
+    gpu_set_last_mode(gpu->name[0] ? gpu->name : "Cirrus", fb_mode.width, fb_mode.height, fb_mode.bpp);
+    gpu_set_last_error("OK: Cirrus framebuffer active");
+    gpu_debug_log("OK", "Cirrus framebuffer active");
+    return 1;
+}
+
 static int activate_tseng(uint16_t width, uint16_t height, uint8_t bpp, int force_ax_variant) {
 #if !CONFIG_VIDEO_ENABLE_ET4000
     (void)width; (void)height; (void)bpp; (void)force_ax_variant;
@@ -828,9 +900,7 @@ int gpu_force_activate(gpu_type_t type, uint16_t width, uint16_t height, uint8_t
             gpu_debug_log("INFO", "switched to VGA text mode");
             return 1;
         case GPU_TYPE_CIRRUS:
-            gpu_debug_log("WARN", "Cirrus manual activation not implemented");
-            gpu_set_last_error("ERROR: Cirrus manual activation not implemented");
-            return 0;
+            return activate_cirrus(width, height, bpp);
         default:
             gpu_set_last_error("ERROR: unsupported GPU type");
             return 0;

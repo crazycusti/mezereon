@@ -181,6 +181,55 @@ uint32_t cirrus_mode_vram_required(const cirrus_mode_desc_t* mode) {
     return (uint32_t)((bits + 7u) / 8u);
 }
 
+static int cirrus_mode_fits_vram(const cirrus_mode_desc_t* mode, uint32_t vram_bytes) {
+    if (!mode) return 0;
+    uint32_t required = cirrus_mode_vram_required(mode);
+    if (!required) return 0;
+    if (vram_bytes == 0) return 1;
+    return (required <= vram_bytes);
+}
+
+const cirrus_mode_desc_t* cirrus_find_mode(uint16_t width,
+                                           uint16_t height,
+                                           uint8_t bpp,
+                                           uint32_t vram_bytes) {
+    size_t count = 0;
+    const cirrus_mode_desc_t* modes = cirrus_get_modes(&count);
+    for (size_t i = 0; i < count; ++i) {
+        const cirrus_mode_desc_t* mode = &modes[i];
+        if (width && mode->width != width) continue;
+        if (height && mode->height != height) continue;
+        if (bpp && mode->bpp != bpp) continue;
+        if (!cirrus_mode_fits_vram(mode, vram_bytes)) continue;
+        return mode;
+    }
+    return NULL;
+}
+
+const cirrus_mode_desc_t* cirrus_default_mode(uint32_t vram_bytes) {
+    const cirrus_mode_desc_t* preferred = cirrus_find_mode(640, 480, 8, vram_bytes);
+    if (preferred) {
+        return preferred;
+    }
+    size_t count = 0;
+    const cirrus_mode_desc_t* modes = cirrus_get_modes(&count);
+    for (size_t i = 0; i < count; ++i) {
+        if (cirrus_mode_fits_vram(&modes[i], vram_bytes)) {
+            return &modes[i];
+        }
+    }
+    return NULL;
+}
+
+static display_pixel_format_t cirrus_pixel_format(uint8_t bpp) {
+    switch (bpp) {
+        case 8: return DISPLAY_PIXEL_FORMAT_PAL_256;
+        case 16: return DISPLAY_PIXEL_FORMAT_RGB_565;
+        case 24: return DISPLAY_PIXEL_FORMAT_RGB_888;
+        default: return DISPLAY_PIXEL_FORMAT_NONE;
+    }
+}
+
 static uint32_t cirrus_detect_vram_bytes(void) {
     uint8_t sr0f = vga_seq_read(0x0F);
     uint8_t band = (uint8_t)((sr0f >> 3) & 0x03);
@@ -287,9 +336,17 @@ int cirrus_gpu_detect(const pci_device_t* dev, gpu_info_t* out) {
     return 1;
 }
 
-int cirrus_set_mode_640x480x8(const pci_device_t* dev, display_mode_info_t* out_mode, gpu_info_t* gpu) {
-    if (!dev || !out_mode || !gpu) return 0;
+int cirrus_set_mode_desc(const pci_device_t* dev,
+                         const cirrus_mode_desc_t* mode,
+                         display_mode_info_t* out_mode,
+                         gpu_info_t* gpu) {
+    if (!dev || !mode || !out_mode || !gpu) return 0;
     if (gpu->framebuffer_base == 0 || gpu->framebuffer_bar == 0xFF) return 0;
+
+    display_pixel_format_t pixel_format = cirrus_pixel_format(mode->bpp);
+    if (pixel_format == DISPLAY_PIXEL_FORMAT_NONE) {
+        return 0;
+    }
 
     vga_program_standard_mode(0xE3, std_seq_640x480, std_crtc_640x480, std_graph_640x480, std_attr_640x480);
 
@@ -300,9 +357,11 @@ int cirrus_set_mode_640x480x8(const pci_device_t* dev, display_mode_info_t* out_
 
     vga_misc_write(0xE3);
     vga_seq_write(0x06, 0x12);
-    cirrus_apply_reglist(cirrus_seq_640x480x8, cirrus_write_seq);
-    cirrus_apply_reglist(cirrus_graph_svgacolor, cirrus_write_graph);
-    cirrus_apply_reglist(cirrus_crtc_640x480x8, cirrus_write_crtc);
+    cirrus_apply_reglist(mode->seq, cirrus_write_seq);
+    if (mode->graph) {
+        cirrus_apply_reglist(mode->graph, cirrus_write_graph);
+    }
+    cirrus_apply_reglist(mode->crtc, cirrus_write_crtc);
 
     vga_pel_mask_write(0x00);
     vga_pel_mask_read(); vga_pel_mask_read(); vga_pel_mask_read(); vga_pel_mask_read();
@@ -312,11 +371,7 @@ int cirrus_set_mode_640x480x8(const pci_device_t* dev, display_mode_info_t* out_
     vga_attr_mask(0x10, 0x01, 0x01);
     vga_attr_index_write(0x20);
 
-    const uint16_t width = 640;
-    const uint16_t height = 480;
-    const uint8_t bpp = 8;
-    const uint32_t pitch = 640u;
-
+    uint32_t pitch = ((uint32_t)mode->width * (uint32_t)mode->bpp + 7u) / 8u;
     uint8_t crt1D = vga_crtc_read(0x1D);
     crt1D |= 0x08; // Linear Framebuffer aktivieren
     vga_crtc_write(0x1D, crt1D);
@@ -326,21 +381,29 @@ int cirrus_set_mode_640x480x8(const pci_device_t* dev, display_mode_info_t* out_
     vga_crtc_write(0x1C, (uint8_t)((base >> 16) & 0xFF));
 
     out_mode->kind = DISPLAY_MODE_KIND_FRAMEBUFFER;
-    out_mode->pixel_format = DISPLAY_PIXEL_FORMAT_PAL_256;
-    out_mode->width = width;
-    out_mode->height = height;
-    out_mode->bpp = bpp;
+    out_mode->pixel_format = pixel_format;
+    out_mode->width = mode->width;
+    out_mode->height = mode->height;
+    out_mode->bpp = mode->bpp;
     out_mode->pitch = pitch;
     out_mode->phys_base = base;
     out_mode->framebuffer = (volatile uint8_t*)(uintptr_t)base;
 
-    gpu->framebuffer_width = width;
-    gpu->framebuffer_height = height;
+    gpu->framebuffer_width = mode->width;
+    gpu->framebuffer_height = mode->height;
     gpu->framebuffer_pitch = pitch;
-    gpu->framebuffer_bpp = bpp;
+    gpu->framebuffer_bpp = mode->bpp;
     gpu->framebuffer_ptr = out_mode->framebuffer;
 
     return 1;
+}
+
+int cirrus_set_mode_640x480x8(const pci_device_t* dev, display_mode_info_t* out_mode, gpu_info_t* gpu) {
+    const cirrus_mode_desc_t* mode = cirrus_find_mode(640, 480, 8, gpu ? gpu->framebuffer_size : 0);
+    if (!mode) {
+        return 0;
+    }
+    return cirrus_set_mode_desc(dev, mode, out_mode, gpu);
 }
 
 int cirrus_restore_text_mode(const pci_device_t* dev) {

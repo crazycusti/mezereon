@@ -85,6 +85,17 @@ static int parse_legacy_height(const char* token, uint16_t* height) {
     return 0;
 }
 
+static int parse_legacy_bpp_token(const char* token, uint16_t* width, uint16_t* height, uint8_t* bpp) {
+    if (!token || !width || !height || !bpp) return 0;
+    if (!token_equals(token, "4bpp")) {
+        return 0;
+    }
+    *width = 640;
+    *height = 480;
+    *bpp = 4;
+    return 1;
+}
+
 static int gpuprobe_type_matches(gpu_type_t requested, gpu_type_t actual) {
     if (requested == actual) {
         return 1;
@@ -94,6 +105,20 @@ static int gpuprobe_type_matches(gpu_type_t requested, gpu_type_t actual) {
         return 1;
     }
     return 0;
+}
+
+static int gpuprobe_type_is_tseng(gpu_type_t type) {
+    return (type == GPU_TYPE_ET4000 || type == GPU_TYPE_ET4000AX || type == GPU_TYPE_AVGA2);
+}
+
+static const gpu_info_t* gpuprobe_find_device(const gpu_info_t* devices, size_t count, gpu_type_t requested_type) {
+    if (!devices || count == 0) return NULL;
+    for (size_t i = 0; i < count; ++i) {
+        if (gpuprobe_type_matches(requested_type, devices[i].type)) {
+            return &devices[i];
+        }
+    }
+    return NULL;
 }
 
 static const char* gpuprobe_chip_token(gpu_type_t type) {
@@ -253,6 +278,11 @@ void gpu_probe_run(const char* args) {
                 manual_height = h;
                 manual_bpp = 8;
                 manual_ready = 1;
+            } else if (parse_legacy_bpp_token(token, &w, &h, &bits)) {
+                manual_width = w;
+                manual_height = h;
+                manual_bpp = bits;
+                manual_ready = 1;
             } else {
                 console_write("gpuprobe: invalid mode token '");
                 console_write(token);
@@ -338,12 +368,8 @@ void gpu_probe_run(const char* args) {
             console_writeln(" adapter (activation skipped)");
             manual_ready = 0;
         } else {
-            gpuprobe_print_mode_catalog(manual_device);
+            gpuprobe_print_mode_catalog(manual_type);
         }
-    }
-
-    if (manual_requested && manual_type != GPU_TYPE_VGA) {
-        gpuprobe_print_mode_catalog(manual_type);
     }
 
     if (toggle_auto != -1) {
