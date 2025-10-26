@@ -96,6 +96,17 @@ static int gpuprobe_type_matches(gpu_type_t requested, gpu_type_t actual) {
     return 0;
 }
 
+static const char* gpuprobe_chip_token(gpu_type_t type) {
+    switch (type) {
+        case GPU_TYPE_ET4000: return "et4000";
+        case GPU_TYPE_ET4000AX: return "et4000ax";
+        case GPU_TYPE_AVGA2: return "avga2";
+        case GPU_TYPE_CIRRUS: return "cirrus";
+        case GPU_TYPE_VGA: return "vga";
+        default: return "et4000";
+    }
+}
+
 static void gpuprobe_print_mode_catalog(gpu_type_t requested_type) {
     size_t device_count = 0;
     const gpu_info_t* devices = gpu_get_devices(&device_count);
@@ -137,7 +148,9 @@ static void gpuprobe_print_mode_catalog(gpu_type_t requested_type) {
     if (listed < total) {
         console_writeln("  (additional modes omitted)");
     }
-    console_writeln("  -> activate using 'gpuprobe activate <chip> <width>x<height>x<bpp>'");
+    console_write("  -> activate using 'gpuprobe activate ");
+    console_write(gpuprobe_chip_token(requested_type));
+    console_writeln(" <width>x<height>x<bpp>'");
 }
 
 void gpu_probe_run(const char* args) {
@@ -313,14 +326,7 @@ void gpu_probe_run(const char* args) {
         if (!manual_ready) {
             console_writeln("gpuprobe: activation aborted (missing or invalid mode)");
         } else {
-            const char* chip_name = "et4000";
-            switch (manual_type) {
-                case GPU_TYPE_ET4000AX: chip_name = "et4000ax"; break;
-                case GPU_TYPE_AVGA2: chip_name = "avga2"; break;
-                case GPU_TYPE_CIRRUS: chip_name = "cirrus"; break;
-                case GPU_TYPE_VGA: chip_name = "vga"; break;
-                default: chip_name = "et4000"; break;
-            }
+            const char* chip_name = gpuprobe_chip_token(manual_type);
             console_write("gpuprobe: activating ");
             console_write(chip_name);
             if (manual_width && manual_height) {
