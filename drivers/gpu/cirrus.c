@@ -19,36 +19,6 @@ static void copy_name(char* dst, size_t dst_len, const char* src) {
     dst[i] = '\0';
 }
 
-static uint32_t bar_base(uint32_t raw) {
-    if (raw & 0x1) {
-        return raw & ~0x3u; // I/O base
-    }
-    return raw & ~0xFu; // memory base
-}
-
-static uint32_t bar_size(const pci_device_t* dev, uint8_t index) {
-    if (index >= 6) return 0;
-    uint32_t original = pci_config_read32(dev->bus, dev->device, dev->function, (uint8_t)(0x10 + index * 4));
-    if (original == 0x0 || original == 0xFFFFFFFFu) {
-        return 0;
-    }
-
-    pci_config_write32(dev->bus, dev->device, dev->function, (uint8_t)(0x10 + index * 4), 0xFFFFFFFFu);
-    uint32_t mask = pci_config_read32(dev->bus, dev->device, dev->function, (uint8_t)(0x10 + index * 4));
-    pci_config_write32(dev->bus, dev->device, dev->function, (uint8_t)(0x10 + index * 4), original);
-
-    if (original & 0x1) {
-        mask &= ~0x3u;
-    } else {
-        mask &= ~0xFu;
-    }
-    if (mask == 0 || mask == 0xFFFFFFFFu) {
-        return 0;
-    }
-    uint32_t size = (~mask) + 1;
-    return size;
-}
-
 static void print_byte_hex(uint8_t v) {
     const char* hex = "0123456789ABCDEF";
     char buf[3];
@@ -314,20 +284,20 @@ int cirrus_gpu_detect(const pci_device_t* dev, gpu_info_t* out) {
     out->pci = *dev;
     out->capabilities = GPU_CAP_LINEAR_FB | GPU_CAP_ACCEL_2D | GPU_CAP_HW_CURSOR;
 
-    uint32_t fb_bar = dev->bars[0];
-    uint32_t mmio_bar = dev->bars[1];
+    uint32_t fb_bar = dev->bars[0].raw;
+    uint32_t mmio_bar = dev->bars[1].raw;
     out->framebuffer_bar = (fb_bar && ((fb_bar & 0x1) == 0)) ? 0 : 0xFF;
     out->framebuffer_base = 0;
     out->framebuffer_size = cirrus_detect_vram_bytes();
     if ((fb_bar & 0x1) == 0 && fb_bar != 0) {
         out->framebuffer_bar = 0;
-        out->framebuffer_base = bar_base(fb_bar);
-        uint32_t bar_sz = bar_size(dev, 0);
+        out->framebuffer_base = (uint32_t)dev->bars[0].base;
+        uint64_t bar_sz = dev->bars[0].size;
         if (bar_sz != 0 && bar_sz < out->framebuffer_size) {
-            out->framebuffer_size = bar_sz;
+            out->framebuffer_size = (uint32_t)bar_sz;
         }
     }
-    out->mmio_bar = (mmio_bar && ((mmio_bar & 0x1) == 0)) ? bar_base(mmio_bar) : 0;
+    out->mmio_bar = (mmio_bar && ((mmio_bar & 0x1) == 0)) ? (uint32_t)dev->bars[1].base : 0;
     out->framebuffer_width = 0;
     out->framebuffer_height = 0;
     out->framebuffer_pitch = 0;
