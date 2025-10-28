@@ -238,3 +238,48 @@ void page_fault_handler_c(uint32_t error_code, uint32_t fault_eip) {
     console_writeln("  Halting CPU to avoid triple fault.");
     halt_forever();
 }
+
+// General Protection Fault handler
+void gpf_handler_c(uint32_t error_code, uint32_t eip) {
+    interrupts_disable();
+    debug_serial_plugin_write("[FATAL] General Protection Fault!\n");
+    debug_serial_plugin_write("  Error code: 0x");
+    debug_serial_plugin_write_hex32(error_code);
+    debug_serial_plugin_write("\n  EIP: 0x");
+    debug_serial_plugin_write_hex32(eip);
+    debug_serial_plugin_write("\n");
+    
+    if (error_code & 1) debug_serial_plugin_write("  External event\n");
+    if (error_code & 2) debug_serial_plugin_write("  IDT referenced\n");
+    if (error_code & 4) debug_serial_plugin_write("  LDT referenced\n");
+    else                debug_serial_plugin_write("  GDT referenced\n");
+    
+    uint16_t selector = (error_code >> 3) & 0x1FFF;
+    debug_serial_plugin_write("  Selector index: 0x");
+    debug_serial_plugin_write_hex16(selector);
+    debug_serial_plugin_write("\n");
+    
+    debug_serial_plugin_write("Halting CPU to prevent triple fault.\n");
+    while(1) __asm__ volatile("cli; hlt");
+}
+
+// Double Fault handler
+void double_fault_handler_c(uint32_t error_code, uint32_t eip) {
+    interrupts_disable();
+    debug_serial_plugin_write("[FATAL] Double Fault!\n");
+    debug_serial_plugin_write("  Error code: 0x");
+    debug_serial_plugin_write_hex32(error_code);
+    debug_serial_plugin_write("\n  EIP: 0x");
+    debug_serial_plugin_write_hex32(eip);
+    debug_serial_plugin_write("\n");
+    debug_serial_plugin_write("Halting CPU to prevent triple fault.\n");
+    while(1) __asm__ volatile("cli; hlt");
+}
+
+// Generic exception handler
+void generic_exception_handler_c(void) {
+    interrupts_disable();
+    debug_serial_plugin_write("[WARN] Unhandled CPU exception\n");
+    debug_serial_plugin_write("Halting CPU.\n");
+    while(1) __asm__ volatile("cli; hlt");
+}
