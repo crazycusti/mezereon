@@ -58,7 +58,7 @@ void kmain(const boot_info_t* bootinfo)
     console_writeln(" device(s).");
     pci_log_summary();
 
-    gpu_init();
+    gpu_init(bootinfo);
     gpu_log_summary();
 
     console_writeln("Display: Textmodus bleibt aktiv, Framebuffer bei Bedarf mit gpuprobe laden.");

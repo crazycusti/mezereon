@@ -8,12 +8,21 @@
 %define BOOTINFO_SIZE       0x04    ; Größe der Struktur
 %define BOOTINFO_MEMSIZE    0x06    ; Verfügbarer Speicher in KB
 %define BOOTINFO_BOOTDRIVE  0x08    ; Boot-Laufwerk
-%define BOOTINFO_VBE_MODE   0x0A    ; VBE Modus
-%define BOOTINFO_VBE_PITCH  0x0C    ; VBE Pitch (Bytes pro Zeile)
-%define BOOTINFO_VBE_WIDTH  0x0E    ; VBE Breite in Pixeln
-%define BOOTINFO_VBE_HEIGHT 0x10    ; VBE Höhe in Pixeln
-%define BOOTINFO_VBE_BPP    0x12    ; VBE Bits pro Pixel
-%define BOOTINFO_FB_ADDR    0x14    ; Framebuffer physische Adresse
+%define BOOTINFO_VBE_MODE       0x0A    ; bevorzugter 8bpp VBE Modus
+%define BOOTINFO_VBE_PITCH      0x0C    ; Pitch für 8bpp Modus (Bytes/Zeile)
+%define BOOTINFO_VBE_WIDTH      0x0E    ; Breite (Pixel) 8bpp
+%define BOOTINFO_VBE_HEIGHT     0x10    ; Höhe (Pixel) 8bpp
+%define BOOTINFO_VBE_BPP        0x12    ; Bits pro Pixel (8)
+%define BOOTINFO_FB_ADDR        0x14    ; Framebuffer physische Adresse 8bpp
+
+%define BOOTINFO_VBE4_MODE      0x18    ; bevorzugter 4bpp Modus (0 = keiner)
+%define BOOTINFO_VBE4_PITCH     0x1A    ; Pitch 4bpp (Bytes/Zeile)
+%define BOOTINFO_VBE4_WIDTH     0x1C    ; Breite 4bpp (Pixel)
+%define BOOTINFO_VBE4_HEIGHT    0x1E    ; Höhe 4bpp (Pixel)
+%define BOOTINFO_VBE4_BPP       0x20    ; Bits pro Pixel (4)
+%define BOOTINFO_FB_ADDR4       0x22    ; Framebuffer physische Adresse 4bpp
+
+%define BOOTINFO_VBE_MEM_BYTES  0x26    ; VRAM Größe in Bytes
 
 ; Bootinfo Konstanten
 %define BOOTINFO_MAGIC_VALUE 0xB007  ; Magic Number für Bootinfo

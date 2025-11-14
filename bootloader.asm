@@ -317,38 +317,63 @@ setup_bootinfo:
     mov dx, [es:di+0x10]
 
 
+    mov ax, [es:di+0x12]
+    mov word [BOOTINFO_VBE_MEM_BYTES], 0
+    mov [BOOTINFO_VBE_MEM_BYTES+2], ax
+
     ; Iterate mode list: words terminated by 0xFFFF
 .mode_loop:
     ; read next mode word from DX:SI
     push es
     push ds
-    mov ax, DX
+    mov ax, dx
     mov ds, ax
-    mov bx, SI
+    mov bx, si
     mov ax, [ds:bx]
     ; check terminator
     cmp ax, 0xFFFF
-    je .mode_done
+    je .mode_done_pop
 
+    mov bp, ax
 
     ; Query ModeInfo for this mode: call INT 0x10 AX=0x4F01 CX=mode with ES:DI -> scratch
     mov ax, 0x4F01
-    mov cx, ax              ; save mode in cx
+    mov cx, bp
     ; set ES:DI to BOOTINFO scratch again
     mov ax, BOOTINFO_SEG
     mov es, ax
     mov di, BOOTINFO_BIAS
     add di, 0x20
     int 0x10
-    jc .skip_mode
+    jc .mode_skip
     cmp ax, 0x004F
-    jne .skip_mode
+    jne .mode_skip
 
-    ; Parse ModeInfo in scratch buffer: offsets (per VBE spec-ish)
-    ; bytes_per_scanline: word at +0x10
-    ; xres: word at +0x12, yres: word at +0x14
-    ; bpp: byte at +0x19
-    ; physbaseptr: dword at +0x28
+    mov ax, [es:di]
+    test ax, 0x0001
+    jz .mode_skip
+    test ax, 0x0010
+    jz .mode_skip
+
+    mov al, [es:di+0x19]
+    cmp al, 8
+    je .mode_try8
+    cmp al, 4
+    je .mode_try4
+    jmp .mode_skip
+
+.mode_try8:
+    test word [es:di], 0x0080
+    jz .mode_skip
+    mov ax, [BOOTINFO_VBE_MODE]
+    or ax, ax
+    jnz .mode_skip
+    mov ax, [es:di+0x28]
+    mov bx, [es:di+0x2A]
+    or ax, ax
+    or bx, bx
+    jz .mode_skip
+    mov word [BOOTINFO_VBE_MODE], bp
     mov ax, [es:di+0x10]
     mov [BOOTINFO_VBE_PITCH], ax
     mov ax, [es:di+0x12]
@@ -357,25 +382,47 @@ setup_bootinfo:
     mov [BOOTINFO_VBE_HEIGHT], ax
     mov al, [es:di+0x19]
     mov [BOOTINFO_VBE_BPP], al
-    ; phys base ptr (dword)
-    mov bx, [es:di+0x28]
-    mov cx, [es:di+0x2A]
-    mov [BOOTINFO_FB_ADDR], bx
-    mov [BOOTINFO_FB_ADDR+2], cx
+    mov ax, [es:di+0x28]
+    mov [BOOTINFO_FB_ADDR], ax
+    mov ax, [es:di+0x2A]
+    mov [BOOTINFO_FB_ADDR+2], ax
+    jmp .mode_skip
 
-    ; If we found a linear framebuffer address, keep BOOTINFO updated (no Stage2 logging)
-    mov ax, [BOOTINFO_FB_ADDR]
-    or ax, [BOOTINFO_FB_ADDR+2]
-    jz .no_fb_log
-    ; (no logging here - kernel will display the results)
-.no_fb_log:
+.mode_try4:
+    test word [es:di], 0x0080
+    jz .mode_skip
+    mov ax, [BOOTINFO_VBE4_MODE]
+    or ax, ax
+    jnz .mode_skip
+    mov ax, [es:di+0x28]
+    mov bx, [es:di+0x2A]
+    or ax, ax
+    or bx, bx
+    jz .mode_skip
+    mov word [BOOTINFO_VBE4_MODE], bp
+    mov ax, [es:di+0x10]
+    mov [BOOTINFO_VBE4_PITCH], ax
+    mov ax, [es:di+0x12]
+    mov [BOOTINFO_VBE4_WIDTH], ax
+    mov ax, [es:di+0x14]
+    mov [BOOTINFO_VBE4_HEIGHT], ax
+    mov al, [es:di+0x19]
+    mov [BOOTINFO_VBE4_BPP], al
+    mov ax, [es:di+0x28]
+    mov [BOOTINFO_FB_ADDR4], ax
+    mov ax, [es:di+0x2A]
+    mov [BOOTINFO_FB_ADDR4+2], ax
 
-.skip_mode:
+.mode_skip:
     pop ds
     pop es
     ; advance SI to next word
     add si, 2
     jmp .mode_loop
+
+.mode_done_pop:
+    pop ds
+    pop es
 .mode_done:
     jmp .vbe_done
 .vbe_none:
@@ -534,6 +581,7 @@ max_head   db 0     ; Maximale Head-Nummer (Köpfe - 1)
 sect       db 0     ; Aktueller Sektor
 head       db 0     ; Aktueller Head
 cyl        dw 0     ; Aktueller Cylinder
+
 
 ; Temporäre Speicherung für ES:BX
 save_es    dw 0     ; Segment sichern
