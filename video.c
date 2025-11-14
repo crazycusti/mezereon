@@ -10,7 +10,6 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "arch/x86/io.h"
-#include <string.h>
 
 #define VIDEO_MEMORY 0xB8000
 #define VGA_CRTC_INDEX 0x3D4
@@ -126,8 +125,22 @@ static inline void video_write_text_cell_direct(int row, int col, const text_cel
     video[row * TEXT_COLS + col] = value;
 }
 
+static inline void fb_write_pixel_4bpp(int x, int y, uint8_t color) {
+    if (!g_fb_ptr) return;
+    uint32_t offset = (uint32_t)y * g_fb_pitch + (uint32_t)(x >> 1);
+    volatile uint8_t* cell = g_fb_ptr + offset;
+    uint8_t current = *cell;
+    if (x & 1) {
+        current = (uint8_t)((current & 0xF0u) | (color & 0x0Fu));
+    } else {
+        current = (uint8_t)(((color & 0x0Fu) << 4) | (current & 0x0Fu));
+    }
+    *cell = current;
+}
+
 static void video_draw_cell_fb(int row, int col, const text_cell_t* cell) {
-    if (g_target != VIDEO_TARGET_FB || !g_fb_ptr || g_fb_bpp != 8) return;
+    if (g_target != VIDEO_TARGET_FB || !g_fb_ptr) return;
+    if (g_fb_bpp != 8 && g_fb_bpp != 4) return;
     int px = col * CHAR_WIDTH;
     int py = row * CHAR_HEIGHT;
     if (px + CHAR_WIDTH > g_fb_width) return;
@@ -139,48 +152,84 @@ static void video_draw_cell_fb(int row, int col, const text_cell_t* cell) {
     int is_cursor = (row == g_row && col == g_col);
     int gradient_row = (row == 0);
 
-    int accelerated = (!gradient_row && fb_accel_available());
-    if (accelerated) {
-        if (!fb_accel_fill_rect((uint16_t)px, (uint16_t)py, CHAR_WIDTH, CHAR_HEIGHT, bg)) {
-            accelerated = 0;
+    if (g_fb_bpp == 8) {
+        int accelerated = (!gradient_row && fb_accel_available());
+        if (accelerated) {
+            if (!fb_accel_fill_rect((uint16_t)px, (uint16_t)py, CHAR_WIDTH, CHAR_HEIGHT, bg)) {
+                accelerated = 0;
+            }
         }
-    }
 
-    for (int y = 0; y < CHAR_HEIGHT; y++) {
-        uint8_t bits = glyph[y];
-        volatile uint8_t* line = g_fb_ptr + (py + y) * g_fb_pitch + px;
-        for (int x = 0; x < CHAR_WIDTH; x++) {
-            uint8_t mask = (uint8_t)(0x80u >> x);
-            uint8_t color = bg;
-            int write_pixel = 0;
+        for (int y = 0; y < CHAR_HEIGHT; y++) {
+            uint8_t bits = glyph[y];
+            volatile uint8_t* line = g_fb_ptr + (py + y) * g_fb_pitch + px;
+            for (int x = 0; x < CHAR_WIDTH; x++) {
+                uint8_t mask = (uint8_t)(0x80u >> x);
+                uint8_t color = bg;
+                int write_pixel = 0;
 
-            if (gradient_row) {
-                uint32_t denom = (g_fb_width > 1) ? (g_fb_width - 1) : 1;
-                uint32_t step = ((uint32_t)(px + x) * 16u) / denom;
-                color = (uint8_t)(240 + (step & 0x0F));
-                if (bits & mask) color = 15;
-                write_pixel = 1;
-            } else {
-                if (bits & mask) {
-                    color = fg;
+                if (gradient_row) {
+                    uint32_t denom = (g_fb_width > 1) ? (g_fb_width - 1) : 1;
+                    uint32_t step = ((uint32_t)(px + x) * 16u) / denom;
+                    color = (uint8_t)(240 + (step & 0x0F));
+                    if (bits & mask) color = 15;
+                    write_pixel = 1;
+                } else {
+                    if (bits & mask) {
+                        color = fg;
+                        write_pixel = 1;
+                    }
+                }
+                if (is_cursor && g_cursor_fb_visible && y >= CHAR_HEIGHT - 2) {
+                    color = 15;
                     write_pixel = 1;
                 }
+                if (!accelerated && !write_pixel) {
+                    color = bg;
+                    write_pixel = 1;
+                }
+                if (write_pixel) {
+                    line[x] = color;
+                }
             }
-            if (is_cursor && g_cursor_fb_visible && y >= CHAR_HEIGHT - 2) {
-                color = 15;
-                write_pixel = 1;
-            }
-            if (!accelerated && !write_pixel) {
-                color = bg;
-                write_pixel = 1;
-            }
-            if (write_pixel) {
-                line[x] = color;
+        }
+        fb_accel_mark_dirty((uint16_t)px, (uint16_t)py, CHAR_WIDTH, CHAR_HEIGHT);
+        fb_accel_sync();
+    } else { // 4 bpp
+        for (int y = 0; y < CHAR_HEIGHT; y++) {
+            uint8_t bits = glyph[y];
+            for (int x = 0; x < CHAR_WIDTH; x++) {
+                uint8_t mask = (uint8_t)(0x80u >> x);
+                uint8_t color = bg & 0x0Fu;
+                int write_pixel = 0;
+
+                if (gradient_row) {
+                    uint32_t denom = (g_fb_width > 1) ? (g_fb_width - 1) : 1;
+                    uint32_t step = ((uint32_t)(px + x) * 15u) / denom;
+                    color = (uint8_t)(step & 0x0Fu);
+                    if (bits & mask) color = fg & 0x0Fu;
+                    write_pixel = 1;
+                } else if (bits & mask) {
+                    color = fg & 0x0Fu;
+                    write_pixel = 1;
+                }
+
+                if (is_cursor && g_cursor_fb_visible && y >= CHAR_HEIGHT - 2) {
+                    color = 0x0Fu;
+                    write_pixel = 1;
+                }
+
+                if (!write_pixel) {
+                    color = bg & 0x0Fu;
+                    write_pixel = 1;
+                }
+
+                if (write_pixel) {
+                    fb_write_pixel_4bpp(px + x, py + y, (uint8_t)(color & 0x0Fu));
+                }
             }
         }
     }
-    fb_accel_mark_dirty((uint16_t)px, (uint16_t)py, CHAR_WIDTH, CHAR_HEIGHT);
-    fb_accel_sync();
 }
 
 static void video_cursor_refresh_fb(void) {
@@ -477,7 +526,7 @@ void video_putc(char c) {
 
 void video_switch_to_framebuffer(const display_mode_info_t* mode) {
     if (!mode || mode->kind != DISPLAY_MODE_KIND_FRAMEBUFFER) return;
-    if (!mode->framebuffer || mode->bpp != 8) return;
+    if (!mode->framebuffer || (mode->bpp != 8 && mode->bpp != 4)) return;
 
     g_fb_ptr = mode->framebuffer;
     g_fb_pitch = mode->pitch;

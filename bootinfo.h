@@ -40,13 +40,24 @@ typedef struct boot_info {
     void*    prom;        // firmware/prom vector (e.g. SPARC OBP)
     uint32_t boot_device; // BIOS/firmware provided boot device identifier
     /* Framebuffer / VBE info (filled by bootloader if available) */
-    uint16_t vbe_mode;    // raw VBE mode (AX low) or BIOS mode
-    uint16_t vbe_pitch;   // bytes per scanline (if known)
-    uint16_t vbe_width;   // pixels
-    uint16_t vbe_height;  // pixels
-    uint8_t  vbe_bpp;     // bits per pixel
+    uint16_t vbe_mode;        // preferred 8bpp VBE mode (if detected)
+    uint16_t vbe_pitch;       // bytes per scanline for preferred mode
+    uint16_t vbe_width;       // width in pixels for preferred mode
+    uint16_t vbe_height;      // height in pixels for preferred mode
+    uint8_t  vbe_bpp;         // bits per pixel for preferred mode (expect 8)
     uint8_t  _pad0;
-    uint32_t framebuffer_phys; // physical address of LFB if present (0 = none)
+    uint32_t framebuffer_phys; // physical address of preferred LFB (0 = none)
+
+    /* Optional secondary 4bpp mode (banked or linear) */
+    uint16_t vbe_mode_4bpp;      // preferred 4bpp mode (0 = none)
+    uint16_t vbe_pitch_4bpp;     // pitch for 4bpp mode (bytes per scanline)
+    uint16_t vbe_width_4bpp;     // width in pixels for 4bpp mode
+    uint16_t vbe_height_4bpp;    // height in pixels for 4bpp mode
+    uint8_t  vbe_bpp_4bpp;       // bits per pixel for 4bpp mode (expect 4)
+    uint8_t  _pad1;
+    uint32_t framebuffer_phys_4bpp; // physical address if linear framebuffer available (0 otherwise)
+
+    uint32_t vbe_memory_bytes;   // total reported VBE video memory (bytes)
     bootinfo_memory_map_t memory;
 } boot_info_t;
 
