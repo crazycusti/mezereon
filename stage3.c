@@ -380,13 +380,19 @@ void stage3_main(stage3_params_t *params, boot_info_t *bootinfo) {
     */
     {
         const uintptr_t raw = (uintptr_t)params->bootinfo_ptr;
-        uint8_t *r = (uint8_t *)raw;
         uint16_t vbe_mode = 0;
         uint16_t vbe_pitch = 0;
         uint16_t vbe_width = 0;
         uint16_t vbe_height = 0;
         uint8_t vbe_bpp = 0;
         uint32_t fb_addr = 0;
+        uint16_t vbe_mode4 = 0;
+        uint16_t vbe_pitch4 = 0;
+        uint16_t vbe_width4 = 0;
+        uint16_t vbe_height4 = 0;
+        uint8_t vbe_bpp4 = 0;
+        uint32_t fb_addr4 = 0;
+        uint32_t vbe_mem_bytes = 0;
         /* Offsets defined in boot_shared.inc */
         vbe_mode = *(uint16_t *)(uintptr_t)(raw + 0x0A);
         vbe_pitch = *(uint16_t *)(uintptr_t)(raw + 0x0C);
@@ -394,6 +400,13 @@ void stage3_main(stage3_params_t *params, boot_info_t *bootinfo) {
         vbe_height = *(uint16_t *)(uintptr_t)(raw + 0x10);
         vbe_bpp = *(uint8_t  *)(uintptr_t)(raw + 0x12);
         fb_addr  = *(uint32_t *)(uintptr_t)(raw + 0x14);
+        vbe_mode4 = *(uint16_t *)(uintptr_t)(raw + 0x18);
+        vbe_pitch4 = *(uint16_t *)(uintptr_t)(raw + 0x1A);
+        vbe_width4 = *(uint16_t *)(uintptr_t)(raw + 0x1C);
+        vbe_height4 = *(uint16_t *)(uintptr_t)(raw + 0x1E);
+        vbe_bpp4 = *(uint8_t  *)(uintptr_t)(raw + 0x20);
+        fb_addr4 = *(uint32_t *)(uintptr_t)(raw + 0x22);
+        vbe_mem_bytes = *(uint32_t *)(uintptr_t)(raw + 0x26);
 
         if (vbe_mode != 0 || vbe_bpp != 0 || fb_addr != 0) {
             bootinfo->vbe_mode = vbe_mode;
@@ -403,6 +416,15 @@ void stage3_main(stage3_params_t *params, boot_info_t *bootinfo) {
             bootinfo->vbe_bpp = vbe_bpp;
             bootinfo->framebuffer_phys = fb_addr;
         }
+        if (vbe_mode4 != 0 || vbe_bpp4 != 0 || fb_addr4 != 0) {
+            bootinfo->vbe_mode_4bpp = vbe_mode4;
+            bootinfo->vbe_pitch_4bpp = vbe_pitch4;
+            bootinfo->vbe_width_4bpp = vbe_width4;
+            bootinfo->vbe_height_4bpp = vbe_height4;
+            bootinfo->vbe_bpp_4bpp = vbe_bpp4;
+            bootinfo->framebuffer_phys_4bpp = fb_addr4;
+        }
+        bootinfo->vbe_memory_bytes = vbe_mem_bytes;
     }
 
     if (kernel_sectors > (UINT32_MAX / 512u)) {

@@ -189,6 +189,7 @@ void gpu_probe_run(const char* args) {
     uint16_t manual_width = 0;
     uint16_t manual_height = 0;
     uint8_t manual_bpp = 0;
+    int manual_optional_mode = 0;
 
     int expect_chip = 0;
     int expect_mode = 0;
@@ -232,8 +233,11 @@ void gpu_probe_run(const char* args) {
                     manual_width = 0;
                     manual_height = 0;
                     manual_bpp = 0;
+                    expect_mode = 1;
+                    manual_optional_mode = 1;
                 } else {
                     expect_mode = 1;
+                    manual_optional_mode = 0;
                 }
                 continue;
             }
@@ -276,16 +280,19 @@ void gpu_probe_run(const char* args) {
                 manual_height = h;
                 manual_bpp = bits;
                 manual_ready = 1;
+                manual_optional_mode = 0;
             } else if (parse_legacy_height(token, &h)) {
                 manual_width = 640;
                 manual_height = h;
                 manual_bpp = 8;
                 manual_ready = 1;
+                manual_optional_mode = 0;
             } else if (parse_legacy_bpp_token(token, &w, &h, &bits)) {
                 manual_width = w;
                 manual_height = h;
                 manual_bpp = bits;
                 manual_ready = 1;
+                manual_optional_mode = 0;
             } else {
                 console_write("gpuprobe: invalid mode token '");
                 console_write(token);
@@ -327,6 +334,10 @@ void gpu_probe_run(const char* args) {
     if (expect_chip) {
         console_writeln("gpuprobe: expected chip after 'activate'");
         manual_requested = 0;
+    }
+    if (expect_mode && manual_optional_mode && manual_type == GPU_TYPE_VGA) {
+        expect_mode = 0;
+        manual_optional_mode = 0;
     }
     if (expect_mode) {
         console_writeln("gpuprobe: expected mode token after chip specification");

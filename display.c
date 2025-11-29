@@ -97,8 +97,15 @@ void display_manager_set_framebuffer_candidate(const char* driver_name, const di
     g_ctx.state.framebuffer_driver_name = driver_name;
     g_ctx.state.framebuffer_mode = *mode;
 
-    if (g_ctx.state.requested_target == DISPLAY_TARGET_FRAMEBUFFER ||
-        (g_ctx.state.requested_target == DISPLAY_TARGET_AUTO && !(g_ctx.state.active_features & DISPLAY_FEATURE_FRAMEBUFFER))) {
+    int should_auto_activate = 0;
+    if (g_ctx.state.requested_target == DISPLAY_TARGET_FRAMEBUFFER) {
+        should_auto_activate = 1;
+    } else if (g_ctx.state.requested_target == DISPLAY_TARGET_AUTO &&
+               g_ctx.state.active_mode.kind == DISPLAY_MODE_KIND_NONE) {
+        should_auto_activate = 1;
+    }
+
+    if (should_auto_activate) {
         display_manager_activate_framebuffer();
     }
 }
@@ -133,6 +140,7 @@ static const char* pixel_format_name(display_pixel_format_t fmt) {
     switch (fmt) {
         case DISPLAY_PIXEL_FORMAT_TEXT_MONO: return "Text (monochrom)";
         case DISPLAY_PIXEL_FORMAT_TEXT_16COLOR: return "Text (16 Farben)";
+        case DISPLAY_PIXEL_FORMAT_PAL_16: return "Palettenmodus (16 Farben)";
         case DISPLAY_PIXEL_FORMAT_PAL_256: return "Palettenmodus (256 Farben)";
         case DISPLAY_PIXEL_FORMAT_RGB_565: return "RGB 5:6:5";
         case DISPLAY_PIXEL_FORMAT_RGB_888: return "RGB 8:8:8";

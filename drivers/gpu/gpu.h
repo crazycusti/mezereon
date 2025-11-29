@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "../pci.h"
+#include "../../bootinfo.h"
 
 #define GPU_MAX_DEVICES 4
 
@@ -43,7 +44,7 @@ typedef struct {
     uint8_t  bpp;
 } gpu_mode_option_t;
 
-void gpu_init(void);
+void gpu_init(const boot_info_t* bootinfo);
 const gpu_info_t* gpu_get_devices(size_t* count);
 void gpu_log_summary(void);
 void gpu_dump_details(void);

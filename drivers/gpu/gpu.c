@@ -27,6 +27,22 @@ static uint16_t g_gpu_last_mode_width = 0;
 static uint16_t g_gpu_last_mode_height = 0;
 static uint8_t g_gpu_last_mode_bpp = 0;
 
+typedef struct {
+    int available;
+    display_mode_info_t mode;
+} vesa_mode_entry_t;
+
+static struct {
+    vesa_mode_entry_t mode4;
+    vesa_mode_entry_t mode8;
+    uint32_t vram_bytes;
+} g_vesa_state;
+
+static void gpu_register_bootinfo_adapter(const boot_info_t* bootinfo);
+static int activate_vesa(uint16_t width, uint16_t height, uint8_t bpp);
+static gpu_info_t* gpu_find_by_type(gpu_type_t type);
+static gpu_info_t* gpu_acquire_slot_for_type(gpu_type_t type, const gpu_info_t* source);
+
 static void gpu_memzero(void* dst, size_t len) {
     uint8_t* p = (uint8_t*)dst;
     while (len--) {
@@ -252,6 +268,71 @@ static void log_device(const gpu_info_t* gpu) {
     }
 }
 
+static void gpu_register_bootinfo_adapter(const boot_info_t* bootinfo) {
+    g_vesa_state.mode4.available = 0;
+    g_vesa_state.mode8.available = 0;
+    g_vesa_state.vram_bytes = 0;
+
+    if (!bootinfo) {
+        return;
+    }
+
+    g_vesa_state.vram_bytes = bootinfo->vbe_memory_bytes;
+
+    if (bootinfo->framebuffer_phys &&
+        bootinfo->vbe_width && bootinfo->vbe_height && bootinfo->vbe_pitch &&
+        bootinfo->vbe_bpp == 8) {
+        vesa_mode_entry_t* entry = &g_vesa_state.mode8;
+        entry->available = 1;
+        entry->mode.kind = DISPLAY_MODE_KIND_FRAMEBUFFER;
+        entry->mode.pixel_format = DISPLAY_PIXEL_FORMAT_PAL_256;
+        entry->mode.width = bootinfo->vbe_width;
+        entry->mode.height = bootinfo->vbe_height;
+        entry->mode.bpp = bootinfo->vbe_bpp;
+        entry->mode.pitch = bootinfo->vbe_pitch;
+        entry->mode.phys_base = bootinfo->framebuffer_phys;
+        entry->mode.framebuffer = (volatile uint8_t*)(uintptr_t)bootinfo->framebuffer_phys;
+    }
+
+    if (bootinfo->framebuffer_phys_4bpp &&
+        bootinfo->vbe_width_4bpp && bootinfo->vbe_height_4bpp && bootinfo->vbe_pitch_4bpp &&
+        bootinfo->vbe_bpp_4bpp == 4) {
+        vesa_mode_entry_t* entry = &g_vesa_state.mode4;
+        entry->available = 1;
+        entry->mode.kind = DISPLAY_MODE_KIND_FRAMEBUFFER;
+        entry->mode.pixel_format = DISPLAY_PIXEL_FORMAT_PAL_16;
+        entry->mode.width = bootinfo->vbe_width_4bpp;
+        entry->mode.height = bootinfo->vbe_height_4bpp;
+        entry->mode.bpp = bootinfo->vbe_bpp_4bpp;
+        entry->mode.pitch = bootinfo->vbe_pitch_4bpp;
+        entry->mode.phys_base = bootinfo->framebuffer_phys_4bpp;
+        entry->mode.framebuffer = (volatile uint8_t*)(uintptr_t)bootinfo->framebuffer_phys_4bpp;
+    }
+
+    if (!g_vesa_state.mode4.available && !g_vesa_state.mode8.available) {
+        return;
+    }
+
+    gpu_info_t info;
+    gpu_memzero(&info, sizeof(info));
+    info.type = GPU_TYPE_VGA;
+    gpu_copy_string(info.name, sizeof(info.name), "VESA/VGA");
+    info.framebuffer_bar = 0xFF;
+    info.framebuffer_base = g_vesa_state.mode8.available ?
+        g_vesa_state.mode8.mode.phys_base : g_vesa_state.mode4.mode.phys_base;
+    info.framebuffer_size = g_vesa_state.vram_bytes;
+    info.framebuffer_ptr = NULL;
+    info.capabilities = GPU_CAP_VBE_BIOS;
+    if (g_vesa_state.mode8.available) {
+        info.capabilities |= GPU_CAP_LINEAR_FB;
+    }
+
+    gpu_info_t* slot = gpu_acquire_slot_for_type(GPU_TYPE_VGA, &info);
+    if (slot) {
+        *slot = info;
+    }
+}
+
 void gpu_dump_registers(const gpu_info_t* gpu) {
     if (!gpu) {
         console_writeln("      (no adapter information available)");
@@ -265,6 +346,9 @@ void gpu_dump_registers(const gpu_info_t* gpu) {
         case GPU_TYPE_AVGA2:
             avga2_dump_state();
             et4000_debug_dump();
+            break;
+        case GPU_TYPE_VGA:
+            console_writeln("      (generic VESA/VGA adapter)");
             break;
         case GPU_TYPE_ET4000:
         case GPU_TYPE_ET4000AX:
@@ -339,6 +423,25 @@ size_t gpu_get_mode_catalog(const gpu_info_t* gpu,
             }
             break;
         }
+        case GPU_TYPE_VGA: {
+            if (g_vesa_state.mode8.available) {
+                if (out_modes && count < capacity) {
+                    out_modes[count].width = g_vesa_state.mode8.mode.width;
+                    out_modes[count].height = g_vesa_state.mode8.mode.height;
+                    out_modes[count].bpp = g_vesa_state.mode8.mode.bpp;
+                }
+                ++count;
+            }
+            if (g_vesa_state.mode4.available) {
+                if (out_modes && count < capacity) {
+                    out_modes[count].width = g_vesa_state.mode4.mode.width;
+                    out_modes[count].height = g_vesa_state.mode4.mode.height;
+                    out_modes[count].bpp = g_vesa_state.mode4.mode.bpp;
+                }
+                ++count;
+            }
+            break;
+        }
         default:
             break;
     }
@@ -354,10 +457,15 @@ static gpu_info_t* g_active_fb_gpu = NULL;
 static int g_framebuffer_active = 0;
 static int g_tseng_auto_enabled = 0;
 
-void gpu_init(void) {
+void gpu_init(const boot_info_t* bootinfo) {
     et4000_set_debug_trace(g_gpu_debug);
     gpu_debug_log("INFO", "initialising GPU subsystem");
     g_gpu_count = 0;
+    g_active_fb_gpu = NULL;
+    g_framebuffer_active = 0;
+
+    gpu_register_bootinfo_adapter(bootinfo);
+
     size_t pci_count = 0;
     int has_pci_gpu = 0;
     const pci_device_t* pci_devices = pci_get_devices(&pci_count);
@@ -440,6 +548,12 @@ int gpu_request_framebuffer_mode(uint16_t width, uint16_t height, uint8_t bpp) {
 
     for (size_t i = 0; i < g_gpu_count; i++) {
         gpu_info_t* gpu = &g_gpu_infos[i];
+        if (gpu->type == GPU_TYPE_VGA) {
+            if (activate_vesa(width, height, bpp)) {
+                return 1;
+            }
+            continue;
+        }
         if (gpu->type == GPU_TYPE_CIRRUS) {
             const cirrus_mode_desc_t* requested_mode = NULL;
             uint32_t vram = gpu->framebuffer_size;
@@ -620,6 +734,7 @@ void gpu_debug_probe(int scan_legacy) {
                 case GPU_TYPE_ET4000: console_write("et4000"); break;
                 case GPU_TYPE_ET4000AX: console_write("et4000ax"); break;
                 case GPU_TYPE_AVGA2: console_write("avga2"); break;
+                case GPU_TYPE_VGA: console_write("vesa/vga"); break;
                 default: console_write("unknown"); break;
             }
             console_write(" name=\"");
@@ -672,6 +787,15 @@ void gpu_debug_probe(int scan_legacy) {
         et4000_set_debug_trace(0);
     }
     console_writeln("gpu-probe: done");
+}
+
+static gpu_info_t* gpu_find_by_type(gpu_type_t type) {
+    for (size_t i = 0; i < g_gpu_count; ++i) {
+        if (g_gpu_infos[i].type == type) {
+            return &g_gpu_infos[i];
+        }
+    }
+    return NULL;
 }
 
 static gpu_info_t* gpu_acquire_slot_for_type(gpu_type_t type, const gpu_info_t* source) {
@@ -804,6 +928,75 @@ static int activate_cirrus(uint16_t width, uint16_t height, uint8_t bpp) {
     return 1;
 }
 
+static int activate_vesa(uint16_t width, uint16_t height, uint8_t bpp) {
+    if (!g_vesa_state.mode4.available && !g_vesa_state.mode8.available) {
+        gpu_set_last_error("ERROR: no VESA framebuffer info");
+        return 0;
+    }
+
+    const vesa_mode_entry_t* candidates[2] = {
+        &g_vesa_state.mode8,
+        &g_vesa_state.mode4
+    };
+
+    const vesa_mode_entry_t* chosen = NULL;
+    for (size_t i = 0; i < 2 && !chosen; ++i) {
+        const vesa_mode_entry_t* entry = candidates[i];
+        if (!entry->available) {
+            continue;
+        }
+        const display_mode_info_t* mode = &entry->mode;
+        if (width && mode->width != width) {
+            continue;
+        }
+        if (height && mode->height != height) {
+            continue;
+        }
+        if (bpp && mode->bpp != bpp) {
+            continue;
+        }
+        if (!mode->framebuffer) {
+            continue;
+        }
+        chosen = entry;
+    }
+
+    if (!chosen) {
+        gpu_set_last_error("ERROR: requested VESA mode unavailable");
+        return 0;
+    }
+
+    const display_mode_info_t* mode_info = &chosen->mode;
+    if (!mode_info->framebuffer || mode_info->pitch == 0 || mode_info->width == 0 || mode_info->height == 0) {
+        gpu_set_last_error("ERROR: incomplete VESA mode info");
+        return 0;
+    }
+
+    gpu_info_t* gpu = gpu_find_by_type(GPU_TYPE_VGA);
+    if (!gpu) {
+        gpu_set_last_error("ERROR: VESA adapter entry missing");
+        return 0;
+    }
+
+    display_mode_info_t mode = *mode_info;
+    display_manager_set_framebuffer_candidate("vesa-vga", &mode);
+    display_manager_activate_framebuffer();
+    video_switch_to_framebuffer(&mode);
+
+    g_active_fb_gpu = gpu;
+    g_framebuffer_active = 1;
+    gpu->framebuffer_ptr = mode.framebuffer;
+    gpu->framebuffer_width = mode.width;
+    gpu->framebuffer_height = mode.height;
+    gpu->framebuffer_pitch = mode.pitch;
+    gpu->framebuffer_bpp = mode.bpp;
+
+    gpu_set_last_mode("VESA/VGA", mode.width, mode.height, mode.bpp);
+    gpu_set_last_error("OK: VESA framebuffer active");
+    gpu_debug_log("OK", "VESA framebuffer active");
+    return 1;
+}
+
 static int activate_tseng(uint16_t width, uint16_t height, uint8_t bpp, int force_ax_variant) {
 #if !CONFIG_VIDEO_ENABLE_ET4000
     (void)width; (void)height; (void)bpp; (void)force_ax_variant;
@@ -919,9 +1112,7 @@ int gpu_force_activate(gpu_type_t type, uint16_t width, uint16_t height, uint8_t
         case GPU_TYPE_AVGA2:
             return activate_tseng(width, height, bpp, -1);
         case GPU_TYPE_VGA:
-            gpu_restore_text_mode();
-            gpu_debug_log("INFO", "switched to VGA text mode");
-            return 1;
+            return activate_vesa(width, height, bpp);
         case GPU_TYPE_CIRRUS:
             return activate_cirrus(width, height, bpp);
         default:
