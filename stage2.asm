@@ -34,6 +34,20 @@ ORG 0
 %define STAGE2_FORCE_CHS 0
 %endif
 
+; VBE/LFB preferences (override via assembler -D VBE_PREF_* or VBE_ENABLE_LFB)
+%ifndef VBE_PREF_WIDTH
+%define VBE_PREF_WIDTH 640
+%endif
+%ifndef VBE_PREF_HEIGHT
+%define VBE_PREF_HEIGHT 480
+%endif
+%ifndef VBE_PREF_BPP
+%define VBE_PREF_BPP 8
+%endif
+%ifndef VBE_ENABLE_LFB
+%define VBE_ENABLE_LFB 1
+%endif
+
 %define A20_STATE_UNKNOWN         0
 %define A20_STATE_ENABLED         1
 %define A20_STATE_UNAVAILABLE     2
@@ -102,16 +116,16 @@ load_complete:
     call collect_e820
     call populate_stage3_params
 
-    ; --- Probe current BIOS video mode (INT 10h AH=0x0F) and VBE ModeInfo
+    ; --- Probe current BIOS video mode (INT 10h AH=0x0F) and locate a usable VBE LFB mode
     push ax
     push bx
     push cx
     push dx
-    ; get current BIOS mode
+    push bp
+    ; record current BIOS mode as fallback
     mov ah, 0x0F
     int 0x10
     movzx eax, al
-    ; write 16-bit mode into BOOTINFO VBE mode offset
     mov ax, BOOTINFO_SEGMENT
     mov es, ax
     mov di, BOOTINFO_OFFSET
@@ -119,86 +133,10 @@ load_complete:
     mov [es:di], al
     mov [es:di+1], ah
 
-    ; prepare scratch buffer at BOOTINFO_ADDR+0x20
-    mov ax, BOOTINFO_SEGMENT
-    mov es, ax
-    mov di, BOOTINFO_OFFSET
-    add di, 0x20
-    mov word [es:di], 0
-    mov word [es:di+2], 0
-
-    ; probe VBE controller
-    mov ax, 0x4F00
-    int 0x10
-    jc .vbe_skip
-    cmp ax, 0x004F
-    jne .vbe_skip
-
-    ; Read VideoModePtr (offset 0x0E) from controller info at ES:DI
-    mov si, [es:di+0x0E]
-    mov dx, [es:di+0x10]
-
-.vbe_mode_iter:
-    ; load mode word from DX:SI
-    push es
-    push ds
-    mov ax, dx
-    mov ds, ax
-    mov bx, si
-    mov ax, [ds:bx]
-    cmp ax, 0xFFFF
-    je .vbe_done
-
-    mov cx, ax            ; CX = mode number
-    mov ax, BOOTINFO_SEGMENT
-    mov es, ax
-    mov di, BOOTINFO_OFFSET
-    add di, 0x20
-    mov ax, 0x4F01
-    int 0x10
-    jc .vbe_skip_one
-    cmp ax, 0x004F
-    jne .vbe_skip_one
-
-    ; parse ModeInfo: bytes_per_scanline @+0x10, xres @+0x12, yres @+0x14, bpp @+0x19, physbase @+0x28
-    mov ax, [es:di+0x10]
-    mov bx, BOOTINFO_SEGMENT
-    mov es, bx
-    mov di, BOOTINFO_OFFSET
-    add di, BOOTINFO_VBE_PITCH
-    mov [es:di], ax
-
-    mov ax, [es:di- (BOOTINFO_VBE_PITCH - 0x12) ]
-    ; store width
-    mov ax, [es:di+2]
-    mov di, BOOTINFO_OFFSET
-    add di, BOOTINFO_VBE_WIDTH
-    mov [es:di], ax
-    ; store height
-    mov ax, [es:di+2]
-    mov di, BOOTINFO_OFFSET
-    add di, BOOTINFO_VBE_HEIGHT
-    mov [es:di], ax
-    ; store bpp
-    mov al, [es:di+4]
-    mov di, BOOTINFO_OFFSET
-    add di, BOOTINFO_VBE_BPP
-    mov [es:di], al
-    ; store physbase dword (at +0x28)
-    mov bx, [es:di+0x12]
-    mov cx, [es:di+0x14]
-    mov di, BOOTINFO_OFFSET
-    add di, BOOTINFO_FB_ADDR
-    mov [es:di], bx
-    mov [es:di+2], cx
-
-.vbe_skip_one:
-    pop ds
-    pop es
-    add si, 2
-    jmp .vbe_mode_iter
-.vbe_done:
+    ; temporarily skip VBE probing (debug fallback)
+    jmp .vbe_skip
 .vbe_skip:
+    pop bp
     pop dx
     pop cx
     pop bx
@@ -363,6 +301,8 @@ load_complete:
     jnz .sig_fail
     jmp .after_sig
 .sig_fail:
+    mov al, 'F'
+    call dbg_e9
     jmp fatal_halt
 .after_sig:
     mov eax, cr0
@@ -376,12 +316,16 @@ load_complete:
     mov si, msg_newline
     call debug_print_str
 %endif
+    mov al, 'P'
+    call dbg_e9
     or eax, 1
     mov cr0, eax
     mov esi, stage3_params
     add esi, STAGE2_LINEAR_ADDR
     mov edi, BOOTINFO_ADDR
 far_jmp_label:
+    mov al, 'J'
+    call dbg_e9
     jmp dword CODE_SEL:(STAGE2_LINEAR_ADDR + pm_stub)
 far_jmp_end:
 
@@ -448,6 +392,16 @@ debug_print_hex8:
     mov al, ah
     and al, 0x0F
     call debug_print_hex_digit
+    pop ax
+    ret
+
+; Tiny helper: emit AL to Bochs/QEMU debug port 0xE9 without clobbering state
+dbg_e9:
+    push ax
+    push dx
+    mov dx, 0x00E9
+    out dx, al
+    pop dx
     pop ax
     ret
 
@@ -1450,6 +1404,17 @@ msg_far_off:         db ' off=0x',0
 msg_far_lin:         db ' lin=0x',0
 msg_newline:         db 0x0D,0x0A,0
 
+; VBE selection state
+align 2
+vesa_selected_mode:   dw 0
+vesa_selected_pitch:  dw 0
+vesa_selected_width:  dw 0
+vesa_selected_height: dw 0
+vesa_selected_fb_lo:  dw 0
+vesa_selected_fb_hi:  dw 0
+vesa_selected_bpp:    db 0
+vesa_match_level:     db 0
+
 ; VBE bootlog messages removed (kernel will log bootinfo)
 
 stage3_signature:    db 0xB8,0x21,0x47,0x53,0x33,0x31,0xC0
@@ -1534,5 +1499,8 @@ pm_stub:
     mov al, '!'
     out dx, al
 %endif
+    mov dx, 0x00E9
+    mov al, 'S'
+    out dx, al
     jmp 0x08:STAGE3_LINEAR_ADDR
 [BITS 16]

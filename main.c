@@ -29,7 +29,7 @@ void kmain(const boot_info_t* bootinfo)
     console_init();
     console_writeln("kmain: entering");
     memory_init(bootinfo);
-    /* Registriere Bootloader-Framebuffer, bleibe aber im Textmodus für Debug-Zwecke */
+    /* Registriere Bootloader-Framebuffer (VESA/LFB) */
     if (bootinfo && bootinfo->framebuffer_phys != 0 && bootinfo->vbe_width && bootinfo->vbe_height && bootinfo->vbe_bpp == 8) {
         volatile uint8_t* fb_ptr = (volatile uint8_t*)(uintptr_t)bootinfo->framebuffer_phys;
         display_mode_info_t mode = {
@@ -42,11 +42,11 @@ void kmain(const boot_info_t* bootinfo)
             .phys_base = bootinfo->framebuffer_phys,
             .framebuffer = fb_ptr
         };
-        display_manager_set_framebuffer_candidate("bootinfo-lfb", &mode);
-        console_writeln("Display: Bootloader-Framebuffer verfügbar (Textmodus erzwungen, gpuprobe nutzen).");
+        display_manager_set_framebuffer_candidate("vesa-lfb", &mode);
+        console_writeln("Display: Bootloader meldet VESA-Framebuffer (LFB) an.");
     }
-    console_writeln("Initializing Mezereon... Video initialized.");
-    display_manager_log_state();
+    display_manager_apply_active_mode();
+    console_writeln("Initializing Mezereon... Video path selected.");
     // Compact CPU info line
     cpu_bootinfo_print();
     memory_log_summary();
@@ -61,7 +61,8 @@ void kmain(const boot_info_t* bootinfo)
     gpu_init();
     gpu_log_summary();
 
-    console_writeln("Display: Textmodus bleibt aktiv, Framebuffer bei Bedarf mit gpuprobe laden.");
+    display_manager_apply_active_mode();
+    display_manager_log_state();
 
     console_status_set_right(GIT_REV);
 

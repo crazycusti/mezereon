@@ -18,6 +18,10 @@ STAGE1_VERBOSE_DEBUG ?= 1
 STAGE2_VERBOSE_DEBUG ?= 1
 STAGE3_VERBOSE_DEBUG ?= 1
 STAGE2_DEBUG ?= 1
+VBE_PREF_WIDTH ?= 640
+VBE_PREF_HEIGHT ?= 480
+VBE_PREF_BPP ?= 8
+VBE_ENABLE_LFB ?= 1
 
 # Optional QEMU acceleration: set QEMU_ACCEL=kvm|hvf|whpx to enable hardware acceleration and host CPU model
 ifeq ($(QEMU_ACCEL),kvm)
@@ -38,6 +42,8 @@ endif
 ifeq ($(QEMU_ACCEL),whpx)
 QEMU_ACCEL_FLAGS := -accel whpx -cpu host
 endif
+
+QEMU_FB_DISPLAY ?= gtk
 
 ## Using host gcc/ld/objcopy; ensure 32-bit support libraries are installed for -m32.
 
@@ -75,11 +81,11 @@ stage2.bin: stage2.asm stage3.bin kernel_payload.bin version.h
 	ks=$$(expr \( $$(wc -c < kernel_payload.bin) + 511 \) / 512); \
 	s3start_guess=$$(expr $(STAGE2_START_SECTOR) - 1 + 1); \
 	kstart_guess=$$(expr $$s3start_guess + $$s3s); \
-	$(AS) -f bin -D STAGE2_SECTORS=1 -D STAGE3_SECTORS=$$s3s -D STAGE3_START_SECTOR=$$s3start_guess -D KERNEL_SECTORS=$$ks -D KERNEL_START_SECTOR=$$kstart_guess -D KERNEL_LOAD_LINEAR=$(KERNEL_LOAD_LINEAR) -D KERNEL_BUFFER_LINEAR=$(KERNEL_BUFFER_LINEAR) -D STAGE2_FORCE_CHS=$(STAGE2_FORCE_CHS) -D STAGE2_VERBOSE_DEBUG=$(STAGE2_VERBOSE_DEBUG) -D STAGE2_DEBUG=$(STAGE2_DEBUG) -D ENABLE_BOOTINFO=$(BOOTINFO) -D DEBUG_BOOT=$(DEBUG_BOOT) -D ENABLE_A20_KBC=$(A20_KBC) -D WAIT_BEFORE_PM=$(WAIT_PM) -D DEBUG_PM_STUB=$(DEBUG_PM_STUB) $< -o $@; \
+	$(AS) -f bin -D STAGE2_SECTORS=1 -D STAGE3_SECTORS=$$s3s -D STAGE3_START_SECTOR=$$s3start_guess -D KERNEL_SECTORS=$$ks -D KERNEL_START_SECTOR=$$kstart_guess -D KERNEL_LOAD_LINEAR=$(KERNEL_LOAD_LINEAR) -D KERNEL_BUFFER_LINEAR=$(KERNEL_BUFFER_LINEAR) -D STAGE2_FORCE_CHS=$(STAGE2_FORCE_CHS) -D STAGE2_VERBOSE_DEBUG=$(STAGE2_VERBOSE_DEBUG) -D STAGE2_DEBUG=$(STAGE2_DEBUG) -D ENABLE_BOOTINFO=$(BOOTINFO) -D DEBUG_BOOT=$(DEBUG_BOOT) -D ENABLE_A20_KBC=$(A20_KBC) -D WAIT_BEFORE_PM=$(WAIT_PM) -D DEBUG_PM_STUB=$(DEBUG_PM_STUB) -D VBE_PREF_WIDTH=$(VBE_PREF_WIDTH) -D VBE_PREF_HEIGHT=$(VBE_PREF_HEIGHT) -D VBE_PREF_BPP=$(VBE_PREF_BPP) -D VBE_ENABLE_LFB=$(VBE_ENABLE_LFB) $< -o $@; \
 	s2s=$$(expr \( $$(wc -c < $@) + 511 \) / 512); \
 	s3start=$$(expr $(STAGE2_START_SECTOR) - 1 + $$s2s); \
 	kstart=$$(expr $$s3start + $$s3s); \
-	$(AS) -f bin -D STAGE2_SECTORS=$$s2s -D STAGE3_SECTORS=$$s3s -D STAGE3_START_SECTOR=$$s3start -D KERNEL_SECTORS=$$ks -D KERNEL_START_SECTOR=$$kstart -D KERNEL_LOAD_LINEAR=$(KERNEL_LOAD_LINEAR) -D KERNEL_BUFFER_LINEAR=$(KERNEL_BUFFER_LINEAR) -D STAGE2_FORCE_CHS=$(STAGE2_FORCE_CHS) -D STAGE2_VERBOSE_DEBUG=$(STAGE2_VERBOSE_DEBUG) -D STAGE2_DEBUG=$(STAGE2_DEBUG) -D ENABLE_BOOTINFO=$(BOOTINFO) -D DEBUG_BOOT=$(DEBUG_BOOT) -D ENABLE_A20_KBC=$(A20_KBC) -D WAIT_BEFORE_PM=$(WAIT_PM) -D DEBUG_PM_STUB=$(DEBUG_PM_STUB) $< -o $@; \
+	$(AS) -f bin -D STAGE2_SECTORS=$$s2s -D STAGE3_SECTORS=$$s3s -D STAGE3_START_SECTOR=$$s3start -D KERNEL_SECTORS=$$ks -D KERNEL_START_SECTOR=$$kstart -D KERNEL_LOAD_LINEAR=$(KERNEL_LOAD_LINEAR) -D KERNEL_BUFFER_LINEAR=$(KERNEL_BUFFER_LINEAR) -D STAGE2_FORCE_CHS=$(STAGE2_FORCE_CHS) -D STAGE2_VERBOSE_DEBUG=$(STAGE2_VERBOSE_DEBUG) -D STAGE2_DEBUG=$(STAGE2_DEBUG) -D ENABLE_BOOTINFO=$(BOOTINFO) -D DEBUG_BOOT=$(DEBUG_BOOT) -D ENABLE_A20_KBC=$(A20_KBC) -D WAIT_BEFORE_PM=$(WAIT_PM) -D DEBUG_PM_STUB=$(DEBUG_PM_STUB) -D VBE_PREF_WIDTH=$(VBE_PREF_WIDTH) -D VBE_PREF_HEIGHT=$(VBE_PREF_HEIGHT) -D VBE_PREF_BPP=$(VBE_PREF_BPP) -D VBE_ENABLE_LFB=$(VBE_ENABLE_LFB) $< -o $@; \
 	python3 -c 'import pathlib,sys; data=pathlib.Path("stage2.bin").read_bytes(); opcode=b"\x66\xea"; idx=data.find(opcode); sys.exit("Stage2 far-jump opcode not found in stage2.bin") if idx == -1 else None; offset=int.from_bytes(data[idx+2:idx+6],"little"); selector=int.from_bytes(data[idx+6:idx+8],"little"); print(f"[stage2] far-jump @0x{idx:05X}: offset=0x{offset:08X}, selector=0x{selector:04X}"); sys.exit(f"Unexpected selector 0x{selector:04X} in stage2 far-jump") if selector != 0x0008 else None; sys.exit(f"Unexpected far-jump offset 0x{offset:08X}") if offset < 0x00010000 else None'
 
 stage3_entry.o: stage3_entry.asm boot_config.inc
@@ -257,7 +263,7 @@ version.h:
 main.o: version.h
 
 ## --- QEMU run helpers (x86) ---
-.PHONY: run-x86-floppy run-x86-hdd
+.PHONY: run-x86-floppy run-x86-hdd run-x86-fb
 run-x86-floppy: disk.img
 	$(shell command -v qemu-system-i386 2>/dev/null || echo qemu-system-i386) \
 		$(QEMU_ACCEL_FLAGS) -drive file=disk.img,if=floppy,format=raw \
@@ -267,6 +273,11 @@ run-x86-hdd: disk.img
 	$(shell command -v qemu-system-i386 2>/dev/null || echo qemu-system-i386) \
 		$(QEMU_ACCEL_FLAGS) -drive file=disk.img,format=raw,if=ide \
 		-net none -display curses
+
+run-x86-fb: disk.img
+	$(shell command -v qemu-system-i386 2>/dev/null || echo qemu-system-i386) \
+		$(QEMU_ACCEL_FLAGS) -drive file=disk.img,format=raw,if=ide \
+		-net none -vga std -display $(QEMU_FB_DISPLAY)
 
 .PHONY: run-x86-hdd-ne2k
 run-x86-hdd-ne2k: disk.img
@@ -298,6 +309,7 @@ help:
 	@echo "  make                  Build x86 floppy image (disk.img)"
 	@echo "  make run-x86-floppy   Run QEMU (curses terminal) with disk.img as floppy"
 	@echo "  make run-x86-hdd      Run QEMU (curses terminal) with disk.img as IDE disk (no NIC)"
+	@echo "  make run-x86-fb       Run QEMU graphics (-vga std, -display $(QEMU_FB_DISPLAY))"
 	@echo "  make run-x86-hdd-ne2k Run QEMU (curses terminal) IDE + NE2000 ISA (usernet)"
 	@echo "  make test-x86-ne2k    Headless smoke test (6s, no TTY required)"
 	@echo ""

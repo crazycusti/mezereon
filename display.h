@@ -63,5 +63,6 @@ void display_manager_activate_text(void);
 void display_manager_activate_framebuffer(void);
 const display_state_t* display_manager_state(void);
 void display_manager_log_state(void);
+void display_manager_apply_active_mode(void);
 
 #endif // DISPLAY_H

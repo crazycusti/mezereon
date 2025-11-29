@@ -12,7 +12,7 @@ Current State
 -------------
 - `console_*` functions funnel straight into `video.c`, which writes to `0xB8000` VGA text memory.
 - `console_backend_*` is selectable via `CONSOLE_BACKEND=vga|fb`, but both backends ultimately depend on the text-mode primitives; the "fb" variant is currently a stub.
-- No PCI/VBE probing or framebuffer discovery logic exists; bootloader leaves the machine in VGA text mode.
+- VBE probing now runs in Stage 2: the bootloader scans for an 8bpp LFB mode (default 640×480) and hands the selected mode to the kernel; VGA text remains the fallback if no LFB is found or disabled.
 - Architecture-specific surface area is minimal (mostly x86); other arches rely on dummy console output.
 
 Design Direction
@@ -88,3 +88,7 @@ Status (2025-09-21)
 - PCI enumeration und Cirrus GD5446 probing sind aktiv; `gpuinfo`/`gpuinfo detail` liefern die Runtime-Infos.
 - Automatischer Switch (`CONFIG_VIDEO_TARGET=auto|framebuffer`) aktiviert den Cirrus-LFB (640×480×8); die Konsole rendert jetzt im selben Codepfad sowohl VGA-Text als auch LFB (8×16-Glyphen, Regenbogen-Statusbar).
 - `fbtest` prüft Palette/Renderer, Rückkehr in den Textmodus ist stabil.
+
+Update (2025-11-20)
+-------------------
+- Stage 2 wählt ein VESA-LFB (Standard 640×480×8, steuerbar via `VBE_PREF_*`/`VBE_ENABLE_LFB`) und übergibt die Daten im Bootinfo-Puffer. Der Kernel synchronisiert den aktiven Pfad über `display_manager_apply_active_mode`, sodass `CONFIG_VIDEO_TARGET=auto|framebuffer` direkt ins LFB startet, während `text` weiterhin VGA erzwingt.

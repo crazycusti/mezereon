@@ -1,5 +1,7 @@
 # Mezereon Changelog
 
+2025-11-20 00:41:00 (worktree@HEAD) - boot/ui: stage2 selects VESA LFB (640x480x8 by default), kernel auto-applies display_manager state for framebuffer targets
+2025-11-20 00:41:00 (worktree@HEAD) - build/docs: add run-x86-fb target, VBE config knobs, and agents.md helper notes
 ## 2025-06-29 v0.1.0
 - Projektstruktur erstellt
 - Modulbauweise geplant und erstellt

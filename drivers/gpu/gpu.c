@@ -465,7 +465,7 @@ int gpu_request_framebuffer_mode(uint16_t width, uint16_t height, uint8_t bpp) {
                 display_manager_set_framebuffer_candidate("cirrus-lfb", &mode);
                 display_manager_activate_framebuffer();
                 cirrus_accel_enable(&mode);
-                video_switch_to_framebuffer(&mode);
+                display_manager_apply_active_mode();
                 gpu_set_last_mode(gpu->name[0] ? gpu->name : "Cirrus GD5446", mode.width, mode.height, mode.bpp);
                 gpu_set_last_error("OK: Cirrus framebuffer active");
                 g_active_fb_gpu = gpu;
@@ -553,7 +553,7 @@ int gpu_request_framebuffer_mode(uint16_t width, uint16_t height, uint8_t bpp) {
                     }
                     display_manager_set_framebuffer_candidate(driver_name, &mode);
                     display_manager_activate_framebuffer();
-                    video_switch_to_framebuffer(&mode);
+                    display_manager_apply_active_mode();
                     gpu_set_last_mode(gpu->name[0] ? gpu->name : "et4000", final_width, final_height, final_bpp);
                     gpu_set_last_error("OK: Tseng framebuffer active");
                     g_active_fb_gpu = gpu;
@@ -598,7 +598,7 @@ void gpu_restore_text_mode(void) {
     g_active_fb_gpu = NULL;
     g_framebuffer_active = 0;
     display_manager_activate_text();
-    video_switch_to_text();
+    display_manager_apply_active_mode();
     gpu_set_last_mode("text-mode", 0, 0, 0);
     gpu_set_last_error("OK: text mode restored");
 }
@@ -795,7 +795,7 @@ static int activate_cirrus(uint16_t width, uint16_t height, uint8_t bpp) {
     display_manager_set_framebuffer_candidate("cirrus-lfb", &fb_mode);
     display_manager_activate_framebuffer();
     cirrus_accel_enable(&fb_mode);
-    video_switch_to_framebuffer(&fb_mode);
+    display_manager_apply_active_mode();
     g_active_fb_gpu = gpu;
     g_framebuffer_active = 1;
     gpu_set_last_mode(gpu->name[0] ? gpu->name : "Cirrus GD5446", fb_mode.width, fb_mode.height, fb_mode.bpp);
@@ -895,7 +895,7 @@ static int activate_tseng(uint16_t width, uint16_t height, uint8_t bpp, int forc
     }
     display_manager_set_framebuffer_candidate(driver_name, &mode);
     display_manager_activate_framebuffer();
-    video_switch_to_framebuffer(&mode);
+    display_manager_apply_active_mode();
     g_active_fb_gpu = slot;
     g_framebuffer_active = 1;
 

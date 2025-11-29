@@ -1,7 +1,9 @@
 #include "display.h"
 #include "console.h"
+#include "video_fb.h"
+#include "paging.h"
+#include "config.h"
 #include <stddef.h>
-#include <stdint.h>
 #include <stdint.h>
 
 // interner Zustand, zentral verwaltet
@@ -10,6 +12,27 @@ typedef struct {
 } display_manager_ctx_t;
 
 static display_manager_ctx_t g_ctx;
+
+static int framebuffer_reachable(const display_mode_info_t* mode) {
+#if defined(CONFIG_ARCH_X86) && CONFIG_ARCH_X86
+    if (!mode || mode->kind != DISPLAY_MODE_KIND_FRAMEBUFFER) {
+        return 0;
+    }
+    uint32_t limit = paging_identity_limit();
+    if (limit == 0) {
+        return 0;
+    }
+    uint64_t bytes = (uint64_t)mode->pitch * (uint64_t)mode->height;
+    uint64_t end = (uint64_t)mode->phys_base + bytes;
+    if (end < (uint64_t)mode->phys_base) {
+        return 0;
+    }
+    return (end <= (uint64_t)limit);
+#else
+    (void)mode;
+    return 1;
+#endif
+}
 
 static display_mode_info_t make_text_mode(uint16_t columns, uint16_t rows, uint8_t color_count) {
     display_mode_info_t mode;
@@ -65,6 +88,10 @@ void display_manager_set_text_mode(const char* driver_name, uint16_t columns, ui
 void display_manager_set_framebuffer_candidate(const char* driver_name, const display_mode_info_t* mode) {
     if (!mode || mode->kind != DISPLAY_MODE_KIND_FRAMEBUFFER) {
         // Sicherheitsnetz: falsche Art -> ignorieren
+        return;
+    }
+    if (!framebuffer_reachable(mode)) {
+        console_writeln("Display: Framebuffer ausserhalb Mapping, bleibe im Textmodus.");
         return;
     }
     g_ctx.state.framebuffer_driver_name = driver_name;
@@ -148,5 +175,14 @@ void display_manager_log_state(void) {
         console_write(" ptr=0x");
         console_write_hex32((uint32_t)(uintptr_t)st->framebuffer_mode.framebuffer);
         console_write("\n");
+    }
+}
+
+void display_manager_apply_active_mode(void) {
+    const display_state_t* st = &g_ctx.state;
+    if (st->active_mode.kind == DISPLAY_MODE_KIND_FRAMEBUFFER) {
+        video_switch_to_framebuffer(&st->active_mode);
+    } else if (st->active_mode.kind == DISPLAY_MODE_KIND_TEXT) {
+        video_switch_to_text();
     }
 }

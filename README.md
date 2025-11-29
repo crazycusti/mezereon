@@ -8,6 +8,7 @@ Quick start
   - Build: `make`
   - Run (floppy, terminal/curses): `make run-x86-floppy`
   - Run (IDE disk, terminal/curses): `make run-x86-hdd`
+  - Run (framebuffer, GTK/SDL window): `make run-x86-fb` (uses `-vga std`, `-display $(QEMU_FB_DISPLAY)`, default `gtk`)
 
 - SPARC (QEMU SS-5, OpenBIOS)
   - Build: `make sparc-boot` (produces `arch/sparc/boot.{elf,aout,bin}`)
@@ -83,7 +84,7 @@ Useful runtime commands (shell)
   - NeeleFS v2: `neele mount/ls/cat/mkfs/verify`, `pad` editor (`docs/shell/neelefs.md`).
   - Network: `netinfo`, `netrxdump` (set `CONFIG_NET_RX_DEBUG=1` for verbose driver logs), `ip`, `http` (`docs/shell/network.md`, `docs/net/http.md`).
   - GPU/Pci: `gpuinfo [detail]` prüft PCI-Grafikgeräte; `detail` zeigt Register-Dumps. `gpuinfo` listet verfügbare Auflösungen/Farbtiefen (basierend auf erkanntem VRAM) und nennt auch erkannte ISA-Adapter wie Tseng ET4000 oder Acumos AVGA2. `gpuprobe` führt eine Diagnose im Textmodus aus, listet vor einer manuellen Aktivierung alle passenden Framebuffer-Modi (Auflösung × Farbtiefe) und kann mit `activate <chip> <WxHxB>` gezielt einen Modus wählen – z. B. `cirrus gd5446 640x480x8` unter QEMU oder `et4000 640x480x4` auf ISA-Hardware. Weitere Details: `docs/shell/gpu.md`.
-  - Grafikmodus: `CONFIG_VIDEO_TARGET=text|auto|framebuffer` (Default `auto`). Der Bootvorgang bleibt aus Debug-Gründen im Textmodus; Framebuffer lassen sich später mit `gpuprobe` aktivieren. Die Statusleiste zeigt weiterhin den aktiven Modus (`gfx: framebuffer`/`text`).
+  - Grafikmodus: `CONFIG_VIDEO_TARGET=text|auto|framebuffer` (Default `auto`). Stage 2 sucht jetzt ein VESA-LFB (Standard 640×480×8, konfigurierbar über `VBE_PREF_*`/`VBE_ENABLE_LFB`) und übergibt es per Bootinfo; bei `auto`/`framebuffer` schaltet der Kernel früh auf das LFB, `text` erzwingt VGA. `gpuprobe` kann weiterhin GPU-spezifische Modi aktivieren. Die Statusleiste zeigt den aktiven Pfad (`gfx: framebuffer`/`text`).
   - Power/system: `version`, `idle`, `timer`, `ticks`, `wakeups` (`docs/shell/system.md`, `docs/shell/power.md`).
   - Apps: `app ls`, `app run <name|/path>` for MezAPI-linked helpers such as `keymusic` or `rotcube`; see `docs/shell/apps.md`, `docs/api/mezapi.md`, `docs/api/graphics_fb.md`.
   - Audio quick test: `beep [freq] [ms]` (PC speaker ping).

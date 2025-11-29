@@ -10,6 +10,7 @@ extern "C" {
 
 void paging_init(const boot_info_t* info);
 int paging_is_enabled(void);
+uint32_t paging_identity_limit(void);
 
 #ifdef __cplusplus
 }

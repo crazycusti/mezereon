@@ -14,6 +14,7 @@
 static uint32_t g_page_directory[1024] __attribute__((aligned(4096)));
 static uint32_t g_page_tables[PAGING_MAX_TABLES][1024] __attribute__((aligned(4096)));
 static int g_paging_enabled = 0;
+static uint32_t g_identity_limit = 0;
 
 static inline uint32_t align_up(uint32_t value, uint32_t alignment) {
     return (value + alignment - 1u) & ~(alignment - 1u);
@@ -101,6 +102,7 @@ void paging_init(const boot_info_t* info) {
     }
 
     uint32_t highest = detect_highest_physical(info);
+    g_identity_limit = highest;
     build_identity_map(highest);
 
     uint32_t cr3 = (uint32_t)(uintptr_t)g_page_directory;
@@ -124,6 +126,10 @@ int paging_is_enabled(void) {
     return (cr0 & 0x80000000u) ? 1 : 0;
 }
 
+uint32_t paging_identity_limit(void) {
+    return g_identity_limit;
+}
+
 #else
 
 void paging_init(const boot_info_t* info) {
@@ -131,6 +137,10 @@ void paging_init(const boot_info_t* info) {
 }
 
 int paging_is_enabled(void) {
+    return 0;
+}
+
+uint32_t paging_identity_limit(void) {
     return 0;
 }
 

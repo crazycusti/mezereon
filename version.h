@@ -1,1 +1,1 @@
-#define GIT_REV "1506d71-dirty"
+#define GIT_REV "a610bc2-dirty"
