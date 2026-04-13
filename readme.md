@@ -1,9 +1,10 @@
-# Mezereon OS 🌿 v0.5.0-AeroAcumos
+# Mezereon OS 🌿 v0.5.3-AeroAcumos
 
 Mezereon is a modular hobby operating system designed for legacy x86 (386/486) and SPARC hardware. It focuses on stability, hardware discovery, and providing a modern development experience on classic chips.
 
 ## 🚀 Key Features
-- **📺 Graphics:** Robust SVGA support for **Cirrus Logic (AVGA2)**, **Tseng ET4000**, and **SMOS SPC8106 (Compaq Aero)**. Automatic VRAM detection and 16/256 color fallbacks.
+- **📺 Graphics:** Robust SVGA support for **Cirrus Logic (AVGA2)**, **Tseng ET4000**, and **SMOS SPC8106 (Compaq Aero)**.
+  - *New in v0.5.3:* High-speed **32-bit VRAM sync** for ISA cards and full-height 640x480 console support.
 - **⌨️ Input & Control:** PS/2 Keyboard support and a fast, bi-directional Serial Shell (115200 8N1).
 - **🌐 Networking:** Integrated TCP/IP stack with NE2000 (ISA) support and a built-in HTTP server.
 - **💾 Storage:** ATA PIO (LBA28) driver with **NeeleFS v2** (Read/Write filesystem).
