@@ -119,6 +119,7 @@ typedef struct mez_api32 {
     uint32_t capabilities;
     const mez_fb_info32_t* (*video_fb_get_info)(void);
     void     (*video_fb_fill_rect)(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint8_t color);
+    void     (*video_fb_sync)(void);
 
     // Sound stack metadata (legacy + PCM pipelines)
     const mez_sound_info32_t* (*sound_get_info)(void);

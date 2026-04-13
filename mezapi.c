@@ -312,6 +312,11 @@ static const mez_sound_info32_t* api_sound_get_info(void)
     return &g_sound_info;
 }
 
+static void api_video_fb_sync(void)
+{
+    fb_accel_sync();
+}
+
 static mez_api32_t g_api = {
     .abi_version     = MEZ_ABI32_V1,
     .size            = sizeof(mez_api32_t),
@@ -343,6 +348,7 @@ static mez_api32_t g_api = {
     .capabilities    = 0,
     .video_fb_get_info = api_video_fb_get_info,
     .video_fb_fill_rect = api_video_fb_fill_rect,
+    .video_fb_sync      = api_video_fb_sync,
 
     .sound_get_info    = api_sound_get_info,
     .video_gpu_get_info = api_video_gpu_get_info,

@@ -4,20 +4,12 @@ Zweck
 - Sammelstelle fuer alle Hinweise/Status/ToDos fuer KI-Agenten.
 - Ersetzt AI_HINTS.md, TODO.md und notes.md (nur hier pflegen).
 
-## Aktueller Status (2026-04-13) - v0.5.3
-
-### **Modularität & Strategie (Unified Driver Model)**
-- **Architektur-Vorgabe:** `GEMINI.md` und `docs/kernel/driver_model.md` erstellt. Fokus: Weg von `if/else`, hin zu `struct device` und Driver-Registries.
-- **Nächster Schritt:** Refactoring der `gpu_init` und `main.c` zur Nutzung einer GPU-Registry.
+## Aktueller Status (2026-04-13) - v0.5.4
 
 ### **Grafik & GPU (ISA/Cirrus/AVGA2)**
-- **AVGA2-Treiber:** Dedizierter ISA-Treiber für Cirrus Logic CL-GD5402 (Acumos AVGA2) implementiert.
-- **Performance-Boost:** Nutzt jetzt **32-Bit (uint32_t)** Transfers für den VRAM-Sync und minimiert Bank-Umschaltungen (v0.5.3).
-- **Layout-Fix:** Interner Konsolen-Puffer auf 60 Zeilen erhöht (behebt das 75%-Höhen-Problem bei 640x480).
-- **VRAM-Detection:** Liest VRAM-Größe über SR0F aus (256K, 512K, 1M).
-- **Fallback-Logik:** Erkennt automatisch, ob 640x480x8 in den VRAM passt. Falls nicht (bei 256K), erfolgt ein Fallback auf 640x480x16 (Planar) oder 320x200x8.
-- **Shadow Buffer Sync:** Nutzt RAM-Schattenpuffer. Shell ruft jetzt `fb_accel_sync()` im Loop auf (v0.5.2).
-- **Textmodus-Fix:** Robuste Rückkehr zum Textmodus via Sequencer-Reset und `vga_set_mode3`.
+- **v0.5.4 Fix:** Physischer VRAM-Check (Wraparound-Test) implementiert, um Hardware-Lügen über SR0F zu entlarven.
+- **Status:** Problem mit Bildspiegelung bei 640x480x8 auf AVGA2 besteht trotz Check weiterhin. Vermutung: Hardware-Bank-Mapping bei 256KB-Karten verhält sich anders als erwartet.
+- **Nächster Schritt:** Hardware-Verifikation der RAM-Bestückung (User-seitig). Falls 256KB bestätigt, muss der Fallback-Mechanismus in `avga2_get_vram_size` verfeinert werden.
 
 ### **Grafik & GPU (Compaq Aero / SMOS SPC8106)**
 - **SMOS SPC8106 Treiber:** Dedizierter Treiber implementiert. Nutzt Register-Unlock (0x1A an Index 0x0E/0x1E an Ports 0x3DE/0x3DF).
