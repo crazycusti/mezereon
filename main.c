@@ -147,14 +147,22 @@ void kmain(const boot_info_t* bootinfo)
     gpu_log_summary();
     if (CONFIG_VIDEO_TARGET != CONFIG_VIDEO_TARGET_TEXT) {
         const gpu_info_t* primary = gpu_get_primary();
-        if (primary && (gpu_streq(primary->name, "SMOS SPC8106F0B (Aero)") || 
-                        gpu_streq(primary->name, "SMOS SPC8106F0A") ||
-                        gpu_streq(primary->name, "Compaq SPC8106 (Aero)"))) {
-             console_writeln("GPU: SMOS detected, auto-activating 640x400x8...");
-             if (!gpu_request_framebuffer_mode(640, 400, 8)) {
-                 gpu_request_framebuffer_mode(320, 200, 8);
-             }
-        } else {
+        int activated = 0;
+        if (primary) {
+            if (gpu_streq(primary->name, "SMOS SPC8106F0B (Aero)") || 
+                gpu_streq(primary->name, "SMOS SPC8106F0A") ||
+                gpu_streq(primary->name, "Compaq SPC8106 (Aero)")) {
+                console_writeln("GPU: SMOS detected, auto-activating 640x400x8...");
+                if (gpu_request_framebuffer_mode(640, 400, 8)) activated = 1;
+                else if (gpu_request_framebuffer_mode(320, 200, 8)) activated = 1;
+            } else if (gpu_streq(primary->name, "Acumos AVGA2 (Cirrus ISA)")) {
+                console_writeln("GPU: AVGA2 detected, auto-activating 640x480x8...");
+                if (gpu_request_framebuffer_mode(640, 480, 8)) activated = 1;
+                else if (gpu_request_framebuffer_mode(320, 200, 8)) activated = 1;
+            }
+        }
+        
+        if (!activated) {
              gpu_request_framebuffer_mode(0, 0, 0);
         }
     }

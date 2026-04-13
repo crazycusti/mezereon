@@ -106,6 +106,24 @@ static inline void fb_write_pixel_4bpp(int x, int y, uint8_t color) {
     *cell = current;
 }
 
+static void (*g_fb_set_bank_fn)(uint8_t bank) = NULL;
+static uint32_t g_fb_phys_base = 0;
+static uint8_t  g_fb_current_bank = 0xFF;
+
+static inline void fb_put_pixel_banked(uint32_t absolute_offset, uint8_t color) {
+    if (g_fb_set_bank_fn) {
+        uint8_t bank = (uint8_t)(absolute_offset >> 16);
+        uint16_t offset = (uint16_t)(absolute_offset & 0xFFFF);
+        if (bank != g_fb_current_bank) {
+            g_fb_set_bank_fn(bank);
+            g_fb_current_bank = bank;
+        }
+        g_fb_ptr[offset] = color;
+    } else {
+        g_fb_ptr[absolute_offset] = color;
+    }
+}
+
 static void video_draw_cell_fb(int row, int col, const text_cell_t* cell) {
     if (g_target != VIDEO_TARGET_FB || !g_fb_ptr) return;
     int px = col * CHAR_WIDTH;
@@ -122,7 +140,7 @@ static void video_draw_cell_fb(int row, int col, const text_cell_t* cell) {
     if (g_fb_bpp == 8) {
         for (int y = 0; y < CHAR_HEIGHT; y++) {
             uint8_t bits = glyph[y];
-            volatile uint8_t* line = g_fb_ptr + (py + y) * g_fb_pitch + px;
+            uint32_t line_offset = (uint32_t)(py + y) * g_fb_pitch + px;
             for (int x = 0; x < CHAR_WIDTH; x++) {
                 uint8_t mask = (uint8_t)(0x80u >> x);
                 uint8_t color = bg;
@@ -134,10 +152,10 @@ static void video_draw_cell_fb(int row, int col, const text_cell_t* cell) {
                     if (bits & mask) color = fg;
                 }
                 if (is_cursor && g_cursor_fb_visible && y >= CHAR_HEIGHT - 2) color = 15;
-                line[x] = color;
+                fb_put_pixel_banked(line_offset + x, color);
             }
         }
-    } else { // 4 bpp
+    } else {
         for (int y = 0; y < CHAR_HEIGHT; y++) {
             uint8_t bits = glyph[y];
             for (int x = 0; x < CHAR_WIDTH; x++) {
@@ -318,6 +336,9 @@ void video_switch_to_framebuffer(const display_mode_info_t* mode) {
     g_fb_width = mode->width;
     g_fb_height = mode->height;
     g_fb_bpp = mode->bpp;
+    g_fb_phys_base = mode->phys_base;
+    g_fb_set_bank_fn = mode->set_bank;
+    g_fb_current_bank = 0xFF; 
     g_target = VIDEO_TARGET_FB;
     g_cols_current = g_fb_width / 8;
     g_rows_current = g_fb_height / 16;

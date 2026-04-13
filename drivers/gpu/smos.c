@@ -224,13 +224,9 @@ int smos_set_mode(gpu_info_t* gpu, display_mode_info_t* out_mode, uint16_t width
 
 void smos_restore_text_mode(void) {
     fb_accel_reset();
+    vga_set_mode3();
     
-    // Force standard VGA text mode bits
-    vga_gc_write(0x06, 0x00); // Miscellaneous: Graphics Mode = 0
-    vga_seq_write(0x04, 0x02); // Memory Mode: Chain-4 off, Odd/Even on
-    vga_attr_write(0x10, 0x01); // Mode Control: Graphics bit = 0
-    
-    // Clear VRAM for text
+    // Clear VRAM for text (vga_set_mode3 doesn't clear, but restores hardware state)
     volatile uint16_t* text_vram = (volatile uint16_t*)0xB8000;
     for (int i = 0; i < 80 * 25; i++) text_vram[i] = 0x0720;
 }

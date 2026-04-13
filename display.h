@@ -31,6 +31,7 @@ typedef struct {
     uint32_t pitch;   // Bytes pro Zeile; Text = Spaltenzahl
     uint32_t phys_base;              // Physische Basisadresse (falls Framebuffer)
     volatile uint8_t* framebuffer;  // Direkt zugreifbarer Speicher (NULL bei Text)
+    void (*set_bank)(uint8_t bank); // Bank-switching callback for ISA cards
     char     driver_name[32];
 } display_mode_info_t;
 

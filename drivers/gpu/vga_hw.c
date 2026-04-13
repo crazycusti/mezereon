@@ -319,6 +319,54 @@ void vga_set_mode13(void) {
 #endif
 }
 
+void vga_set_mode3(void) {
+#if CONFIG_ARCH_X86
+    vga_misc_write(0x67);
+    
+    // Sequencer
+    vga_seq_write(0x00, 0x01); // Reset
+    vga_seq_write(0x01, 0x00); // Clock mode
+    vga_seq_write(0x02, 0x03); // Map mask
+    vga_seq_write(0x03, 0x00); // Char map select
+    vga_seq_write(0x04, 0x02); // Memory mode
+    vga_seq_write(0x00, 0x03); // End reset
+
+    // Unlock CRTC 0-7
+    uint8_t cr11 = vga_crtc_read(0x11);
+    vga_crtc_write(0x11, cr11 & 0x7F);
+
+    static const uint8_t crtc3[25] = {
+        0x5F, 0x4F, 0x50, 0x82, 0x55, 0x81, 0xBF, 0x1F,
+        0x00, 0x4F, 0x0D, 0x0E, 0x00, 0x00, 0x00, 0x00,
+        0x9C, 0x8E, 0x8F, 0x28, 0x1F, 0x96, 0xB9, 0xA3, 0xFF
+    };
+    for (uint8_t i = 0; i < 25; i++) vga_crtc_write(i, crtc3[i]);
+
+    // Graphics Controller
+    vga_gc_write(0x00, 0x00);
+    vga_gc_write(0x01, 0x00);
+    vga_gc_write(0x02, 0x00);
+    vga_gc_write(0x03, 0x00);
+    vga_gc_write(0x04, 0x00);
+    vga_gc_write(0x05, 0x10); // Odd/Even
+    vga_gc_write(0x06, 0x0E); // Map to 0xB8000
+    vga_gc_write(0x07, 0x00);
+    vga_gc_write(0x08, 0xFF);
+
+    // Attribute Controller
+    for (uint8_t i = 0; i < 16; i++) vga_attr_write(i, i);
+    vga_attr_write(0x10, 0x04); // Text mode
+    vga_attr_write(0x11, 0x00);
+    vga_attr_write(0x12, 0x0F);
+    vga_attr_write(0x13, 0x00);
+    vga_attr_write(0x14, 0x00);
+    vga_attr_reenable_video();
+
+    vga_dac_reset_text_palette();
+    vga_load_font_8x16();
+#endif
+}
+
 void vga_load_font_8x16(void) {
 #if CONFIG_ARCH_X86
     vga_seq_write(0x00, 0x01);

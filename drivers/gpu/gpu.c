@@ -532,13 +532,15 @@ void gpu_init(const boot_info_t* bootinfo) {
     if (!has_pci_gpu && g_gpu_count < GPU_MAX_DEVICES) {
         gpu_info_t info = {0};
         
-        if (cirrus_isa_detect(&info)) {
-            g_gpu_infos[g_gpu_count++] = info;
-            console_writeln("gpu: Cirrus ISA chip detected.");
-        } 
-        else if (et4000_detect(&info)) {
+        if (et4000_detect(&info)) {
             avga2_classify_info(&info);
             g_gpu_infos[g_gpu_count++] = info;
+            console_write("gpu: detected "); console_writeln(info.name);
+        }
+        else if (avga2_signature_present()) {
+            avga2_classify_info(&info);
+            g_gpu_infos[g_gpu_count++] = info;
+            console_write("gpu: detected "); console_writeln(info.name);
         }
 #if CONFIG_VIDEO_ENABLE_SMOS
         else if (smos_detect(&info)) {
@@ -714,6 +716,11 @@ int gpu_request_framebuffer_mode(uint16_t width, uint16_t height, uint8_t bpp) {
                         break;
                 }
                 et4000_mode_t default_mode = et4k_choose_default_mode(gpu->type == GPU_TYPE_ET4000AX, gpu->framebuffer_size);
+                
+                // For AVGA2 / Cirrus ISA, try 640x480x8 first
+                if (gpu->type == GPU_TYPE_AVGA2 && gpu->framebuffer_size >= 307200) {
+                    tseng_candidate_append(candidates, &candidate_count, 4, ET4000_MODE_640x480x8);
+                }
 
                 tseng_candidate_append(candidates, &candidate_count, 4, config_mode);
                 tseng_candidate_append(candidates, &candidate_count, 4, default_mode);
@@ -841,10 +848,13 @@ void gpu_restore_text_mode(void) {
         cirrus_accel_disable();
     }
 #if CONFIG_VIDEO_ENABLE_ET4000
-    if (g_active_fb_gpu && (g_active_fb_gpu->type == GPU_TYPE_ET4000 ||
-                            g_active_fb_gpu->type == GPU_TYPE_ET4000AX ||
-                            g_active_fb_gpu->type == GPU_TYPE_AVGA2)) {
-        et4000_restore_text_mode();
+    if (g_active_fb_gpu) {
+        if (g_active_fb_gpu->type == GPU_TYPE_ET4000 || g_active_fb_gpu->type == GPU_TYPE_ET4000AX) {
+            et4000_restore_text_mode();
+        } else if (g_active_fb_gpu->type == GPU_TYPE_AVGA2) {
+            avga2_restore_text_mode();
+        }
+        
         g_active_fb_gpu->framebuffer_ptr = NULL;
         g_active_fb_gpu->framebuffer_width = 0;
         g_active_fb_gpu->framebuffer_height = 0;

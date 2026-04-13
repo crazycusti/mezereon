@@ -31,5 +31,6 @@ int cirrus_set_mode_desc(const pci_device_t* dev,
                          const cirrus_mode_desc_t* mode,
                          display_mode_info_t* out_mode,
                          gpu_info_t* gpu);
+void cirrus_set_bank(uint8_t bank);
 
 #endif // DRIVERS_GPU_CIRRUS_H

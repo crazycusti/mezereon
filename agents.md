@@ -6,6 +6,18 @@ Zweck
 
 ## Aktueller Status (2026-04-13)
 
+### **Modularität & Strategie (Unified Driver Model)**
+- **Architektur-Vorgabe:** `GEMINI.md` und `docs/kernel/driver_model.md` erstellt. Fokus: Weg von `if/else`, hin zu `struct device` und Driver-Registries.
+- **Nächster Schritt:** Refactoring der `gpu_init` und `main.c` zur Nutzung einer GPU-Registry.
+
+### **Grafik & GPU (ISA/Cirrus/AVGA2)**
+- **AVGA2-Treiber:** Dedizierter ISA-Treiber für Cirrus Logic CL-GD5402 (Acumos AVGA2) implementiert.
+- **Boot-Support:** Auto-Aktivierung von 640x480 (8bpp/4bpp) in `main.c` für AVGA2 hinzugefügt.
+- **VRAM-Detection:** Liest VRAM-Größe über SR0F aus (256K, 512K, 1M).
+- **Fallback-Logik:** Erkennt automatisch, ob 640x480x8 in den VRAM passt. Falls nicht (bei 256K), erfolgt ein Fallback auf 640x480x16 (Planar) oder 320x200x8.
+- **Shadow Buffer Sync:** Nutzt RAM-Schattenpuffer zur Minimierung von ISA-Bus-Latenzen und zur Vereinfachung des Bankings.
+- **Textmodus-Fix:** Robuste Rückkehr zum Textmodus via Sequencer-Reset, GR06-Remapping (0xB8000) und Attribute-Controller-Flip-Flop-Flush (behebt Freezes nach Grafik-Apps).
+
 ### **Grafik & GPU (Compaq Aero / SMOS SPC8106)**
 - **SMOS SPC8106 Treiber:** Dedizierter Treiber implementiert. Nutzt Register-Unlock (0x1A an Index 0x0E/0x1E an Ports 0x3DE/0x3DF).
 - **Auflösungen:**
