@@ -1,4 +1,5 @@
 #include "../mezapi.h"
+#include "../fonts/font8x16.h"
 #include <stdint.h>
 
 #define LUT_SIZE 256
@@ -102,7 +103,7 @@ static void rotate(vec3_t* v, uint32_t ax, uint32_t ay, uint32_t az) {
     v->x = (int16_t)x; v->y = (int16_t)y; v->z = (int16_t)z;
 }
 
-static void draw_cube(const fb_ctx_t* ctx, uint32_t phase) {
+static void draw_cube(const fb_ctx_t* ctx, uint32_t phase, uint32_t fps, uint32_t msec) {
     vec3_t vertices[8] = {
         {-64,-64,-64}, {64,-64,-64}, {64,64,-64}, {-64,64,-64},
         {-64,-64,64}, {64,-64,64}, {64,64,64}, {-64,64,64}
@@ -118,6 +119,34 @@ static void draw_cube(const fb_ctx_t* ctx, uint32_t phase) {
     else {
         for(int y=0; y<ctx->height; y++) 
             for(int x=0; x<ctx->width; x++) ctx->base[y*ctx->pitch+x] = 16;
+    }
+
+    // Display Benchmark Info
+    char stats[32];
+    int slen = 0;
+    stats[slen++] = 'F'; stats[slen++] = 'P'; stats[slen++] = 'S'; stats[slen++] = ':'; stats[slen++] = ' ';
+    
+    auto void push_dec(uint32_t val) {
+        if (val == 0) { stats[slen++] = '0'; return; }
+        char b[10]; int bi = 0;
+        while(val > 0) { b[bi++] = (char)('0' + (val % 10)); val /= 10; }
+        while(bi > 0) stats[slen++] = b[--bi];
+    };
+
+    push_dec(fps);
+    stats[slen++] = ' '; stats[slen++] = '(';
+    push_dec(msec);
+    stats[slen++] = 'm'; stats[slen++] = 's'; stats[slen++] = ')';
+    stats[slen] = 0;
+
+    for (int i = 0; i < slen; i++) {
+        const uint8_t* glyph = font8x16_get((uint8_t)stats[i]);
+        for (int gy = 0; gy < 16; gy++) {
+            uint8_t bits = glyph[gy];
+            for (int gx = 0; gx < 8; gx++) {
+                if (bits & (0x80 >> gx)) put_pixel(ctx, 8 + i * 8 + gx, 8 + gy, 15);
+            }
+        }
     }
 
     for (int i = 0; i < 8; i++) {
@@ -147,13 +176,25 @@ int rotcube_app_main(const mez_api32_t* api) {
 
     fb_ctx_t ctx = {api, (volatile uint8_t*)(uintptr_t)fb->framebuffer, (int)fb->pitch, fb->width, fb->height};
     uint32_t phase = 0;
+    uint32_t hz = api->time_timer_hz();
+    uint32_t fps = 0, msec = 0;
+
     for (;;) {
         int key = api->input_poll_key ? api->input_poll_key() : -1;
         if (key == 0x11 || key == 0x1b || key == 'q' || key == 'Q') break;
-        draw_cube(&ctx, phase);
+        
+        uint32_t start = api->time_ticks_get();
+        draw_cube(&ctx, phase, fps, msec);
+        uint32_t end = api->time_ticks_get();
+        
+        uint32_t delta = end - start;
+        if (delta == 0) delta = 1;
+        msec = (delta * 1000) / hz;
+        fps = hz / delta;
+
         phase = (phase + 2) & LUT_MASK;
         if (api->video_fb_sync) api->video_fb_sync();
-        if (api->time_sleep_ms) api->time_sleep_ms(10);
+        // if (api->time_sleep_ms) api->time_sleep_ms(10); // Remove sleep for max benchmark speed
     }
     return 0;
 }
