@@ -18,9 +18,34 @@ static void avga2_set_bank(uint8_t bank) {
     vga_gc_write(0x09, (uint8_t)(bank << 4));
 }
 
+static void avga2_unlock(void) {
+    vga_seq_write(0x06, 0x12);
+}
+
+static void avga2_clear_vram(void) {
+    avga2_unlock();
+    for (uint8_t bank = 0; bank < 8; bank++) {
+        avga2_set_bank(bank);
+        volatile uint32_t* vram = (volatile uint32_t*)0xA0000;
+        for (uint32_t i = 0; i < 16384; i++) vram[i] = 0;
+    }
+}
+
 static uint8_t* g_avga2_shadow = NULL;
 static uint16_t g_avga2_w, g_avga2_h;
 static uint8_t  g_avga2_bpp;
+static uint32_t g_avga2_dirty_mask[15]; // 480 lines / 32 bits = 15 uint32_t
+static uint8_t  g_avga2_current_bank = 0xFF;
+
+static void avga2_fb_mark_dirty(void* ctx, uint16_t x, uint16_t y, uint16_t width, uint16_t height) {
+    (void)ctx; (void)x; (void)width;
+    for (uint16_t i = 0; i < height; i++) {
+        uint16_t line = y + i;
+        if (line < 480) {
+            g_avga2_dirty_mask[line >> 5] |= (1u << (line & 31));
+        }
+    }
+}
 
 static void avga2_fb_sync(void* ctx) {
     (void)ctx;
@@ -29,29 +54,47 @@ static void avga2_fb_sync(void* ctx) {
     uint32_t flags = interrupts_save_disable();
     
     if (g_avga2_bpp == 8) {
-        uint32_t total_size = (uint32_t)g_avga2_w * g_avga2_h;
-        uint32_t offset = 0;
-        uint8_t bank = 0;
-        while (offset < total_size) {
-            avga2_set_bank(bank);
-            uint32_t chunk = total_size - offset;
-            if (chunk > 65536) chunk = 65536;
+        // High-speed sync: 32-bit transfers and minimal bank switching
+        for (uint16_t y = 0; y < g_avga2_h; y++) {
+            if (!(g_avga2_dirty_mask[y >> 5] & (1u << (y & 31)))) continue;
+
+            uint32_t line_offset = (uint32_t)y * g_avga2_w;
+            uint8_t bank = (uint8_t)(line_offset >> 16);
+            uint16_t bank_off = (uint16_t)(line_offset & 0xFFFF);
             
-            volatile uint8_t* vram = (volatile uint8_t*)0xA0000;
-            for (uint32_t i = 0; i < chunk; i++) {
-                vram[i] = g_avga2_shadow[offset + i];
+            if (bank != g_avga2_current_bank) {
+                avga2_set_bank(bank);
+                g_avga2_current_bank = bank;
             }
+
+            volatile uint8_t* vram = (volatile uint8_t*)0xA0000;
             
-            offset += chunk;
-            bank++;
+            if (bank_off + g_avga2_w <= 65536) {
+                const uint32_t* src32 = (const uint32_t*)(g_avga2_shadow + line_offset);
+                volatile uint32_t* dst32 = (volatile uint32_t*)(vram + bank_off);
+                for (uint16_t i = 0; i < 160; i++) {
+                    dst32[i] = src32[i];
+                }
+            } else {
+                for (uint16_t i = 0; i < g_avga2_w; i++) {
+                    uint32_t abs_off = line_offset + i;
+                    uint8_t b = (uint8_t)(abs_off >> 16);
+                    if (b != g_avga2_current_bank) {
+                        avga2_set_bank(b);
+                        g_avga2_current_bank = b;
+                    }
+                    vram[abs_off & 0xFFFF] = g_avga2_shadow[abs_off];
+                }
+            }
+            g_avga2_dirty_mask[y >> 5] &= ~(1u << (y & 31));
         }
     } else if (g_avga2_bpp == 4) {
-        // Standard VGA Mode 12h is planar. 
         const uint32_t bytes_per_plane_line = g_avga2_w / 8;
         for (uint8_t plane = 0; plane < 4; plane++) {
             vga_seq_write(0x02, (uint8_t)(1u << plane));
             vga_gc_write(0x04, plane);
             for (uint16_t y = 0; y < g_avga2_h; y++) {
+                if (!(g_avga2_dirty_mask[y >> 5] & (1u << (y & 31)))) continue;
                 const uint8_t* src_line = g_avga2_shadow + (uint32_t)y * g_avga2_w;
                 volatile uint8_t* dst_line = (volatile uint8_t*)0xA0000 + (uint32_t)y * bytes_per_plane_line;
                 for (uint32_t b = 0; b < bytes_per_plane_line; b++) {
@@ -64,6 +107,7 @@ static void avga2_fb_sync(void* ctx) {
                 }
             }
         }
+        for (int i=0; i<15; i++) g_avga2_dirty_mask[i] = 0;
         vga_seq_write(0x02, 0x0F);
         vga_gc_write(0x04, 0x00);
     }
@@ -80,18 +124,15 @@ static int avga2_fb_fill_rect(void* ctx, uint16_t x, uint16_t y, uint16_t width,
                 g_avga2_shadow[(y + i) * g_avga2_w + (x + j)] = color;
         }
     }
+    avga2_fb_mark_dirty(NULL, x, y, width, height);
     return 1;
 }
 
 static const fb_accel_ops_t g_avga2_ops = {
     avga2_fb_fill_rect,
     avga2_fb_sync,
-    NULL
+    avga2_fb_mark_dirty
 };
-
-static void avga2_unlock(void) {
-    vga_seq_write(0x06, 0x12);
-}
 
 int avga2_signature_present(void) {
     const volatile uint8_t* bios = (const volatile uint8_t*)0xC0000;
@@ -140,15 +181,12 @@ int avga2_restore_text_mode(void) {
     fb_accel_reset();
     uint32_t irq_flags = interrupts_save_disable();
     
-    // Disable Cirrus extensions first
     avga2_unlock();
     vga_seq_write(0x07, 0x00); 
     vga_gc_write(0x09, 0x00);
     
-    // Now use standard VGA restoration logic
     vga_set_mode3();
     
-    // Lock Cirrus extensions
     vga_seq_write(0x06, 0x00);
 
     interrupts_restore(irq_flags);
@@ -176,6 +214,7 @@ int avga2_set_mode(gpu_info_t* gpu, display_mode_info_t* out_mode, uint16_t widt
         if (!g_avga2_shadow) return 0;
     }
     for (uint32_t i = 0; i < 640 * 480; i++) g_avga2_shadow[i] = 0;
+    for (int i=0; i<15; i++) g_avga2_dirty_mask[i] = 0xFFFFFFFF;
     
     g_avga2_w = width;
     g_avga2_h = height;
@@ -228,13 +267,14 @@ int avga2_set_mode(gpu_info_t* gpu, display_mode_info_t* out_mode, uint16_t widt
         return 0;
     }
 
+    avga2_clear_vram();
     fb_accel_register(&g_avga2_ops, NULL);
 
     out_mode->kind = DISPLAY_MODE_KIND_FRAMEBUFFER;
     out_mode->width = width;
     out_mode->height = height;
     out_mode->bpp = bpp;
-    out_mode->pitch = width; // Shadow is linear
+    out_mode->pitch = width; 
     out_mode->phys_base = 0xA0000;
     out_mode->framebuffer = g_avga2_shadow;
     out_mode->set_bank = NULL; 

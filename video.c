@@ -15,8 +15,8 @@
 #define VGA_CRTC_INDEX 0x3D4
 #define VGA_CRTC_DATA  0x3D5
 
-#define TEXT_COLS CONFIG_VGA_WIDTH
-#define TEXT_ROWS CONFIG_VGA_HEIGHT
+#define TEXT_COLS 80
+#define TEXT_ROWS 60 // Support up to 60 rows (e.g. 800x600 or 640x480 with smaller font)
 #define CHAR_WIDTH 8
 #define CHAR_HEIGHT 16
 
@@ -173,6 +173,9 @@ static void video_draw_cell_fb(int row, int col, const text_cell_t* cell) {
             }
         }
     }
+    
+    // Notify driver that this character's lines are now dirty
+    fb_accel_mark_dirty(px, py, CHAR_WIDTH, CHAR_HEIGHT);
 }
 
 static void video_cursor_refresh_fb(void) {
@@ -345,6 +348,9 @@ void video_switch_to_framebuffer(const display_mode_info_t* mode) {
     if (g_cols_current > TEXT_COLS) g_cols_current = TEXT_COLS;
     if (g_rows_current > TEXT_ROWS) g_rows_current = TEXT_ROWS;
     video_redraw_range(0, g_rows_current);
+    
+    // Force immediate sync of the initial screen content (Statusbar + existing text)
+    fb_accel_sync();
 }
 
 void video_switch_to_text(void) {

@@ -91,7 +91,7 @@
 
 // Kernel version string
 #ifndef CONFIG_KERNEL_VERSION
-#define CONFIG_KERNEL_VERSION "0.5.0-AeroAcumos"
+#define CONFIG_KERNEL_VERSION "0.5.3-AeroAcumos"
 #endif
 
 // Video behavior

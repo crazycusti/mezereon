@@ -22,6 +22,8 @@
 #include "memory.h"
 #include <stdint.h>
 
+#include "drivers/gpu/fb_accel.h"
+
 static void print_prompt(void) {
     console_write("mez> ");
 }
@@ -78,6 +80,7 @@ void shell_run(void) {
     print_prompt();
 
     for (;;) {
+        fb_accel_sync(); // Sync shadow buffer to hardware
         interrupts_statusbar_poll();
         video_cursor_tick();
         int ch = keyboard_poll_char();
