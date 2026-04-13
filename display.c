@@ -18,6 +18,18 @@ static int framebuffer_reachable(const display_mode_info_t* mode) {
     if (!mode || mode->kind != DISPLAY_MODE_KIND_FRAMEBUFFER) {
         return 0;
     }
+    if (!paging_is_enabled()) {
+        // No paging: assume flat identity mapping (linear == physical).
+        return 1;
+    }
+    if (mode->framebuffer && paging_is_ioremapped_ptr((const void*)mode->framebuffer)) {
+        // Mapped via paging_ioremap(); pointer might numerically equal phys_base (e.g. both 0xE0000000).
+        return 1;
+    }
+    if (mode->framebuffer && (uint32_t)(uintptr_t)mode->framebuffer != mode->phys_base) {
+        // Already mapped into a non-identity virtual address (ioremap-style).
+        return 1;
+    }
     uint32_t limit = paging_identity_limit();
     if (limit == 0) {
         return 0;
@@ -101,7 +113,7 @@ void display_manager_set_framebuffer_candidate(const char* driver_name, const di
     if (g_ctx.state.requested_target == DISPLAY_TARGET_FRAMEBUFFER) {
         should_auto_activate = 1;
     } else if (g_ctx.state.requested_target == DISPLAY_TARGET_AUTO &&
-               g_ctx.state.active_mode.kind == DISPLAY_MODE_KIND_NONE) {
+               !(g_ctx.state.active_features & DISPLAY_FEATURE_FRAMEBUFFER)) {
         should_auto_activate = 1;
     }
 
@@ -150,8 +162,9 @@ static const char* pixel_format_name(display_pixel_format_t fmt) {
 
 void display_manager_log_state(void) {
     const display_state_t* st = &g_ctx.state;
+    const char* dname = st->active_mode.driver_name[0] ? st->active_mode.driver_name : st->active_driver_name;
     console_write("Display: aktiv ");
-    console_write(st->active_driver_name ? st->active_driver_name : "(unbekannt)");
+    console_write(dname ? dname : "(unbekannt)");
     console_write(" | Modus: ");
     if (st->active_mode.kind == DISPLAY_MODE_KIND_TEXT) {
         console_write_dec(st->active_mode.width);

@@ -1,3 +1,0 @@
-#!/usr/bin/env bash
-# Deprecated helper (was expect). Use Makefile targets instead.
-echo "[deprecated] Use: make run-sparc-tftp"

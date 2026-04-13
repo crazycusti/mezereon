@@ -16,6 +16,7 @@ KERNEL_BUFFER_LINEAR := 0x00060000
 STAGE2_FORCE_CHS    ?= 0
 STAGE1_VERBOSE_DEBUG ?= 1
 STAGE2_VERBOSE_DEBUG ?= 1
+STAGE2_E820_DEBUG ?= 0
 STAGE3_VERBOSE_DEBUG ?= 1
 STAGE2_DEBUG ?= 1
 VBE_PREF_WIDTH ?= 640
@@ -81,11 +82,11 @@ stage2.bin: stage2.asm stage3.bin kernel_payload.bin version.h
 	ks=$$(expr \( $$(wc -c < kernel_payload.bin) + 511 \) / 512); \
 	s3start_guess=$$(expr $(STAGE2_START_SECTOR) - 1 + 1); \
 	kstart_guess=$$(expr $$s3start_guess + $$s3s); \
-	$(AS) -f bin -D STAGE2_SECTORS=1 -D STAGE3_SECTORS=$$s3s -D STAGE3_START_SECTOR=$$s3start_guess -D KERNEL_SECTORS=$$ks -D KERNEL_START_SECTOR=$$kstart_guess -D KERNEL_LOAD_LINEAR=$(KERNEL_LOAD_LINEAR) -D KERNEL_BUFFER_LINEAR=$(KERNEL_BUFFER_LINEAR) -D STAGE2_FORCE_CHS=$(STAGE2_FORCE_CHS) -D STAGE2_VERBOSE_DEBUG=$(STAGE2_VERBOSE_DEBUG) -D STAGE2_DEBUG=$(STAGE2_DEBUG) -D ENABLE_BOOTINFO=$(BOOTINFO) -D DEBUG_BOOT=$(DEBUG_BOOT) -D ENABLE_A20_KBC=$(A20_KBC) -D WAIT_BEFORE_PM=$(WAIT_PM) -D DEBUG_PM_STUB=$(DEBUG_PM_STUB) -D VBE_PREF_WIDTH=$(VBE_PREF_WIDTH) -D VBE_PREF_HEIGHT=$(VBE_PREF_HEIGHT) -D VBE_PREF_BPP=$(VBE_PREF_BPP) -D VBE_ENABLE_LFB=$(VBE_ENABLE_LFB) $< -o $@; \
+	$(AS) -f bin -D STAGE2_SECTORS=1 -D STAGE3_SECTORS=$$s3s -D STAGE3_START_SECTOR=$$s3start_guess -D KERNEL_SECTORS=$$ks -D KERNEL_START_SECTOR=$$kstart_guess -D KERNEL_LOAD_LINEAR=$(KERNEL_LOAD_LINEAR) -D KERNEL_BUFFER_LINEAR=$(KERNEL_BUFFER_LINEAR) -D STAGE2_FORCE_CHS=$(STAGE2_FORCE_CHS) -D STAGE2_VERBOSE_DEBUG=$(STAGE2_VERBOSE_DEBUG) -D STAGE2_E820_DEBUG=$(STAGE2_E820_DEBUG) -D STAGE2_DEBUG=$(STAGE2_DEBUG) -D ENABLE_BOOTINFO=$(BOOTINFO) -D DEBUG_BOOT=$(DEBUG_BOOT) -D ENABLE_A20_KBC=$(A20_KBC) -D WAIT_BEFORE_PM=$(WAIT_PM) -D DEBUG_PM_STUB=$(DEBUG_PM_STUB) -D VBE_PREF_WIDTH=$(VBE_PREF_WIDTH) -D VBE_PREF_HEIGHT=$(VBE_PREF_HEIGHT) -D VBE_PREF_BPP=$(VBE_PREF_BPP) -D VBE_ENABLE_LFB=$(VBE_ENABLE_LFB) $< -o $@; \
 	s2s=$$(expr \( $$(wc -c < $@) + 511 \) / 512); \
 	s3start=$$(expr $(STAGE2_START_SECTOR) - 1 + $$s2s); \
 	kstart=$$(expr $$s3start + $$s3s); \
-	$(AS) -f bin -D STAGE2_SECTORS=$$s2s -D STAGE3_SECTORS=$$s3s -D STAGE3_START_SECTOR=$$s3start -D KERNEL_SECTORS=$$ks -D KERNEL_START_SECTOR=$$kstart -D KERNEL_LOAD_LINEAR=$(KERNEL_LOAD_LINEAR) -D KERNEL_BUFFER_LINEAR=$(KERNEL_BUFFER_LINEAR) -D STAGE2_FORCE_CHS=$(STAGE2_FORCE_CHS) -D STAGE2_VERBOSE_DEBUG=$(STAGE2_VERBOSE_DEBUG) -D STAGE2_DEBUG=$(STAGE2_DEBUG) -D ENABLE_BOOTINFO=$(BOOTINFO) -D DEBUG_BOOT=$(DEBUG_BOOT) -D ENABLE_A20_KBC=$(A20_KBC) -D WAIT_BEFORE_PM=$(WAIT_PM) -D DEBUG_PM_STUB=$(DEBUG_PM_STUB) -D VBE_PREF_WIDTH=$(VBE_PREF_WIDTH) -D VBE_PREF_HEIGHT=$(VBE_PREF_HEIGHT) -D VBE_PREF_BPP=$(VBE_PREF_BPP) -D VBE_ENABLE_LFB=$(VBE_ENABLE_LFB) $< -o $@; \
+	$(AS) -f bin -D STAGE2_SECTORS=$$s2s -D STAGE3_SECTORS=$$s3s -D STAGE3_START_SECTOR=$$s3start -D KERNEL_SECTORS=$$ks -D KERNEL_START_SECTOR=$$kstart -D KERNEL_LOAD_LINEAR=$(KERNEL_LOAD_LINEAR) -D KERNEL_BUFFER_LINEAR=$(KERNEL_BUFFER_LINEAR) -D STAGE2_FORCE_CHS=$(STAGE2_FORCE_CHS) -D STAGE2_VERBOSE_DEBUG=$(STAGE2_VERBOSE_DEBUG) -D STAGE2_E820_DEBUG=$(STAGE2_E820_DEBUG) -D STAGE2_DEBUG=$(STAGE2_DEBUG) -D ENABLE_BOOTINFO=$(BOOTINFO) -D DEBUG_BOOT=$(DEBUG_BOOT) -D ENABLE_A20_KBC=$(A20_KBC) -D WAIT_BEFORE_PM=$(WAIT_PM) -D DEBUG_PM_STUB=$(DEBUG_PM_STUB) -D VBE_PREF_WIDTH=$(VBE_PREF_WIDTH) -D VBE_PREF_HEIGHT=$(VBE_PREF_HEIGHT) -D VBE_PREF_BPP=$(VBE_PREF_BPP) -D VBE_ENABLE_LFB=$(VBE_ENABLE_LFB) $< -o $@; \
 	python3 -c 'import pathlib,sys; data=pathlib.Path("stage2.bin").read_bytes(); opcode=b"\x66\xea"; idx=data.find(opcode); sys.exit("Stage2 far-jump opcode not found in stage2.bin") if idx == -1 else None; offset=int.from_bytes(data[idx+2:idx+6],"little"); selector=int.from_bytes(data[idx+6:idx+8],"little"); print(f"[stage2] far-jump @0x{idx:05X}: offset=0x{offset:08X}, selector=0x{selector:04X}"); sys.exit(f"Unexpected selector 0x{selector:04X} in stage2 far-jump") if selector != 0x0008 else None; sys.exit(f"Unexpected far-jump offset 0x{offset:08X}") if offset < 0x00010000 else None'
 
 stage3_entry.o: stage3_entry.asm boot_config.inc
@@ -206,6 +207,9 @@ drivers/gpu/et4000ax.o: drivers/gpu/et4000ax.c drivers/gpu/et4000ax.h drivers/gp
 drivers/gpu/avga2.o: drivers/gpu/avga2.c drivers/gpu/avga2.h drivers/gpu/gpu.h drivers/gpu/vga_hw.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
+drivers/gpu/smos.o: drivers/gpu/smos.c drivers/gpu/smos.h drivers/gpu/gpu.h drivers/gpu/vga_hw.h config.h
+	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
+
 drivers/gpu/vga_hw.o: drivers/gpu/vga_hw.c drivers/gpu/vga_hw.h config.h
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
@@ -233,7 +237,7 @@ cpuidle.o: cpuidle.c cpuidle.h config.h
 runtime.o: runtime.c
 	$(CC) $(CFLAGS) $(CDEFS) -c $< -o $@
 
-kernel_payload.elf: entry32.o kentry.o isr.o idt.o interrupts.o platform.o main.o memory.o paging.o video.o console.o debug_serial.o statusbar.o display.o fonts/font8x16.o $(CONSOLE_BACKEND_OBJ) netface.o net/ipv4.o net/tcp_min.o mezapi.o apps/keymusic_app.o apps/rotcube_app.o apps/fb_patterns.o apps/fbtest_color.o apps/gfx_probe.o apps/gpu_probe.o apps/gpu_dump.o drivers/ne2000.o drivers/pcspeaker.o drivers/sb16.o drivers/pci.o drivers/gpu/gpu.o drivers/gpu/cirrus.o drivers/gpu/cirrus_accel.o drivers/gpu/et4000.o drivers/gpu/et4000ax.o drivers/gpu/avga2.o drivers/gpu/fb_accel.o drivers/gpu/vga_hw.o drivers/ata.o drivers/fs/neelefs.o drivers/storage.o keyboard.o cpu.o cpuidle.o shell.o runtime.o
+kernel_payload.elf: entry32.o kentry.o isr.o idt.o interrupts.o platform.o main.o memory.o paging.o video.o console.o debug_serial.o statusbar.o display.o fonts/font8x16.o $(CONSOLE_BACKEND_OBJ) netface.o net/ipv4.o net/tcp_min.o mezapi.o apps/keymusic_app.o apps/rotcube_app.o apps/fb_patterns.o apps/fbtest_color.o apps/gfx_probe.o apps/gpu_probe.o apps/gpu_dump.o drivers/ne2000.o drivers/pcspeaker.o drivers/sb16.o drivers/pci.o drivers/gpu/gpu.o drivers/gpu/cirrus.o drivers/gpu/cirrus_accel.o drivers/gpu/et4000.o drivers/gpu/et4000ax.o drivers/gpu/avga2.o drivers/gpu/smos.o drivers/gpu/fb_accel.o drivers/gpu/vga_hw.o drivers/ata.o drivers/fs/neelefs.o drivers/storage.o keyboard.o cpu.o cpuidle.o shell.o runtime.o
 	$(LD) $(LDFLAGS) $^ -o $@
 
 # Erzeuge flaches Binary ohne führende 0x8000-Lücke
@@ -290,14 +294,29 @@ run-x86-hdd-ne2k: disk.img
 .PHONY: test-x86-ne2k
 test-x86-ne2k: disk.img
 	@echo "[TEST] Starting headless QEMU (NE2000 @ $(CONFIG_NE2000_IO), IRQ $(CONFIG_NE2000_IRQ)) for 6s..."
-	@timeout 6 $(shell command -v qemu-system-i386 2>/dev/null || echo qemu-system-i386) \
+	@set -euo pipefail; \
+	st=0; \
+	timeout 6 $(shell command -v qemu-system-i386 2>/dev/null || echo qemu-system-i386) \
+		-no-reboot \
 		-drive file=disk.img,format=raw,if=ide \
 		-device ne2k_isa,netdev=n0,iobase=$(CONFIG_NE2000_IO),irq=$(CONFIG_NE2000_IRQ) \
-		-netdev user,id=n0 -display none -monitor none -serial none || true
-	@echo "[TEST] Done (timeout or normal exit)."
+		-netdev user,id=n0 -display none -monitor none -serial none || st=$$?; \
+	if [ $$st -eq 0 ]; then \
+		echo "[TEST] QEMU exited early (status $$st): possible reboot/triple-fault."; \
+		exit 1; \
+	fi; \
+	if [ $$st -ne 124 ] && [ $$st -ne 137 ]; then \
+		echo "[TEST] QEMU failed (status $$st)."; \
+		exit $$st; \
+	fi; \
+	echo "[TEST] Done (timeout)."
 
 .PHONY: test
 test: test-x86-ne2k
+
+.PHONY: mem-sweep-x86
+mem-sweep-x86: disk.img
+	@TIMEOUT_SECS=$${TIMEOUT_SECS:-6} tools/mem_sweep_x86.sh
 
 
 # --- Help target ---
@@ -312,6 +331,7 @@ help:
 	@echo "  make run-x86-fb       Run QEMU graphics (-vga std, -display $(QEMU_FB_DISPLAY))"
 	@echo "  make run-x86-hdd-ne2k Run QEMU (curses terminal) IDE + NE2000 ISA (usernet)"
 	@echo "  make test-x86-ne2k    Headless smoke test (6s, no TTY required)"
+	@echo "  make mem-sweep-x86    Sweep -m sizes (headless, table output)"
 	@echo ""
 	@echo "SPARC (OpenBIOS/SS-5):"
 	@echo "  make sparc-boot       Build SPARC client (boot.elf/aout/bin)"
@@ -329,7 +349,7 @@ help:
 	@echo "  CONFIG_NE2000_IO=0x300 CONFIG_NE2000_IRQ=3"
 	@echo "  SPARC_CC (cross GCC), SPARC_OBJCOPY (cross objcopy)"
 	@echo ""
-	@echo "See README.md for details."
+	@echo "See readme.md for details."
 
 
 clean:
@@ -350,7 +370,7 @@ clean:
 .PHONY: distclean
 distclean: clean
 	@echo "[CLEAN] Removing untracked build products (except VCS/metadata)"
-	@git clean -fdx -e .git -e .gitignore -e .gitattributes -e license -e README.txt -e README.md -e CHANGELOG || true
+	@git clean -fdx -e .git -e .gitignore -e .gitattributes -e license -e README.txt -e readme.md -e CHANGELOG || true
 
 # --- Simple changelog appender: make log MSG="changed X"
 .PHONY: log

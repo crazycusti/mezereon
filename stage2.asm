@@ -9,6 +9,10 @@ ORG 0
 %define STAGE2_DEBUG 0
 %endif
 
+%ifndef STAGE2_E820_DEBUG
+%define STAGE2_E820_DEBUG 0
+%endif
+
 %ifndef ENABLE_A20_KBC
 %define ENABLE_A20_KBC 1
 %endif
@@ -60,6 +64,9 @@ start:
     xor ax, ax
     mov ss, ax
     mov sp, 0x7C00
+    ; SeaBIOS uses 32-bit stack addressing internally (ESP). Make sure the high
+    ; half of ESP is known-zero in real mode, otherwise INT 15h (E820) may fail.
+    mov esp, 0x00007C00
     mov ax, cs
     mov ds, ax
     mov es, ax
@@ -95,6 +102,9 @@ start:
 %endif
     call query_geometry
 
+    ; Collect BIOS memory map early, before loading big payloads into low memory.
+    call collect_e820
+
     mov dword [current_lba], STAGE3_START_SECTOR
     mov word [remaining_sectors], STAGE3_SECTORS
     mov dword [buffer_linear], STAGE3_LINEAR_ADDR
@@ -113,10 +123,29 @@ load_complete:
     call debug_print_str
 %endif
 
-    call collect_e820
     call populate_stage3_params
 
     ; --- Probe current BIOS video mode (INT 10h AH=0x0F) and locate a usable VBE LFB mode
+    ; Clear bootinfo scratch area first to avoid stale data
+    push ax
+    push cx
+    push di
+    push es
+    mov ax, BOOTINFO_SEGMENT
+    mov es, ax
+    mov di, BOOTINFO_OFFSET
+    mov cx, BOOTINFO_CLEAR_WORDS
+    xor ax, ax
+    rep stosw
+    pop es
+    pop di
+    pop cx
+    pop ax
+
+    ; Record BIOS memory sizing fallbacks into the bootinfo scratch area.
+    ; Stage3 snapshots these fields before rebuilding the C boot_info_t struct.
+    call record_bios_meminfo
+
     push ax
     push bx
     push cx
@@ -133,9 +162,7 @@ load_complete:
     mov [es:di], al
     mov [es:di+1], ah
 
-    ; temporarily skip VBE probing (debug fallback)
-    jmp .vbe_skip
-.vbe_skip:
+    call vbe_probe_and_record
     pop bp
     pop dx
     pop cx
@@ -143,6 +170,47 @@ load_complete:
     pop ax
 
     call preload_kernel_if_needed
+
+    ; --- Serial Boot Prompt ---
+    mov si, msg_serial_prompt
+    call debug_print_str
+    
+    ; Wait ~2 seconds for 's' or 'S'
+    mov cx, 20          ; 20 * 100ms
+.wait_s:
+    mov ah, 0x01
+    int 0x16            ; Check for key
+    jnz .check_key
+    
+    ; Delay ~100ms
+    push cx
+    mov ax, 0x8600
+    mov cx, 0x0001
+    mov dx, 0x86A0      ; 100,000 microseconds
+    int 0x15
+    pop cx
+    loop .wait_s
+    jmp .no_serial
+
+.check_key:
+    mov ah, 0x00
+    int 0x16            ; Get key
+    or al, 0x20         ; Lowercase
+    cmp al, 's'
+    jne .wait_s
+    
+    ; Serial boot selected
+    mov si, msg_serial_sel
+    call debug_print_str
+    ; Set FLAG_SERIAL_BOOT (defined in boot_shared.inc)
+    or dword [stage3_params + STAGE3_PARAM_FLAGS], STAGE3_FLAG_SERIAL_BOOT
+    jmp .finish_s2
+
+.no_serial:
+    mov si, msg_serial_none
+    call debug_print_str
+
+.finish_s2:
 
 %if STAGE2_VERBOSE_DEBUG
     mov si, msg_params_drive
@@ -341,8 +409,260 @@ fatal_halt:
     jmp fatal_halt
 
 ; -----------------------------------------------------------------------------
+; VBE probe (stay in text mode, record preferred LFB if available)
+; -----------------------------------------------------------------------------
+vbe_probe_and_record:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push ds
+    push es
+
+    ; reset selection state
+    xor ax, ax
+    mov [vesa_selected_mode], ax
+    mov [vesa_selected_pitch], ax
+    mov [vesa_selected_width], ax
+    mov [vesa_selected_height], ax
+    mov [vesa_selected_fb_lo], ax
+    mov [vesa_selected_fb_hi], ax
+    mov byte [vesa_selected_bpp], 0
+    mov byte [vesa_match_level], 0
+
+    mov ax, cs
+    mov ds, ax
+    mov es, ax
+    lea di, [vbe_info_block]
+    mov ax, 0x4F00
+    int 0x10
+    cmp ax, 0x004F
+    jne .done
+    cmp dword [vbe_info_block], 0x41534556        ; 'VESA'
+    jne .done
+
+    ; store reported VRAM size (TotalMemory in 64 KiB blocks) → bytes
+    mov ax, BOOTINFO_SEGMENT
+    mov es, ax
+    mov di, BOOTINFO_OFFSET
+    add di, BOOTINFO_VBE_MEM_BYTES
+    mov ax, [vbe_info_block + 0x12]
+    xor dx, dx
+    mov dx, ax           ; low word zero, high word = blocks * 64 KiB
+    xor ax, ax
+    mov [es:di], ax
+    mov [es:di + 2], dx
+
+    ; iterate mode list
+    mov bx, [cs:vbe_info_block + 0x0E]    ; mode list offset
+    mov cx, [cs:vbe_info_block + 0x10]    ; mode list segment
+    cmp bx, 0
+    je .done
+    mov ds, cx
+    mov si, bx
+.mode_loop:
+    lodsw
+    mov dx, ax           ; dx = mode
+    cmp dx, 0xFFFF
+    je .modes_done
+    push si
+
+    mov cx, dx           ; CX = mode for 4F01
+    mov ax, cs
+    mov es, ax
+    lea di, [cs:vbe_mode_info]
+    mov ax, 0x4F01
+    int 0x10
+    cmp ax, 0x004F
+    jne .mode_next
+
+    mov ax, cs
+    mov es, ax
+    mov bx, [es:vbe_mode_info]         ; mode attributes
+    test bx, 1                         ; supported
+    jz .mode_next
+    test bx, 0x0080                    ; linear framebuffer available
+    jz .mode_next
+%if VBE_ENABLE_LFB
+%else
+    jmp .mode_next
+%endif
+    mov al, [es:vbe_mode_info + 0x19]  ; bpp
+    cmp al, 0
+    je .mode_next
+    mov bp, [es:vbe_mode_info + 0x10]  ; pitch (bytes/line)
+    mov si, [es:vbe_mode_info + 0x12]  ; width
+    mov di, [es:vbe_mode_info + 0x14]  ; height
+    mov bx, [es:vbe_mode_info + 0x28]  ; fb base low
+    mov cx, [es:vbe_mode_info + 0x2A]  ; fb base high
+    cmp bx, 0
+    jne .fb_ok
+    cmp cx, 0
+    je .mode_next
+.fb_ok:
+    xor ah, ah
+    cmp al, VBE_PREF_BPP
+    jne .chk_width
+    add ah, 2
+.chk_width:
+    cmp si, VBE_PREF_WIDTH
+    jne .chk_height
+    inc ah
+.chk_height:
+    cmp di, VBE_PREF_HEIGHT
+    jne .after_score
+    inc ah
+.after_score:
+    cmp al, 8
+    jne .score_ready
+    inc ah
+.score_ready:
+    cmp ah, [cs:vesa_match_level]
+    jbe .mode_next
+
+    mov [cs:vesa_match_level], ah
+    mov [cs:vesa_selected_mode], dx
+    mov [cs:vesa_selected_pitch], bp
+    mov [cs:vesa_selected_width], si
+    mov [cs:vesa_selected_height], di
+    mov [cs:vesa_selected_fb_lo], bx
+    mov [cs:vesa_selected_fb_hi], cx
+    mov [cs:vesa_selected_bpp], al
+
+.mode_next:
+    pop si
+    jmp .mode_loop
+
+.modes_done:
+    ; write selected mode into bootinfo if any
+    cmp byte [cs:vesa_match_level], 0
+    je .done
+    mov ax, BOOTINFO_SEGMENT
+    mov es, ax
+    mov di, BOOTINFO_OFFSET
+    mov ax, [cs:vesa_selected_mode]
+    mov [es:di + BOOTINFO_VBE_MODE], ax
+    mov ax, [cs:vesa_selected_pitch]
+    mov [es:di + BOOTINFO_VBE_PITCH], ax
+    mov ax, [cs:vesa_selected_width]
+    mov [es:di + BOOTINFO_VBE_WIDTH], ax
+    mov ax, [cs:vesa_selected_height]
+    mov [es:di + BOOTINFO_VBE_HEIGHT], ax
+    mov al, [cs:vesa_selected_bpp]
+    mov [es:di + BOOTINFO_VBE_BPP], al
+    mov ax, [cs:vesa_selected_fb_lo]
+    mov [es:di + BOOTINFO_FB_ADDR], ax
+    mov ax, [cs:vesa_selected_fb_hi]
+    mov [es:di + BOOTINFO_FB_ADDR + 2], ax
+
+.done:
+    pop es
+    pop ds
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; Helpers and BIOS interaction
 ; -----------------------------------------------------------------------------
+
+; Record conventional + extended memory sizing info (fallback for broken/absent E820).
+; Writes to bootinfo scratch (ES:BOOTINFO_OFFSET + BOOTINFO_BIOS_*).
+record_bios_meminfo:
+    push ax
+    push bx
+    push cx
+    push dx
+    push bp
+    push si
+    push di
+    push ds
+    push es
+
+    mov ax, BOOTINFO_SEGMENT
+    mov es, ax
+    mov di, BOOTINFO_OFFSET
+
+    ; flags=0
+    mov word [es:di + BOOTINFO_BIOS_MEM_FLAGS], 0
+    ; ext_kb=0 (dword)
+    mov word [es:di + BOOTINFO_BIOS_EXT_KB], 0
+    mov word [es:di + BOOTINFO_BIOS_EXT_KB + 2], 0
+
+    ; Conventional memory in KiB (INT 12h)
+    int 0x12
+    mov [es:di + BOOTINFO_BIOS_CONV_KB], ax
+    mov ax, [es:di + BOOTINFO_BIOS_MEM_FLAGS]
+    or ax, 0x0001
+    mov [es:di + BOOTINFO_BIOS_MEM_FLAGS], ax
+
+    ; Try INT 15h AX=E801 (preferred)
+    push ds
+    xor ax, ax
+    mov ds, ax
+    mov ax, 0xE801
+    int 0x15
+    pop ds
+    jc .try_88
+
+    ; Some BIOSes return values in CX/DX instead of AX/BX.
+    mov si, ax          ; below-16MiB KiB
+    mov bp, bx          ; above-16MiB blocks (64KiB)
+    cmp si, 0
+    jne .have_e801
+    cmp bp, 0
+    jne .have_e801
+    mov si, cx          ; use CX
+    mov bp, dx          ; use DX
+.have_e801:
+    ; ext_kb = below16_kb + above16_blocks * 64
+    mov ax, bp
+    mov bx, 64
+    mul bx              ; DX:AX = CX * 64
+    add ax, si
+    adc dx, 0
+    mov [es:di + BOOTINFO_BIOS_EXT_KB], ax
+    mov [es:di + BOOTINFO_BIOS_EXT_KB + 2], dx
+    mov ax, [es:di + BOOTINFO_BIOS_MEM_FLAGS]
+    or ax, 0x0002
+    mov [es:di + BOOTINFO_BIOS_MEM_FLAGS], ax
+    jmp .done
+
+.try_88:
+    ; INT 15h AH=88h: extended memory size in KiB above 1MiB (often capped at 64MiB)
+    push ds
+    xor ax, ax
+    mov ds, ax
+    mov ah, 0x88
+    int 0x15
+    pop ds
+    jc .done
+    xor dx, dx
+    mov [es:di + BOOTINFO_BIOS_EXT_KB], ax
+    mov [es:di + BOOTINFO_BIOS_EXT_KB + 2], dx
+    mov ax, [es:di + BOOTINFO_BIOS_MEM_FLAGS]
+    or ax, 0x0004
+    mov [es:di + BOOTINFO_BIOS_MEM_FLAGS], ax
+
+.done:
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop bp
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
 
 ; Output AL as character via BIOS teletype
 debug_char:
@@ -403,6 +723,52 @@ dbg_e9:
     out dx, al
     pop dx
     pop ax
+    ret
+
+; Hex printing via dbg_e9 (0xE9), useful for early headless debugging.
+; Expect nibble in AL.
+dbg_e9_hex_digit:
+    push ax
+    push bx
+    xor bh, bh
+    mov bl, al
+    and bl, 0x0F
+    mov al, [hex_digits + bx]
+    call dbg_e9
+    pop bx
+    pop ax
+    ret
+
+; Expect value in AL.
+dbg_e9_hex8:
+    push ax
+    mov ah, al
+    shr al, 4
+    call dbg_e9_hex_digit
+    mov al, ah
+    and al, 0x0F
+    call dbg_e9_hex_digit
+    pop ax
+    ret
+
+; Expect value in AX.
+dbg_e9_hex16:
+    push ax
+    mov al, ah
+    call dbg_e9_hex8
+    pop ax
+    call dbg_e9_hex8
+    ret
+
+; Expect value in DX:AX (DX high word, AX low word).
+dbg_e9_hex32:
+    push ax
+    push dx
+    mov ax, dx
+    call dbg_e9_hex16
+    pop dx
+    pop ax
+    call dbg_e9_hex16
     ret
 
 ; Expect value in AX
@@ -581,39 +947,353 @@ query_geometry:
 ; Collect E820 memory map entries while still in real mode
 collect_e820:
     pushad
+    push ds
     push es
     mov ax, cs
+    mov ds, ax
     mov es, ax
     mov di, e820_entries
     mov word [e820_entry_count], 0
+%if STAGE2_E820_DEBUG
+    mov al, 'E'
+    call dbg_e9
+%endif
+
+    ; First try: request 24-byte entries (ACPI 3.0+)
     xor ebx, ebx
-    mov edx, 0x534D4150
-.loop:
+.loop24:
+    cmp word [e820_entry_count], E820_MAX_ENTRIES
+    jae .done24
+%if STAGE2_E820_DEBUG
+    cmp word [e820_entry_count], 0
+    jne .dbg24_pre_done
+    mov al, '4'
+    call dbg_e9
+    mov al, 'p'
+    call dbg_e9
+    mov ax, cs
+    call dbg_e9_hex16
+    mov al, ':'
+    call dbg_e9
+    mov ax, di
+    call dbg_e9_hex16
+    ; Dump IVT entry for INT 15h (0x15*4=0x54): seg:off
+    mov al, 'v'
+    call dbg_e9
+    push bx
+    push ds
+    xor ax, ax
+    mov ds, ax
+    mov bx, [0x0054]
+    mov ax, [0x0056]
+    pop ds
+    call dbg_e9_hex16
+    mov al, ':'
+    call dbg_e9
+    mov ax, bx
+    call dbg_e9_hex16
+    pop bx
+.dbg24_pre_done:
+%endif
     mov eax, 0x0000E820
     mov edx, 0x534D4150
     mov ecx, 24
+    ; ES:DI is the output buffer. Set ES without clobbering EAX.
+    push cs
+    pop es
+    ; Some BIOSes require the ext-attr dword to be nonzero when requesting 24 bytes.
+    mov dword [es:di + 20], 1
+    movzx edi, di       ; Some BIOSes read EDI, not just DI
+%if STAGE2_E820_DEBUG
+    cmp word [e820_entry_count], 0
+    jne .dbg24_in_done
+    mov al, 'i'
+    call dbg_e9
+    mov al, 'A'
+    call dbg_e9
+    mov [tmp_dword], eax
+    mov ax, [tmp_dword]
+    mov dx, [tmp_dword + 2]
+    call dbg_e9_hex32
+    mov al, 'D'
+    call dbg_e9
+    mov [tmp_dword], edx
+    mov ax, [tmp_dword]
+    mov dx, [tmp_dword + 2]
+    call dbg_e9_hex32
+    mov al, 'B'
+    call dbg_e9
+    mov [tmp_dword], ebx
+    mov ax, [tmp_dword]
+    mov dx, [tmp_dword + 2]
+    call dbg_e9_hex32
+    mov al, 'L'
+    call dbg_e9
+    mov [tmp_dword], ecx
+    mov ax, [tmp_dword]
+    mov dx, [tmp_dword + 2]
+    call dbg_e9_hex32
+
+    ; Reload volatile inputs after debug printing (loads clobber AX/DX).
+    mov eax, 0x0000E820
+    mov edx, 0x534D4150
+    mov ecx, 24
+    push cs
+    pop es
+    mov dword [es:di + 20], 1
     movzx edi, di
+.dbg24_in_done:
+%endif
+    push di
+    push ds
+    xor si, si          ; Some BIOS routines expect DS=0 (BDA).
+    mov ds, si
     int 0x15
-    jc .done
+    pop ds
+    pop di
+    ; BIOS calls may clobber ES (and sometimes DS). Restore without touching EAX.
+    push cs
+    pop ds
+    push cs
+    pop es
+    jc .fail24_cf
     cmp eax, 0x534D4150
+    jne .fail24_sig
+    cmp ecx, 20
+    jb .fail24_len
+%if STAGE2_E820_DEBUG
+    cmp word [e820_entry_count], 0
+    jne .dbg24_post_done
+    mov al, 'c'
+    call dbg_e9
+    mov al, 'A'
+    call dbg_e9
+    mov [tmp_dword], eax
+    mov ax, [tmp_dword]
+    mov dx, [tmp_dword + 2]
+    call dbg_e9_hex32
+    mov al, 'B'
+    call dbg_e9
+    mov [tmp_dword], ebx
+    mov ax, [tmp_dword]
+    mov dx, [tmp_dword + 2]
+    call dbg_e9_hex32
+    mov al, 'L'
+    call dbg_e9
+    mov [tmp_dword], ecx
+    mov ax, [tmp_dword]
+    mov dx, [tmp_dword + 2]
+    call dbg_e9_hex32
+.dbg24_post_done:
+%endif
+    ; If BIOS returned only 20 bytes, clear attr for this entry.
+    cmp ecx, 24
+    jae .have_attr24
+    mov dword [es:di + 20], 0
+.have_attr24:
+    inc word [e820_entry_count]
+    add di, 24
+    test ebx, ebx
+    jne .loop24
+    jmp .done24
+.fail24_cf:
+%if STAGE2_E820_DEBUG
+    cmp word [e820_entry_count], 0
+    jne .done24
+    mov al, 'C'
+    call dbg_e9
+    mov al, 'A'
+    call dbg_e9
+    mov [tmp_dword], eax
+    mov ax, [tmp_dword]
+    mov dx, [tmp_dword + 2]
+    call dbg_e9_hex32
+    mov al, 'B'
+    call dbg_e9
+    mov [tmp_dword], ebx
+    mov ax, [tmp_dword]
+    mov dx, [tmp_dword + 2]
+    call dbg_e9_hex32
+    mov al, 'L'
+    call dbg_e9
+    mov [tmp_dword], ecx
+    mov ax, [tmp_dword]
+    mov dx, [tmp_dword + 2]
+    call dbg_e9_hex32
+%endif
+    jmp .done24
+.fail24_sig:
+%if STAGE2_E820_DEBUG
+    cmp word [e820_entry_count], 0
+    jne .done24
+    mov al, 'S'
+    call dbg_e9
+    mov al, 'A'
+    call dbg_e9
+    mov [tmp_dword], eax
+    mov ax, [tmp_dword]
+    mov dx, [tmp_dword + 2]
+    call dbg_e9_hex32
+%endif
+    jmp .done24
+.fail24_len:
+%if STAGE2_E820_DEBUG
+    cmp word [e820_entry_count], 0
+    jne .done24
+    mov al, 'L'
+    call dbg_e9
+    mov al, 'l'
+    call dbg_e9
+    mov [tmp_dword], ecx
+    mov ax, [tmp_dword]
+    mov dx, [tmp_dword + 2]
+    call dbg_e9_hex32
+%endif
+    jmp .done24
+.done24:
+    cmp word [e820_entry_count], 0
     jne .done
+
+    ; Fallback: retry with 20-byte entries (older BIOSes).
+    mov di, e820_entries
+    mov word [e820_entry_count], 0
+    xor ebx, ebx
+.loop20:
     cmp word [e820_entry_count], E820_MAX_ENTRIES
     jae .done
-    inc word [e820_entry_count]
-    mov ax, cx
-    cmp ax, 20
-    jae .size_ok
-    mov ax, 24
-.size_ok:
-    cmp ax, 24
-    jbe .size_use
-    mov ax, 24
-.size_use:
-    add di, ax
-    cmp ebx, 0
-    jne .loop
-.done:
+%if STAGE2_E820_DEBUG
+    cmp word [e820_entry_count], 0
+    jne .dbg20_pre_done
+    mov al, '2'
+    call dbg_e9
+    mov al, 'p'
+    call dbg_e9
+    mov ax, cs
+    call dbg_e9_hex16
+    mov al, ':'
+    call dbg_e9
+    mov ax, di
+    call dbg_e9_hex16
+.dbg20_pre_done:
+%endif
+    mov eax, 0x0000E820
+    mov edx, 0x534D4150
+    mov ecx, 20
+    push cs
     pop es
+    ; Keep our in-memory format 24 bytes/entry; attr=0 for 20-byte returns.
+    mov dword [es:di + 20], 0
+    movzx edi, di
+    push di
+    push ds
+    xor si, si
+    mov ds, si
+    int 0x15
+    pop ds
+    pop di
+    push cs
+    pop ds
+    push cs
+    pop es
+    jc .fail20_cf
+    cmp eax, 0x534D4150
+    jne .fail20_sig
+    cmp ecx, 20
+    jb .fail20_len
+%if STAGE2_E820_DEBUG
+    cmp word [e820_entry_count], 0
+    jne .dbg20_post_done
+    mov al, 'c'
+    call dbg_e9
+    mov al, 'A'
+    call dbg_e9
+    mov [tmp_dword], eax
+    mov ax, [tmp_dword]
+    mov dx, [tmp_dword + 2]
+    call dbg_e9_hex32
+    mov al, 'B'
+    call dbg_e9
+    mov [tmp_dword], ebx
+    mov ax, [tmp_dword]
+    mov dx, [tmp_dword + 2]
+    call dbg_e9_hex32
+    mov al, 'L'
+    call dbg_e9
+    mov [tmp_dword], ecx
+    mov ax, [tmp_dword]
+    mov dx, [tmp_dword + 2]
+    call dbg_e9_hex32
+.dbg20_post_done:
+%endif
+    inc word [e820_entry_count]
+    add di, 24
+    test ebx, ebx
+    jne .loop20
+    jmp .done
+.fail20_cf:
+%if STAGE2_E820_DEBUG
+    cmp word [e820_entry_count], 0
+    jne .done
+    mov al, 'C'
+    call dbg_e9
+    mov al, 'A'
+    call dbg_e9
+    mov [tmp_dword], eax
+    mov ax, [tmp_dword]
+    mov dx, [tmp_dword + 2]
+    call dbg_e9_hex32
+    mov al, 'B'
+    call dbg_e9
+    mov [tmp_dword], ebx
+    mov ax, [tmp_dword]
+    mov dx, [tmp_dword + 2]
+    call dbg_e9_hex32
+    mov al, 'L'
+    call dbg_e9
+    mov [tmp_dword], ecx
+    mov ax, [tmp_dword]
+    mov dx, [tmp_dword + 2]
+    call dbg_e9_hex32
+%endif
+    jmp .done
+.fail20_sig:
+%if STAGE2_E820_DEBUG
+    cmp word [e820_entry_count], 0
+    jne .done
+    mov al, 'S'
+    call dbg_e9
+    mov al, 'A'
+    call dbg_e9
+    mov [tmp_dword], eax
+    mov ax, [tmp_dword]
+    mov dx, [tmp_dword + 2]
+    call dbg_e9_hex32
+%endif
+    jmp .done
+.fail20_len:
+%if STAGE2_E820_DEBUG
+    cmp word [e820_entry_count], 0
+    jne .done
+    mov al, 'L'
+    call dbg_e9
+    mov al, 'l'
+    call dbg_e9
+    mov [tmp_dword], ecx
+    mov ax, [tmp_dword]
+    mov dx, [tmp_dword + 2]
+    call dbg_e9_hex32
+%endif
+    jmp .done
+
+.done:
+%if STAGE2_E820_DEBUG
+    mov al, 'n'
+    call dbg_e9
+    mov ax, [e820_entry_count]
+    call dbg_e9_hex16
+%endif
+    pop es
+    pop ds
     popad
 %if STAGE2_VERBOSE_DEBUG
     mov si, msg_e820_prefix
@@ -1353,6 +2033,9 @@ load_gdt:
 ; -----------------------------------------------------------------------------
 
 msg_s2_start:        db 'S2 INIT: drive=0x',0
+msg_serial_prompt:   db 13,10,'Press [S] for Serial Loader (2s)...',0
+msg_serial_sel:      db ' [SERIAL MODE]',13,10,0
+msg_serial_none:     db ' [FLOPPY MODE]',13,10,0
 msg_use_lba:         db 'use_lba=0x',0
 hex_digits:          db '0123456789ABCDEF'
 msg_load_loop:       db 'Loading stage3 chunk, remaining=',0
@@ -1404,6 +2087,12 @@ msg_far_off:         db ' off=0x',0
 msg_far_lin:         db ' lin=0x',0
 msg_newline:         db 0x0D,0x0A,0
 
+; Buffers for VBE controller/mode info
+align 4
+vbe_info_block:  times 512 db 0
+align 4
+vbe_mode_info:   times 256 db 0
+
 ; VBE selection state
 align 2
 vesa_selected_mode:   dw 0
@@ -1439,7 +2128,7 @@ chs_reg_ch:           db 0
 chs_reg_cl:           db 0
 chs_reg_dh:           db 0
 e820_entry_count:     dw 0
-align 4
+align 16
 e820_entries:         times E820_MAX_ENTRIES * 24 db 0
 stage3_params:        times STAGE3_PARAM_SIZE db 0
 stage3_params_ptr:    dd 0

@@ -4,7 +4,8 @@
 // Initialize CPU idle handling
 void cpuidle_init(void);
 
-// Enter low-power idle until the next interrupt (x86: HLT). Increments wakeup counter when resumed.
+// Enter CPU idle (x86: HLT when interrupts are enabled; otherwise a non-blocking PAUSE).
+// Increments wakeup counter on each call.
 void cpuidle_idle(void);
 
 // Get accumulated wakeup count since init

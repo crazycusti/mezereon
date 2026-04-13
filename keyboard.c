@@ -1,6 +1,8 @@
 #include "keyboard.h"
+#include "config.h"
 #include "arch/x86/io.h"
 #include "console.h"
+#include "debug_serial.h"
 #include <stdint.h>
 
 #define KBD_STATUS 0x64
@@ -15,6 +17,8 @@ static bool ext  = false;
 static volatile uint8_t qbuf[KBD_QSIZE];
 static volatile uint8_t qhead = 0, qtail = 0;
 static volatile int kbd_irq_mode = 0;
+static uint8_t kbd_cmd_byte = 0;
+static int kbd_aux_enabled = 0;
 
 #define KBD_DBG_SIZE 64
 static volatile uint8_t dbg_buf[KBD_DBG_SIZE];
@@ -31,6 +35,10 @@ static void kbd_log(uint8_t sc) {
     dbg_buf[dbg_head] = sc;
     dbg_head = (uint8_t)((dbg_head + 1u) % KBD_DBG_SIZE);
     if (dbg_count < KBD_DBG_SIZE) dbg_count++;
+}
+
+static int kbd_aux_disabled(void) {
+    return (!kbd_aux_enabled) || ((kbd_cmd_byte & 0x20u) != 0);
 }
 
 void keyboard_isr_byte(uint8_t sc) {
@@ -65,6 +73,153 @@ static const char keymap_shift[128] = {
 
 static void keyboard_status_refresh(void);
 
+static int kbd_wait_input_clear(uint32_t loops) {
+    while (loops--) {
+        if ((inb(KBD_STATUS) & 0x02u) == 0) {
+            return 1;
+        }
+        io_delay();
+    }
+    return 0;
+}
+
+static int kbd_wait_output_full(uint32_t loops) {
+    while (loops--) {
+        if (inb(KBD_STATUS) & 0x01u) {
+            return 1;
+        }
+        io_delay();
+    }
+    return 0;
+}
+
+static void kbd_drain_output(void) {
+    for (int guard = 0; guard < 64; guard++) {
+        if ((inb(KBD_STATUS) & 0x01u) == 0) {
+            break;
+        }
+        (void)inb(KBD_DATA);
+    }
+}
+
+static int kbd_write_cmd(uint8_t cmd) {
+    if (!kbd_wait_input_clear(65535)) {
+        return 0;
+    }
+    outb(KBD_STATUS, cmd);
+    return 1;
+}
+
+static int kbd_write_data(uint8_t val) {
+    if (!kbd_wait_input_clear(65535)) {
+        return 0;
+    }
+    outb(KBD_DATA, val);
+    return 1;
+}
+
+static int kbd_read_data(uint8_t* out) {
+    if (!kbd_wait_output_full(65535)) {
+        return 0;
+    }
+    *out = inb(KBD_DATA);
+    return 1;
+}
+
+static int kbd_send_and_ack(uint8_t cmd) {
+    for (int attempt = 0; attempt < 2; attempt++) {
+        if (!kbd_write_data(cmd)) {
+            return 0;
+        }
+        for (int i = 0; i < 32; i++) {
+            uint8_t resp = 0;
+            if (!kbd_read_data(&resp)) {
+                continue;
+            }
+            if (resp == 0xFA) {
+                return 1; // ACK
+            }
+            if (resp == 0xFE) {
+                break; // resend
+            }
+            if (resp == 0xAA) {
+                continue; // BAT
+            }
+        }
+    }
+    return 0;
+}
+
+static void kbd_log_cmd_byte(const char* label, uint8_t val) {
+    console_write(label);
+    console_write_hex16((uint16_t)val);
+    console_write("\n");
+}
+
+#if CONFIG_KBD_PROBE || CONFIG_KBD_DEBUG_DUMP
+static int g_kbd_probe_active = 0;
+#endif
+static void kbd_probe_run(void) {
+#if CONFIG_KBD_PROBE
+    console_writeln("kbd: probe start (press keys now)");
+    g_kbd_probe_active = 1;
+    int lines = 0;
+    for (int i = 0; i < 400; i++) {
+        uint8_t st = inb(KBD_STATUS);
+        if (st & 0x01u) {
+            uint8_t sc = inb(KBD_DATA);
+            kbd_log(sc);
+            console_write("kbd data=0x");
+            console_write_hex16((uint16_t)sc);
+            console_write("\n");
+            if (++lines >= 20) break;
+        }
+        for (int d = 0; d < 4000; d++) io_delay();
+    }
+    g_kbd_probe_active = 0;
+    console_writeln("kbd: probe end");
+#endif
+}
+
+static void kbd_debug_dump(uint8_t sc) {
+#if CONFIG_KBD_DEBUG_DUMP
+    if (!g_kbd_probe_active) {
+        return;
+    }
+    console_write("kbd sc=");
+    console_write_hex16((uint16_t)sc);
+    console_write("\n");
+#else
+    (void)sc;
+#endif
+}
+
+#if CONFIG_KBD_FORCE_SET1
+static int kbd_set_scancode_set(uint8_t set) {
+    if (!kbd_send_and_ack(0xF0)) {
+        return 0;
+    }
+    if (!kbd_send_and_ack(set)) {
+        return 0;
+    }
+    return 1;
+}
+#endif
+
+static int kbd_read_cmd_byte(uint8_t* out) {
+    if (!kbd_write_cmd(0x20)) {
+        return 0;
+    }
+    return kbd_read_data(out);
+}
+
+static int kbd_write_cmd_byte(uint8_t val) {
+    if (!kbd_write_cmd(0x60)) {
+        return 0;
+    }
+    return kbd_write_data(val);
+}
+
 void keyboard_init(void) {
     shift = false;
     caps = false;
@@ -72,16 +227,29 @@ void keyboard_init(void) {
     ext = false;
     qhead = qtail = 0;
     dbg_head = dbg_count = 0;
+    kbd_cmd_byte = 0;
+    kbd_aux_enabled = 0;
 
-    // Drain any pending bytes from the controller buffer.
-    for (int guard = 0; guard < 64; guard++) {
-        uint8_t status = inb(KBD_STATUS);
-        if ((status & 0x01u) == 0) {
-            break;
+    kbd_drain_output();
+    uint8_t cmd = 0;
+    if (kbd_read_cmd_byte(&cmd)) {
+        kbd_cmd_byte = cmd;
+        kbd_log_cmd_byte("kbd: BIOS cmd=", cmd);
+        
+        // Force sync: write the command byte back (even if identical)
+        // This 'kicks' the controller into the active state for the new OS.
+        if (kbd_write_cmd_byte(cmd)) {
+            console_writeln("kbd: cmd sync ok");
+        } else {
+            console_writeln("kbd: cmd sync failed");
         }
-        (void)inb(KBD_DATA);
     }
+
+    // Ensure scanning is enabled (F4)
+    (void)kbd_send_and_ack(0xF4); 
+
     keyboard_status_refresh();
+    kbd_probe_run();
 }
 
 int keyboard_poll_char(void) {
@@ -89,14 +257,41 @@ int keyboard_poll_char(void) {
     if (qhead != qtail) {
         sc = qbuf[qtail];
         qtail = (uint8_t)((qtail + 1) % KBD_QSIZE);
+        kbd_debug_dump(sc);
     } else {
-        if (kbd_irq_mode) return -1;
+        if (kbd_irq_mode) {
+            // Even in IRQ mode, we can poll serial as a secondary input
+            int ser = debug_serial_plugin_getc();
+            if (ser != -1) {
+                if (ser == '\r') return '\n';
+                if (ser == 127) return '\b';
+                return ser;
+            }
+            return -1;
+        }
         uint8_t status = inb(KBD_STATUS);
-        if ((status & 0x01u) == 0) return -1;
+        if ((status & 0x01u) == 0) {
+            // No PS/2 data, check serial
+            int ser = debug_serial_plugin_getc();
+            if (ser != -1) {
+                if (ser == '\r') return '\n';
+                if (ser == 127) return '\b';
+                return ser;
+            }
+            return -1;
+        }
         sc = inb(KBD_DATA);
+        kbd_debug_dump(sc);
         if (status & 0x20u) {
+#if CONFIG_KBD_ACCEPT_AUX
+            if (!kbd_aux_disabled()) {
+                kbd_log(sc);
+                return -1;
+            }
+#else
             kbd_log(sc);
             return -1;
+#endif
         }
         kbd_log(sc);
     }
@@ -171,13 +366,35 @@ void keyboard_debug_dump(void) {
 }
 
 static void keyboard_status_refresh(void) {
-    static char buf[32];
+    static char buf[48];
     const char HEX[] = "0123456789ABCDEF";
+    uint32_t irqs = kbd_irq_count_get();
+    uint8_t st = inb(KBD_STATUS);
+    
     buf[0] = 'k'; buf[1] = 'b'; buf[2] = 'd'; buf[3] = ':'; buf[4] = ' ';
-    buf[5] = '0'; buf[6] = 'x';
-    buf[7] = HEX[(dbg_last_sc >> 4) & 0x0F];
-    buf[8] = HEX[dbg_last_sc & 0x0F];
-    buf[9] = 0;
+    buf[5] = 's'; buf[6] = 't'; buf[7] = '='; buf[8] = HEX[(st >> 4) & 0x0F]; buf[9] = HEX[st & 0x0F];
+    buf[10] = ' '; buf[11] = 's'; buf[12] = 'c'; buf[13] = '='; 
+    buf[14] = HEX[(dbg_last_sc >> 4) & 0x0F];
+    buf[15] = HEX[dbg_last_sc & 0x0F];
+    
+    buf[16] = ' '; buf[17] = 'i'; buf[18] = 'r'; buf[19] = 'q'; buf[20] = ':';
+    
+    int pos = 21;
+    if (irqs == 0) {
+        buf[pos++] = '0';
+    } else {
+        char tmp[10];
+        int i = 0;
+        uint32_t v = irqs;
+        while (v > 0 && i < 10) {
+            tmp[i++] = (char)('0' + (v % 10));
+            v /= 10;
+        }
+        while (i > 0) {
+            buf[pos++] = tmp[--i];
+        }
+    }
+    buf[pos] = 0;
     console_status_set_mid(buf);
 }
 

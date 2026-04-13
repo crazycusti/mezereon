@@ -1,5 +1,6 @@
 #include "memory.h"
 #include "console.h"
+#include "paging.h"
 #include <stdint.h>
 
 typedef struct {
@@ -410,16 +411,28 @@ void* memory_alloc_aligned(size_t size, size_t alignment) {
     uint64_t cursor;
     void* ptr;
 
+    // Under paging we currently rely on identity mapping for normal allocations.
+    // Keep allocations within the identity-mapped window to avoid faults on systems
+    // with more RAM than we map (until we have full RAM mapping).
+    uint64_t identity_limit = 0;
+    if (paging_is_enabled()) {
+        identity_limit = (uint64_t)paging_identity_limit();
+    }
+
     if (g_mem.hma_available && g_mem.hma_cursor < g_mem.hma_end) {
         cursor = g_mem.hma_cursor;
         uint64_t aligned = align_up_u64(cursor, alignment);
         if (aligned != UINT64_MAX) {
             uint64_t next_cursor;
             if (u64_add_checked(aligned, size, &next_cursor) && next_cursor <= g_mem.hma_end) {
+                if (identity_limit && next_cursor > identity_limit) {
+                    // Fall through to normal regions if HMA would exceed the mapped window.
+                } else {
                 g_mem.hma_cursor = next_cursor;
                 g_mem.hma_allocated = u64_add_saturating(g_mem.hma_allocated, size);
                 g_mem.allocated_bytes = u64_add_saturating(g_mem.allocated_bytes, size);
                 return (void*)(uintptr_t)aligned;
+                }
             }
         }
     }
@@ -448,6 +461,9 @@ void* memory_alloc_aligned(size_t size, size_t alignment) {
 
         uint64_t next_cursor;
         if (!u64_add_checked(aligned, size, &next_cursor) || next_cursor > region->end) {
+            continue;
+        }
+        if (identity_limit && next_cursor > identity_limit) {
             continue;
         }
 

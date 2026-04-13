@@ -6,6 +6,7 @@
 #define STAGE3_FLAG_USE_LBA 0x00000001u
 #define STAGE3_FLAG_KERNEL_PRELOADED 0x00000002u
 #define STAGE3_FLAG_A20_ENABLED 0x00000004u
+#define STAGE3_FLAG_SERIAL_BOOT 0x00000008u
 
 typedef struct __attribute__((packed)) stage3_params {
     uint32_t boot_drive;

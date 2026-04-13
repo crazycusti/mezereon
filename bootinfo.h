@@ -59,6 +59,11 @@ typedef struct boot_info {
 
     uint32_t vbe_memory_bytes;   // total reported VBE video memory (bytes)
     bootinfo_memory_map_t memory;
+
+    /* BIOS memory sizing fallbacks (filled by stage3 from stage2 scratch if available) */
+    uint32_t bios_conventional_kb; /* INT 12h */
+    uint32_t bios_extended_kb;     /* INT 15h E801/88h: KiB above 1MiB */
+    uint32_t bios_mem_flags;       /* see boot_shared.inc BOOTINFO_BIOS_MEM_FLAGS bits */
 } boot_info_t;
 
 #endif // BOOTINFO_H

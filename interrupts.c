@@ -12,16 +12,26 @@ void pic_remap(uint8_t offset1, uint8_t offset2) {
     uint8_t a2 = inb(0xA1);
 
     outb(0x20, 0x11);
+    io_delay();
     outb(0xA0, 0x11);
+    io_delay();
     outb(0x21, offset1);
+    io_delay();
     outb(0xA1, offset2);
+    io_delay();
     outb(0x21, 0x04);
+    io_delay();
     outb(0xA1, 0x02);
+    io_delay();
     outb(0x21, 0x01);
+    io_delay();
     outb(0xA1, 0x01);
+    io_delay();
 
     outb(0x21, a1);
+    io_delay();
     outb(0xA1, a2);
+    io_delay();
 }
 
 void pic_set_mask(uint8_t irq, int masked) {
@@ -65,9 +75,22 @@ void pit_init(uint32_t hz) {
 void interrupts_enable(void){ __asm__ volatile("sti" ::: "memory"); }
 void interrupts_disable(void){ __asm__ volatile("cli" ::: "memory"); }
 
+int interrupts_are_enabled(void) {
+    uint32_t flags;
+    __asm__ volatile ("pushfl\n\tpopl %0" : "=r"(flags) : : "memory");
+    return (flags & (1u << 9)) != 0u;
+}
+
 uint32_t interrupts_save_disable(void) {
     uint32_t flags;
-    __asm__ volatile ("pushfl\n\tcli\n\tpopl %0" : "=r"(flags) : : "memory");
+    __asm__ volatile (
+        "pushfl\n\t"
+        "popl %0\n\t"
+        "cli"
+        : "=r"(flags)
+        :
+        : "memory"
+    );
     return flags;
 }
 
@@ -96,7 +119,11 @@ void irq0_handler_c(void) {
     outb(0x20, 0x20);
 }
 
+static volatile uint32_t kbd_irq_count = 0;
+uint32_t kbd_irq_count_get(void) { return kbd_irq_count; }
+
 void irq1_handler_c(void) {
+    kbd_irq_count++;
     uint8_t status = inb(0x64);
     if ((status & 0x01u) == 0) {
         outb(0x20, 0x20);
@@ -153,14 +180,14 @@ void interrupts_statusbar_poll(void) {
         }
     }
     while (ti--) {
-        buf[pos++] = tmp[ti];
+        if (pos < 31) buf[pos++] = tmp[ti];
     }
-    buf[pos++] = '.';
-    buf[pos++] = (char)('0' + (int)tenths);
-    buf[pos++] = 's';
-    buf[pos++] = ' ';
-    buf[pos++] = 'I';
-    buf[pos++] = ' ';
+    if (pos < 31) buf[pos++] = '.';
+    if (pos < 31) buf[pos++] = (char)('0' + (int)tenths);
+    if (pos < 31) buf[pos++] = 's';
+    if (pos < 31) buf[pos++] = ' ';
+    if (pos < 31) buf[pos++] = 'I';
+    if (pos < 31) buf[pos++] = ' ';
 
     uint32_t wakeups = cpuidle_wakeups_get();
     ti = 0;
@@ -173,7 +200,7 @@ void interrupts_statusbar_poll(void) {
         }
     }
     while (ti--) {
-        buf[pos++] = tmp[ti];
+        if (pos < 31) buf[pos++] = tmp[ti];
     }
     int len = pos;
     console_draw_status_right(buf, len);

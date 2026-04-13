@@ -1,5 +1,6 @@
 #include "avga2.h"
 #include "vga_hw.h"
+#include "et4000.h"
 #include "../../console.h"
 #include "../../config.h"
 
@@ -134,15 +135,16 @@ void avga2_classify_info(gpu_info_t* info) {
         return;
     }
     info->type = GPU_TYPE_AVGA2;
+    // AVGA2 (Acumos VGA 2) is a Cirrus Logic GD5402 or similar.
     avga2_copy_string(info->name, sizeof(info->name),
-                      g_avga2_state.signature[0] ? g_avga2_state.signature : "Acumos AVGA2");
+                      g_avga2_state.signature[0] ? g_avga2_state.signature : "Acumos AVGA2 (Cirrus Logic)");
     if (info->framebuffer_base == 0) {
         info->framebuffer_base = AVGA2_VRAM_WINDOW_PHYS;
     }
     if (info->framebuffer_size == 0) {
         info->framebuffer_size = AVGA2_VRAM_WINDOW_SIZE;
     }
-    gpu_debug_log("INFO", "avga2: BIOS signature detected");
+    gpu_debug_log("INFO", "avga2: BIOS signature detected (Cirrus Logic GD5402 family)");
 #else
     (void)info;
 #endif
@@ -160,7 +162,7 @@ int avga2_signature_present(void) {
 void avga2_dump_state(void) {
 #if CONFIG_ARCH_X86
     avga2_scan_signature();
-    console_writeln("      Acumos AVGA2 diagnostics:");
+    console_writeln("      Acumos AVGA2 (Cirrus Logic GD5402 family) diagnostics:");
     if (!g_avga2_state.present) {
         console_writeln("        BIOS signature: not found");
         return;
@@ -182,12 +184,29 @@ void avga2_dump_state(void) {
     console_write_hex16(gc06);
     console_writeln("");
 
-    console_write("        Linear window: base=0x");
+    console_write("        VRAM window: base=0x");
     console_write_hex32(AVGA2_VRAM_WINDOW_PHYS);
     console_write(" size=0x");
     console_write_hex32(AVGA2_VRAM_WINDOW_SIZE);
     console_writeln("");
 #else
     console_writeln("      Acumos AVGA2 diagnostics not supported on this architecture.");
+#endif
+}
+
+int avga2_set_mode(gpu_info_t* gpu, display_mode_info_t* out_mode, uint16_t width, uint16_t height, uint8_t bpp) {
+#if CONFIG_ARCH_X86
+    // AVGA2 is a Cirrus Logic chip. For standard VGA Mode 12h (640x480x4),
+    // we use the common VGA path currently implemented in the ET4000 driver.
+    // Future expansion should move this to a shared vga_standard.c or use cirrus.c.
+    if (bpp == 4) {
+        gpu_debug_log("INFO", "avga2: using standard VGA Mode 12h path");
+        return et4k_set_mode(gpu, out_mode, width, height, bpp);
+    }
+    gpu_set_last_error("ERROR: AVGA2 currently only supports 4bpp (mode 12h)");
+    return 0;
+#else
+    (void)gpu; (void)out_mode; (void)width; (void)height; (void)bpp;
+    return 0;
 #endif
 }

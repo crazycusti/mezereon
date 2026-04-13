@@ -7,6 +7,7 @@
 #include "config.h"
 #include <stddef.h>
 
+#define SERIAL_LSR_DR   0x01u
 #define SERIAL_LSR_THRE 0x20u
 
 static uint16_t g_serial_port = (uint16_t)CONFIG_DEBUG_SERIAL_PORT;
@@ -106,6 +107,11 @@ static void debug_serial_log_bootinfo(const boot_info_t* info) {
 
     serial_write_string_raw("  framebuffer_phys="); serial_write_hex(info->framebuffer_phys, 8);
     serial_write_string_raw("\r\n");
+
+    serial_write_string_raw("  bios_mem: conv_kb="); serial_write_dec(info->bios_conventional_kb);
+    serial_write_string_raw(" ext_kb="); serial_write_dec(info->bios_extended_kb);
+    serial_write_string_raw(" flags="); serial_write_hex(info->bios_mem_flags, 8);
+    serial_write_string_raw("\r\n");
 }
 
 void debug_serial_plugin_init(const boot_info_t* info) {
@@ -127,7 +133,15 @@ void debug_serial_plugin_init(const boot_info_t* info) {
 
 void debug_serial_plugin_putc(char c) {
     if (!g_serial_ready) return;
+    if (c == '\n') serial_write_char_raw('\r');
     serial_write_char_raw(c);
+}
+
+int debug_serial_plugin_getc(void) {
+    if (!g_serial_ready) return -1;
+    uint8_t lsr = inb((uint16_t)(g_serial_port + 5u));
+    if (!(lsr & SERIAL_LSR_DR)) return -1;
+    return (int)inb(g_serial_port);
 }
 
 void debug_serial_plugin_write(const char* s) {
@@ -161,9 +175,11 @@ void debug_serial_plugin_timer_tick(void) {
     if (g_heartbeat_divider >= (uint32_t)CONFIG_DEBUG_SERIAL_HEARTBEAT_TICKS) {
         g_heartbeat_divider = 0;
         g_heartbeat_sequence++;
-        serial_write_string_raw("[heartbeat ");
+        
+        // ANSI Escape: [s]ave cursor, [1;65H] move to row 1, col 65, print, [u]restore
+        serial_write_string_raw("\033[s\033[1;65H\033[1;33m[heartbeat ");
         serial_write_dec(g_heartbeat_sequence);
-        serial_write_string_raw("]\r\n");
+        serial_write_string_raw("]\033[0m\033[u");
     }
 }
 

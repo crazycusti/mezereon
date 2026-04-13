@@ -67,7 +67,15 @@ void pcspeaker_beep(uint32_t hz, uint32_t duration_ms)
     // Busy-wait using platform ticks to keep it simple
     uint32_t start = platform_ticks_get();
     uint32_t t_hz = platform_timer_get_hz();
-    if (!t_hz) t_hz = 100; // fallback assumption
+    if (!t_hz) {
+        // No timer -> fall back to rough I/O delay loop to avoid hanging.
+        uint32_t loops = duration_ms * 1000u;
+        for (uint32_t i = 0; i < loops; ++i) {
+            io_delay();
+        }
+        pcspeaker_off();
+        return;
+    }
     // Convert ms to ticks with rounding
     uint32_t wait_ticks = (duration_ms * t_hz + 999) / 1000u;
     while ((platform_ticks_get() - start) < wait_ticks) {
@@ -75,4 +83,3 @@ void pcspeaker_beep(uint32_t hz, uint32_t duration_ms)
     }
     pcspeaker_off();
 }
-

@@ -31,6 +31,14 @@ static int parse_chip_token(const char* token, gpu_type_t* out_type) {
         *out_type = GPU_TYPE_CIRRUS;
         return 1;
     }
+    if (token_equals(token, "cirrus-gd5430") || token_equals(token, "cirrus-gd5440")) {
+        *out_type = GPU_TYPE_CIRRUS;
+        return 1;
+    }
+    if (token_equals(token, "cirrus-gd5434")) {
+        *out_type = GPU_TYPE_CIRRUS;
+        return 1;
+    }
     if (token_equals(token, "vga")) {
         *out_type = GPU_TYPE_VGA;
         return 1;
@@ -126,7 +134,7 @@ static const char* gpuprobe_chip_token(gpu_type_t type) {
         case GPU_TYPE_ET4000: return "et4000";
         case GPU_TYPE_ET4000AX: return "et4000ax";
         case GPU_TYPE_AVGA2: return "avga2";
-        case GPU_TYPE_CIRRUS: return "cirrus gd5446";
+        case GPU_TYPE_CIRRUS: return "cirrus";
         case GPU_TYPE_VGA: return "vga";
         default: return "et4000";
     }
@@ -270,7 +278,8 @@ void gpu_probe_run(const char* args) {
         }
 
         if (expect_mode) {
-            if (manual_type == GPU_TYPE_CIRRUS && token_equals(token, "gd5446")) {
+            if (manual_type == GPU_TYPE_CIRRUS &&
+                (token_equals(token, "gd5446") || token_equals(token, "gd5430") || token_equals(token, "gd5440") || token_equals(token, "gd5434"))) {
                 continue;
             }
             uint16_t w = 0, h = 0;

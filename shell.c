@@ -12,6 +12,7 @@
 #include "net/ipv4.h"
 #include "drivers/pcspeaker.h"
 #include "drivers/gpu/gpu.h"
+#include "drivers/pci.h"
 #include "apps/fbtest_color.h"
 #include "apps/gfx_probe.h"
 #include "apps/gpu_dump.h"
@@ -28,6 +29,32 @@ static void print_prompt(void) {
 static int streq(const char* a, const char* b) {
     while (*a && *b) { if (*a != *b) return 0; a++; b++; }
     return *a == 0 && *b == 0;
+}
+
+static int shell_is_space(char c) {
+    return (c == ' ' || c == '\t');
+}
+
+static void shell_trim_in_place(char* buf, int* len) {
+    if (!buf || !len) return;
+    int n = *len;
+    // rstrip
+    while (n > 0 && shell_is_space(buf[n - 1])) {
+        buf[n - 1] = 0;
+        n--;
+    }
+    // lstrip (shift left)
+    int start = 0;
+    while (start < n && shell_is_space(buf[start])) start++;
+    if (start > 0) {
+        int j = 0;
+        while (start < n) {
+            buf[j++] = buf[start++];
+        }
+        buf[j] = 0;
+        n = j;
+    }
+    *len = n;
 }
 
 static void shell_write_u64_hex(uint64_t v) {
@@ -60,6 +87,7 @@ void shell_run(void) {
         if (ch == '\n') {
             console_write("\n");
             buf[len] = 0;
+            shell_trim_in_place(buf, &len);
             if (len > 0) {
                 if (streq(buf, "version")) {
                     console_write("Mezereon ");
@@ -70,7 +98,14 @@ void shell_run(void) {
                 } else if (streq(buf, "kbdump")) {
                     keyboard_debug_dump();
                 } else if (streq(buf, "help")) {
-                    console_write("Commands: version, clear, help, cpuinfo, meminfo, ticks, wakeups, idle [n], timer <show|hz N|off|on>, ata, atadump [lba], autofs [show|rescan|mount <n>], ip [show|set <ip> <mask> [gw]|ping <ip> [count]], neele mount [lba], neele ls [path], neele cat <name|/path>, neele mkfs, neele mkdir </path>, neele write </path> <text>, neele verify [verbose] [path], pad </path>, netinfo, netrxdump, gpuprobe [scan|noscan] [auto|noauto] [status] [debug <on|off>] [activate <chip> <WxHxB>], gpudump [regs [chip|all]|bank <bank> [offset] [len]|capture <bank> [offset] [len]], gpuinfo, fbtest, gfxprobe, beep [freq] [ms], keymusic, rotcube, app [ls|run </path|name>], http [start [port]|stop|status|body <text>]\n");
+                    console_write("Commands: version, clear, help, reboot, cpuinfo, meminfo, pciinfo, ticks, wakeups, idle [n], timer <show|hz N|off|on>, ata, atadump [lba], autofs [show|rescan|mount <n>], ip [show|set <ip> <mask} [gw]|ping <ip> [count]], neele mount [lba], neele ls [path], neele cat <name|/path>, neele mkfs, neele mkdir </path>, neele write </path> <text>, neele verify [verbose] [path], pad </path>, netinfo, netrxdump, gpuprobe [scan|noscan] [auto|noauto] [status] [debug <on|off>] [activate <chip> <WxHxB>], gpudump [regs [chip|all]|bank <bank> [offset] [len]|capture <bank> [offset] [len]], gpuinfo, fbtest, gfxprobe, beep [freq] [ms], keymusic, rotcube, app [ls|run </path|name>], http [start [port]|stop|status|body <text>]\n");
+                } else if (streq(buf, "reboot")) {
+                    console_writeln("Rebooting...");
+                    platform_delay_ms(100);
+                    void platform_reboot(void);
+                    platform_reboot();
+                } else if (streq(buf, "pciinfo")) {
+                    pci_log_summary();
                 } else if (streq(buf, "ata")) {
                     if (ata_present()) console_write("ATA present (selected device).\n");
                     else console_write("ATA not present.\n");
@@ -219,13 +254,13 @@ void shell_run(void) {
                 } else if (streq(buf, "wakeups")) {
                     console_write("wakeups="); console_write_dec(cpuidle_wakeups_get()); console_write("\n");
                 } else if (buf[0]=='i' && buf[1]=='d' && buf[2]=='l' && buf[3]=='e' && (buf[4]==0 || buf[4]==' ')) {
-                    // idle [n] — perform HLT once or n times
+                    // idle [n] — enter CPU idle once or n times (x86: HLT when IRQs enabled)
                     int i=4; while (buf[i]==' ') i++;
-                    if (!buf[i]) { cpuidle_idle(); console_writeln("(hlt)"); }
+                    if (!buf[i]) { cpuidle_idle(); console_writeln("(idle)"); }
                     else {
                         uint32_t n=0; int any=0; while (buf[i]>='0'&&buf[i]<='9'){ n=n*10+(buf[i]-'0'); i++; any=1; }
                         if (!any || n==0) { console_writeln("usage: idle [n]"); }
-                        else { for (uint32_t k=0;k<n;k++){ cpuidle_idle(); } console_writeln("(hlt xN)"); }
+                        else { for (uint32_t k=0;k<n;k++){ cpuidle_idle(); } console_writeln("(idle xN)"); }
                     }
                 } else if (streq(buf, "netinfo")) {
                     netface_diag_print();

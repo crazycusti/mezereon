@@ -1,7 +1,6 @@
 #include "bootinfo.h"
 #include "config.h"
 #include <stddef.h>
-#include "paging.h"
 
 #if CONFIG_ARCH_X86
 // Legacy kernel main (no bootinfo)
@@ -77,13 +76,12 @@ void kentry(void* bi) {
 #if CONFIG_ARCH_X86
     port_debug_e9('K');
     early_debug('K');  // Kernel entered
-    const boot_info_t* info = (const boot_info_t*)bi;
-    if (!info) {
-        static boot_info_t fallback;
-        info = &fallback;
-    }
-    paging_init(info);
-    kmain(info);
+	    const boot_info_t* info = (const boot_info_t*)bi;
+	    if (!info) {
+	        static boot_info_t fallback;
+	        info = &fallback;
+	    }
+	    kmain(info);
 #elif CONFIG_ARCH_SPARC
     boot_info_t* info = (boot_info_t*)bi;
     ofw_entry_t ofw = (info && info->prom) ? (ofw_entry_t)info->prom : (ofw_entry_t)0;

@@ -6,17 +6,26 @@ Overview
 - Mezereon now scans PCI configuration space at boot (Mechanism #1 on x86) and tracks up to 32 devices.
 - GPU drivers register against the sampled device table; the first implementation targets Cirrus Logic GD5446 (QEMU’s default VGA adapter).
 - Discovery runs after the console comes up, so status messages land directly on the shell/log output and the results are also available via the `gpuinfo` command.
-- Framebuffer-Aktivierung erfolgt seit der Textmodus-Forcierung ausschließlich manuell über `gpuprobe`, damit Debug-Ausgaben und Fehlersuche unverfälscht bleiben.
+- Framebuffer-Aktivierung kann automatisch erfolgen, gesteuert ueber `CONFIG_VIDEO_TARGET=text|auto|framebuffer`:
+  - `text`: erzwingt VGA-Text
+  - `auto` (Default): schaltet auf den ersten brauchbaren Framebuffer-Kandidaten (native Treiber bevorzugt, sonst VESA)
+  - `framebuffer`: erzwingt Framebuffer sofern verfuegbar
+- Wichtiger Punkt bei Paging: PCI BARs / VESA LFB liegen oft hoch (>= 0xFC000000) und werden daher per `paging_ioremap()` in den virtuellen Adressraum gemappt.
+  Details: `docs/MMU.md` (Device Mapping / paging_ioremap).
 
 Cirrus Logic GD5446 notes
 -------------------------
 - Vendor/device IDs: `0x1013:0x00B8`.
+- Weitere beobachtete IDs (aehnliche Basics): `0x1013:0x00A0` (GD5430/GD5440). Wird erkannt; 2D-Accel ist hier konservativ deaktiviert, bis das Verhalten auf echter HW/Emulator verifiziert ist.
+- `0x1013:0x00A4` (GD5434-4) wird ebenfalls erkannt; 2D-Accel bleibt konservativ deaktiviert.
+- `0x1013:0x00A8` (GD5434-8) wird ebenfalls erkannt; 2D-Accel bleibt konservativ deaktiviert.
 - BAR0 exposes the linear framebuffer (size is calculated from the BAR mask at runtime); BAR1 exposes MMIO registers when present.
 - Reported capabilities:
   - `linear-fb` — 32-bit accessible framebuffer aperture
   - `2d-accel` — BitBLT engine verfügbar (Kernel nutzt es für rechteckige Füllungen im Framebuffer)
   - `hw-cursor` — hardware cursor support is available
 - The driver currently provides detection/logging only; programming the accelerator/LFB is planned for later phases.
+- Der Treiber kann bereits Modi setzen (mindestens 640x480x8) und nutzt die BitBLT-Engine fuer schnelle Rechteckfuellungen (siehe `drivers/gpu/cirrus_accel.c`).
 
 Shell usage
 -----------
@@ -24,6 +33,7 @@ Shell usage
 - `gpuinfo detail` — includes Cirrus register snapshots (Sequencer, CRTC, Graphics, Attribute) to aid bring-up and debugging.
 - `gpuprobe [scan|noscan] [auto|noauto] [status] [debug <on|off>] [activate <chip> <WxHxB>]` — führt den bekannten Diagnosepfad im Textmodus aus. Vor einer manuellen Aktivierung blendet das Tool die erkannten Framebuffer-Modi für den gewählten Chip ein (Auflösung × Farbtiefe) und verweist direkt auf die passende `activate`-Syntax, z. B. `gpuprobe activate cirrus gd5446 640x480x8` oder `gpuprobe activate et4000 640x480x4`.
 - Boot-Log-Zeilen spiegeln die `gpuinfo`-Kurzfassung wider. Da der Bootvorgang im Textmodus verbleibt, muss ein Framebuffer nun bewusst via `gpuprobe activate ...` gewählt werden. `gpuinfo` listet weiterhin die bekannten Modi (gefiltert nach VRAM), während `gpuprobe` den Satz unmittelbar vor dem Umschalten zeigt.
+- Boot-Log-Zeilen spiegeln die `gpuinfo`-Kurzfassung wider. Bei `CONFIG_VIDEO_TARGET=auto|framebuffer` wechselt der Kernel frueh in den Framebuffer (wenn moeglich); `gpuprobe activate ...` bleibt fuer gezieltes Debugging/Override nuetzlich.
 
 Tseng ET4000 (ISA) notes
 ------------------------

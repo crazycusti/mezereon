@@ -24,5 +24,7 @@ void    vga_pel_mask_write(uint8_t value);
 void    vga_attr_mask(uint8_t index, uint8_t mask, uint8_t value);
 void    vga_attr_index_write(uint8_t value);
 void    vga_load_font_8x16(void);
+void    vga_set_mode13(void);
+void    vga_set_mode_640x400x256(void);
 
 #endif // DRIVERS_GPU_VGA_HW_H

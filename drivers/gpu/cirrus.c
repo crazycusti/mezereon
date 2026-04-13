@@ -3,11 +3,15 @@
 #include "vga_hw.h"
 #include "../../console.h"
 #include "../../interrupts.h"
+#include "../../paging.h"
 #include <stddef.h>
 #include <stdint.h>
 
 #define CIRRUS_VENDOR_ID 0x1013
-#define CIRRUS_DEVICE_ID_GD5446 0x00B8
+#define CIRRUS_DEVICE_ID_GD5430_GD5440 0x00A0
+#define CIRRUS_DEVICE_ID_GD5434        0x00A4
+#define CIRRUS_DEVICE_ID_GD5434_8      0x00A8
+#define CIRRUS_DEVICE_ID_GD5446        0x00B8
 
 static void copy_name(char* dst, size_t dst_len, const char* src) {
     if (!dst || dst_len == 0) return;
@@ -243,6 +247,37 @@ static void cirrus_write_crtc(uint8_t idx, uint8_t val) {
     vga_crtc_write(idx, val);
 }
 
+static void cirrus_force_geometry(const cirrus_mode_desc_t* mode, uint32_t pitch_bytes) {
+    if (!mode || mode->width == 0) {
+        return;
+    }
+    // Offset (CRTC 0x13) is in units of 8 bytes.
+    uint8_t offset = (pitch_bytes >= 8) ? (uint8_t)((pitch_bytes / 8u) & 0xFFu) : 0;
+    cirrus_write_crtc(0x13, offset);
+
+    // Horizontal CRTC registers are mostly in character clocks (8 pixels).
+    // Keep them consistent with the standard VGA timing tables we use.
+    //
+    // CR01: Horizontal Display End
+    // CR02: Start Horizontal Blanking
+    // CR03: End Horizontal Blanking
+    // CR04: Start Horizontal Retrace (sync)
+    // CR05: End Horizontal Retrace
+    if (mode->width == 640) {
+        // Standard 640x480 @ 60Hz-ish VGA timings (same as std_crtc_640x480[]).
+        cirrus_write_crtc(0x00, 0x5Fu); // Horizontal Total
+        cirrus_write_crtc(0x01, 0x4Fu); // Horizontal Display End (80 chars -> 640 px)
+        cirrus_write_crtc(0x02, 0x50u); // Start Horizontal Blanking
+        cirrus_write_crtc(0x03, 0x82u); // End Horizontal Blanking
+        cirrus_write_crtc(0x04, 0x54u); // Start Horizontal Retrace
+        cirrus_write_crtc(0x05, 0x80u); // End Horizontal Retrace
+    } else if (mode->width >= 8) {
+        // Minimal reinforcement: at least make the display end match our requested width.
+        uint8_t hdisp = (uint8_t)((mode->width / 8u) - 1u);
+        cirrus_write_crtc(0x01, hdisp);
+    }
+}
+
 static void vga_program_standard_mode(uint8_t misc,
                                       const uint8_t* seq,
                                       const uint8_t* crtc,
@@ -274,15 +309,66 @@ static void vga_program_standard_mode(uint8_t misc,
     vga_attr_reenable_video();
 }
 
+int cirrus_isa_detect(gpu_info_t* out) {
+    if (!out) return 0;
+    
+    // Attempt to unlock Cirrus extensions via Sequencer Register 0x06
+    uint8_t old_sr6 = vga_seq_read(0x06);
+    vga_seq_write(0x06, 0x12); // Unlock code
+    uint8_t read_sr6 = vga_seq_read(0x06);
+    
+    // On Cirrus chips, writing 0x12 to SR6 makes it readable as something 
+    // related to the chip ID or at least different from standard VGA (which has only 5 SRs).
+    // Standard VGA SR6 is usually 0xFF or 0x00 and not writable.
+    if (read_sr6 == 0x12 || (read_sr6 != 0xFF && read_sr6 != 0x00)) {
+        // High probability of Cirrus chip.
+        out->type = GPU_TYPE_CIRRUS;
+        copy_name(out->name, sizeof(out->name), "Cirrus Logic (ISA/Internal)");
+        out->framebuffer_base = 0xA0000; // Use VGA window for banked access
+        out->framebuffer_size = cirrus_detect_vram_bytes();
+        out->framebuffer_bar = 0xFF; // No LFB BAR on ISA
+        out->capabilities = GPU_CAP_HW_CURSOR; 
+        
+        // Try to get a more specific ID from SR0
+        uint8_t chip_id = vga_seq_read(0x00);
+        console_write("cirrus isa: found chip, SR6=0x"); print_byte_hex(read_sr6);
+        console_write(" SR0=0x"); print_byte_hex(chip_id);
+        console_write("\n");
+        
+        return 1;
+    }
+    
+    vga_seq_write(0x06, old_sr6);
+    return 0;
+}
+
 int cirrus_gpu_detect(const pci_device_t* dev, gpu_info_t* out) {
     if (!dev || !out) return 0;
     if (dev->vendor_id != CIRRUS_VENDOR_ID) return 0;
-    if (dev->device_id != CIRRUS_DEVICE_ID_GD5446) return 0;
+    // Only treat VGA/Display class devices as GPUs.
+    if (dev->class_id != 0x03) return 0;
+    if (dev->subclass_id != 0x00 && dev->subclass_id != 0x80) return 0;
+    if (dev->device_id != CIRRUS_DEVICE_ID_GD5446 &&
+        dev->device_id != CIRRUS_DEVICE_ID_GD5434_8 &&
+        dev->device_id != CIRRUS_DEVICE_ID_GD5434 &&
+        dev->device_id != CIRRUS_DEVICE_ID_GD5430_GD5440) return 0;
 
     out->type = GPU_TYPE_CIRRUS;
-    copy_name(out->name, sizeof(out->name), "Cirrus Logic GD5446");
+    if (dev->device_id == CIRRUS_DEVICE_ID_GD5446) {
+        copy_name(out->name, sizeof(out->name), "Cirrus Logic GD5446");
+    } else if (dev->device_id == CIRRUS_DEVICE_ID_GD5434_8) {
+        copy_name(out->name, sizeof(out->name), "Cirrus Logic GD5434-8");
+    } else if (dev->device_id == CIRRUS_DEVICE_ID_GD5434) {
+        copy_name(out->name, sizeof(out->name), "Cirrus Logic GD5434");
+    } else {
+        copy_name(out->name, sizeof(out->name), "Cirrus Logic GD5430/40");
+    }
     out->pci = *dev;
-    out->capabilities = GPU_CAP_LINEAR_FB | GPU_CAP_ACCEL_2D | GPU_CAP_HW_CURSOR;
+    // Keep this conservative for unverified chip variants.
+    out->capabilities = GPU_CAP_LINEAR_FB | GPU_CAP_HW_CURSOR;
+    if (dev->device_id == CIRRUS_DEVICE_ID_GD5446) {
+        out->capabilities |= GPU_CAP_ACCEL_2D;
+    }
 
     uint32_t fb_bar = dev->bars[0].raw;
     uint32_t mmio_bar = dev->bars[1].raw;
@@ -351,9 +437,47 @@ int cirrus_set_mode_desc(const pci_device_t* dev,
         crt1D |= 0x08; // Linear Framebuffer aktivieren
         vga_crtc_write(0x1D, crt1D);
 
+        // Workaround for chip variants/emulators: reinforce the core horizontal geometry fields.
+        cirrus_force_geometry(mode, pitch);
+
         uint32_t base = gpu->framebuffer_base;
         vga_crtc_write(0x1A, (uint8_t)((base >> 24) & 0x0F));
         vga_crtc_write(0x1C, (uint8_t)((base >> 16) & 0xFF));
+
+        // Diagnose + Safety: on some Cirrus variants/emulators we observed a "thin strip"
+        // output which matches a broken CRTC geometry (e.g. offset/display-end collapsing).
+        // If that happens, immediately restore text mode so the user can still interact and
+        // capture the register values for debugging.
+        if (dev->vendor_id == CIRRUS_VENDOR_ID &&
+            dev->device_id != CIRRUS_DEVICE_ID_GD5446 &&
+            mode->width == 640 && mode->height == 480 && mode->bpp == 8) {
+            uint8_t cr00 = vga_crtc_read(0x00);
+            uint8_t cr01 = vga_crtc_read(0x01);
+            uint8_t cr02 = vga_crtc_read(0x02);
+            uint8_t cr04 = vga_crtc_read(0x04);
+            uint8_t cr13 = vga_crtc_read(0x13);
+            uint8_t sr07 = vga_seq_read(0x07);
+            if (!(cr00 == 0x5F && cr01 == 0x4F && cr02 == 0x50 && cr04 == 0x54 && cr13 == 0x50)) {
+                cirrus_restore_text_mode(dev);
+                console_write("cirrus: modeset geometry mismatch on device=0x");
+                console_write_hex16(dev->device_id);
+                console_write(" cr00=");
+                console_write_hex16(cr00);
+                console_write(" cr01=");
+                console_write_hex16(cr01);
+                console_write(" cr02=");
+                console_write_hex16(cr02);
+                console_write(" cr04=");
+                console_write_hex16(cr04);
+                console_write(" cr13=");
+                console_write_hex16(cr13);
+                console_write(" sr07=");
+                console_write_hex16(sr07);
+                console_writeln(" (staying in text mode)");
+                result = 0;
+                break;
+            }
+        }
 
         out_mode->kind = DISPLAY_MODE_KIND_FRAMEBUFFER;
         out_mode->pixel_format = pixel_format;
@@ -374,6 +498,22 @@ int cirrus_set_mode_desc(const pci_device_t* dev,
     } while (0);
 
     interrupts_restore(irq_flags);
+
+    if (result) {
+        // BAR0 often lives high (>= 0xF0000000). Under paging, we must ioremap it.
+        if (paging_is_enabled() && out_mode->framebuffer && (uint32_t)(uintptr_t)out_mode->framebuffer == out_mode->phys_base) {
+            uint64_t fb_bytes = (uint64_t)out_mode->pitch * (uint64_t)out_mode->height;
+            uint32_t limit = paging_identity_limit();
+            uint64_t end = (uint64_t)out_mode->phys_base + fb_bytes;
+            if (limit && fb_bytes && end > (uint64_t)limit) {
+                void* mapped = paging_ioremap(out_mode->phys_base, (uint32_t)fb_bytes, PAGING_IOREMAP_UNCACHED);
+                if (mapped) {
+                    out_mode->framebuffer = (volatile uint8_t*)mapped;
+                    gpu->framebuffer_ptr = out_mode->framebuffer;
+                }
+            }
+        }
+    }
     return result;
 }
 

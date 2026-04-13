@@ -60,25 +60,18 @@
 #define CONFIG_VIDEO_ENABLE_ET4000 1
 #endif
 
-#ifndef CONFIG_VIDEO_ET4000_AX_FORCE
-#define CONFIG_VIDEO_ET4000_AX_FORCE 0
+#ifndef CONFIG_VIDEO_ENABLE_CIRRUS
+#define CONFIG_VIDEO_ENABLE_CIRRUS 1
 #endif
 
-#ifndef CONFIG_VIDEO_ET4000_AX_DISABLE
-#define CONFIG_VIDEO_ET4000_AX_DISABLE 0
-#endif
-
-#ifndef CONFIG_VIDEO_ET4000_FORCE_VGA_ONLY
-#define CONFIG_VIDEO_ET4000_FORCE_VGA_ONLY 1
-#endif
-
-#ifndef CONFIG_VIDEO_ET4000_NO_VRAM_TOUCH
-#define CONFIG_VIDEO_ET4000_NO_VRAM_TOUCH 1
+#ifndef CONFIG_VIDEO_ENABLE_SMOS
+#define CONFIG_VIDEO_ENABLE_SMOS 1
 #endif
 
 #ifndef CONFIG_GPU_DEBUG
 #define CONFIG_GPU_DEBUG 1
 #endif
+
 
 #define CONFIG_VIDEO_ET4000_MODE_640x480x8 0
 #define CONFIG_VIDEO_ET4000_MODE_640x400x8 1
@@ -120,9 +113,32 @@
 #define CONFIG_ARCH_SPARC 0
 #endif
 
+// Paging policy (x86)
+// AUTO: disable paging on very low-memory configs, enable otherwise (current default)
+// NEVER: never enable paging
+// ALWAYS: always try to enable paging (may still fail if page table allocation fails)
+#define CONFIG_PAGING_POLICY_AUTO   0
+#define CONFIG_PAGING_POLICY_NEVER  1
+#define CONFIG_PAGING_POLICY_ALWAYS 2
+
+#ifndef CONFIG_PAGING_POLICY
+#define CONFIG_PAGING_POLICY CONFIG_PAGING_POLICY_AUTO
+#endif
+
+// AUTO threshold: if usable RAM (E820) is below this, skip enabling paging.
+// 1024KiB matches "no paging under 1MiB" bring-up policy.
+#ifndef CONFIG_PAGING_AUTO_MIN_USABLE_KB
+#define CONFIG_PAGING_AUTO_MIN_USABLE_KB 1024
+#endif
+
 // System timer frequency (PIT IRQ0). Lower = fewer wakeups and lower host CPU load in QEMU.
 #ifndef CONFIG_TIMER_HZ
-#define CONFIG_TIMER_HZ 20
+#define CONFIG_TIMER_HZ 100
+#endif
+
+// Boot bring-up: enable IRQs only after IDT/PIC are stable.
+#ifndef CONFIG_BOOT_ENABLE_INTERRUPTS
+#define CONFIG_BOOT_ENABLE_INTERRUPTS 1
 #endif
 
 #ifndef CONFIG_DEBUG_SERIAL_PLUGIN
@@ -139,6 +155,26 @@
 
 #ifndef CONFIG_DEBUG_SERIAL_HEARTBEAT_TICKS
 #define CONFIG_DEBUG_SERIAL_HEARTBEAT_TICKS ((CONFIG_TIMER_HZ) ? (CONFIG_TIMER_HZ) : 100)
+#endif
+
+// Keyboard debug: print raw scancodes to console/serial
+#ifndef CONFIG_KBD_DEBUG_DUMP
+#define CONFIG_KBD_DEBUG_DUMP 1
+#endif
+
+// Keyboard probe loop during init (prints status + optional data)
+#ifndef CONFIG_KBD_PROBE
+#define CONFIG_KBD_PROBE 1
+#endif
+
+// Force scancode set 1 (disable if controller translation is enabled)
+#ifndef CONFIG_KBD_FORCE_SET1
+#define CONFIG_KBD_FORCE_SET1 0
+#endif
+
+// Accept AUX-flagged bytes as keyboard when AUX is disabled (QEMU quirk)
+#ifndef CONFIG_KBD_ACCEPT_AUX
+#define CONFIG_KBD_ACCEPT_AUX 1
 #endif
 
 // ATA primary channel (QEMU default for -hda)

@@ -46,6 +46,8 @@ typedef struct {
 
 void gpu_init(const boot_info_t* bootinfo);
 const gpu_info_t* gpu_get_devices(size_t* count);
+const gpu_info_t* gpu_get_primary(void);
+int gpu_streq(const char* a, const char* b);
 void gpu_log_summary(void);
 void gpu_dump_details(void);
 void gpu_dump_registers(const gpu_info_t* gpu);

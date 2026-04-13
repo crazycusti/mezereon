@@ -51,13 +51,34 @@ static void print_hex32(uint32_t v) {
     console_write(buf);
 }
 
+static const char* cpu_model_name(uint32_t family, uint32_t model) {
+    if (family == 4) {
+        switch (model) {
+            case 0: case 1: return "i486 DX";
+            case 2: return "i486 SX";
+            case 3: return "i486 DX2";
+            case 4: return "i486 SL";
+            case 5: return "i486 SX2";
+            case 7: return "i486 DX2-WB";
+            case 8: return "i486 DX4";
+            case 9: return "i486 DX4-WB";
+            default: return "i486";
+        }
+    } else if (family == 5) {
+        return "Pentium";
+    } else if (family == 6) {
+        return "Pentium Pro / PII / PIII";
+    }
+    return "Unknown x86";
+}
+
 void cpuinfo_print(void) {
     console_write("arch=");
     console_write(cpu_arch_name());
     console_write("\n");
 
     if (!cpuid_supported()) {
-        console_write("cpuid=not supported\n");
+        console_write("cpuid=not supported (likely i386 or early i486)\n");
         return;
     }
 
@@ -80,8 +101,10 @@ void cpuinfo_print(void) {
     uint32_t ext_family = (a >> 20) & 0xFF;
     if (family == 0xF) family += ext_family;
     if (family == 0x6 || family == 0xF) model |= (ext_model << 4);
+    
     console_write("family="); console_write_dec(family);
     console_write(" model="); console_write_dec(model);
+    console_write(" ("); console_write(cpu_model_name(family, model)); console_write(")");
     console_write(" stepping="); console_write_dec(stepping);
     console_write(" eax="); print_hex32(a);
     console_write("\n");

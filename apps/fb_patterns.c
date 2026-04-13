@@ -104,6 +104,25 @@ static void draw_16bpp_demo(volatile uint8_t* fb_bytes,
         }
     }
 }
+static void draw_4bpp_demo(volatile uint8_t* fb,
+                           uint16_t width,
+                           uint16_t height,
+                           uint32_t pitch) {
+    if (!fb || width == 0 || height == 0 || pitch == 0) {
+        return;
+    }
+
+    // Since we use an 8bpp shadow buffer even for 4bpp modes (mapped during sync),
+    // we can write byte-per-pixel indices 0-15 here.
+    for (uint16_t y = 0; y < height; y++) {
+        for (uint16_t x = 0; x < width; x++) {
+            uint16_t band_width = width / 16;
+            if (band_width == 0) band_width = 1;
+            uint8_t color = (uint8_t)((x / band_width) & 0x0F);
+            fb[y * pitch + x] = color;
+        }
+    }
+}
 
 void fb_patterns_draw_demo(volatile uint8_t* fb,
                            uint16_t width,
@@ -114,7 +133,9 @@ void fb_patterns_draw_demo(volatile uint8_t* fb,
         return;
     }
 
-    if (bpp == 8) {
+    if (bpp == 4) {
+        draw_4bpp_demo(fb, width, height, pitch);
+    } else if (bpp == 8) {
         for (uint16_t y = 0; y < height; y++) {
             for (uint16_t x = 0; x < width; x++) {
                 fb[y * pitch + x] = 0;

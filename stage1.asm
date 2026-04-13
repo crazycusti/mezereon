@@ -37,6 +37,9 @@ start:
     xor ax, ax
     mov ss, ax
     mov sp, 0x7C00
+    ; SeaBIOS interrupt handlers use 32-bit stack addressing internally (ESP).
+    ; Ensure high bits are known-zero in real mode.
+    mov esp, 0x00007C00
     mov ds, ax
     sti
 

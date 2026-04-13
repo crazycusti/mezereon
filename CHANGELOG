@@ -1,5 +1,8 @@
 # Mezereon Changelog
 
+2026-02-15 17:08:12 (worktree@HEAD) - boot/mem: fix Stage2 INT 15h E820 call (ES/DS setup clobbered EAX); kernel receives real BIOS memory map again
+2026-02-15 15:52:29 (worktree@HEAD) - boot/int: install kernel-local GDT (entry32) to prevent Stage3 GDT corruption; timer IRQ stable again
+2026-01-09 23:12:41 (worktree@HEAD) - docs: consolidate agent notes into agents.md, update readme status and naming
 2025-11-20 00:41:00 (worktree@HEAD) - boot/ui: stage2 selects VESA LFB (640x480x8 by default), kernel auto-applies display_manager state for framebuffer targets
 2025-11-20 00:41:00 (worktree@HEAD) - build/docs: add run-x86-fb target, VBE config knobs, and agents.md helper notes
 ## 2025-06-29 v0.1.0

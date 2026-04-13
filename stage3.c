@@ -248,6 +248,43 @@ static bool stage3_load_kernel(const stage3_params_t *params, uint8_t *buffer) {
     return true;
 }
 
+static uint8_t serial_getc(void) {
+    // Wait for Data Ready (bit 0 of LSR at offset 5)
+    while ((inb(0x3F8 + 5) & 0x01) == 0);
+    return inb(0x3F8);
+}
+
+static uint32_t serial_get_u32(void) {
+    uint32_t val = 0;
+    val |= (uint32_t)serial_getc();
+    val |= (uint32_t)serial_getc() << 8;
+    val |= (uint32_t)serial_getc() << 16;
+    val |= (uint32_t)serial_getc() << 24;
+    return val;
+}
+
+static bool stage3_receive_serial_kernel(uint8_t *buffer, uint32_t *out_sectors) {
+    stage3_console_write("Waiting for Serial Kernel (COM1, 115200 8N1)...\n");
+    
+    // We expect 4 bytes length
+    uint32_t len = serial_get_u32();
+    if (len == 0 || len > 1024*1024) {
+        stage3_console_write("Invalid length.\n");
+        return false;
+    }
+    
+    stage3_console_write("Receiving bytes...\n");
+
+    for (uint32_t i = 0; i < len; i++) {
+        buffer[i] = serial_getc();
+        if ((i & 0x1FFF) == 0) stage3_console_putc('.');
+    }
+    
+    *out_sectors = (len + 511) / 512;
+    stage3_console_write("\nDone.\n");
+    return true;
+}
+
 static void stage3_build_bootinfo(const stage3_params_t *params, boot_info_t *bi) {
     if (!bi) {
         return;
@@ -298,6 +335,22 @@ void stage3_main(stage3_params_t *params, boot_info_t *bootinfo) {
     uint8_t *const kernel_buffer = (uint8_t *)(uintptr_t)params->kernel_buffer_linear;
     uint8_t *const kernel_target = (uint8_t *)(uintptr_t)params->kernel_load_linear;
     uint32_t kernel_sectors = params->kernel_sectors;
+    uint16_t snap_vbe_mode = 0;
+    uint16_t snap_vbe_pitch = 0;
+    uint16_t snap_vbe_width = 0;
+    uint16_t snap_vbe_height = 0;
+    uint8_t  snap_vbe_bpp = 0;
+    uint32_t snap_fb_addr = 0;
+    uint16_t snap_vbe_mode4 = 0;
+    uint16_t snap_vbe_pitch4 = 0;
+    uint16_t snap_vbe_width4 = 0;
+    uint16_t snap_vbe_height4 = 0;
+    uint8_t  snap_vbe_bpp4 = 0;
+    uint32_t snap_fb_addr4 = 0;
+    uint32_t snap_vbe_mem_bytes = 0;
+    uint16_t snap_bios_conv_kb = 0;
+    uint32_t snap_bios_ext_kb = 0;
+    uint16_t snap_bios_mem_flags = 0;
 
 #if STAGE3_VERBOSE_DEBUG
     g_vga_pos = 2;
@@ -359,7 +412,14 @@ void stage3_main(stage3_params_t *params, boot_info_t *bootinfo) {
     }
 
     stage3_port_debug('R');
-    if (!kernel_preloaded) {
+    if (params->flags & STAGE3_FLAG_SERIAL_BOOT) {
+        if (!stage3_receive_serial_kernel(kernel_buffer, &kernel_sectors)) {
+            stage3_port_debug('!');
+            stage3_panic("ser-load");
+        }
+        params->kernel_sectors = kernel_sectors;
+        kernel_preloaded = true;
+    } else if (!kernel_preloaded) {
         stage3_console_putc('K');
         if (!stage3_load_kernel(params, kernel_buffer)) {
             stage3_port_debug('!');
@@ -371,61 +431,53 @@ void stage3_main(stage3_params_t *params, boot_info_t *bootinfo) {
 #endif
     }
 
-    stage3_build_bootinfo(params, bootinfo);
-
-    /* Preserve bootloader-provided VBE/framebuffer info if present in the
-       raw bootinfo area (written earlier in real-mode). We read the small
-       fields at the well-known offsets and copy them into the final
-       boot_info_t so the kernel can use them. Offsets mirror boot_shared.inc.
-    */
+    /* Snapshot bootloader-provided VBE info before zeroing the bootinfo struct */
     {
         const uintptr_t raw = (uintptr_t)params->bootinfo_ptr;
-        uint16_t vbe_mode = 0;
-        uint16_t vbe_pitch = 0;
-        uint16_t vbe_width = 0;
-        uint16_t vbe_height = 0;
-        uint8_t vbe_bpp = 0;
-        uint32_t fb_addr = 0;
-        uint16_t vbe_mode4 = 0;
-        uint16_t vbe_pitch4 = 0;
-        uint16_t vbe_width4 = 0;
-        uint16_t vbe_height4 = 0;
-        uint8_t vbe_bpp4 = 0;
-        uint32_t fb_addr4 = 0;
-        uint32_t vbe_mem_bytes = 0;
-        /* Offsets defined in boot_shared.inc */
-        vbe_mode = *(uint16_t *)(uintptr_t)(raw + 0x0A);
-        vbe_pitch = *(uint16_t *)(uintptr_t)(raw + 0x0C);
-        vbe_width = *(uint16_t *)(uintptr_t)(raw + 0x0E);
-        vbe_height = *(uint16_t *)(uintptr_t)(raw + 0x10);
-        vbe_bpp = *(uint8_t  *)(uintptr_t)(raw + 0x12);
-        fb_addr  = *(uint32_t *)(uintptr_t)(raw + 0x14);
-        vbe_mode4 = *(uint16_t *)(uintptr_t)(raw + 0x18);
-        vbe_pitch4 = *(uint16_t *)(uintptr_t)(raw + 0x1A);
-        vbe_width4 = *(uint16_t *)(uintptr_t)(raw + 0x1C);
-        vbe_height4 = *(uint16_t *)(uintptr_t)(raw + 0x1E);
-        vbe_bpp4 = *(uint8_t  *)(uintptr_t)(raw + 0x20);
-        fb_addr4 = *(uint32_t *)(uintptr_t)(raw + 0x22);
-        vbe_mem_bytes = *(uint32_t *)(uintptr_t)(raw + 0x26);
+        snap_vbe_mode = *(uint16_t *)(uintptr_t)(raw + 0x0A);
+        snap_vbe_pitch = *(uint16_t *)(uintptr_t)(raw + 0x0C);
+        snap_vbe_width = *(uint16_t *)(uintptr_t)(raw + 0x0E);
+        snap_vbe_height = *(uint16_t *)(uintptr_t)(raw + 0x10);
+        snap_vbe_bpp = *(uint8_t  *)(uintptr_t)(raw + 0x12);
+        snap_fb_addr  = *(uint32_t *)(uintptr_t)(raw + 0x14);
+        snap_vbe_mode4 = *(uint16_t *)(uintptr_t)(raw + 0x18);
+        snap_vbe_pitch4 = *(uint16_t *)(uintptr_t)(raw + 0x1A);
+        snap_vbe_width4 = *(uint16_t *)(uintptr_t)(raw + 0x1C);
+        snap_vbe_height4 = *(uint16_t *)(uintptr_t)(raw + 0x1E);
+        snap_vbe_bpp4 = *(uint8_t  *)(uintptr_t)(raw + 0x20);
+        snap_fb_addr4 = *(uint32_t *)(uintptr_t)(raw + 0x22);
+        snap_vbe_mem_bytes = *(uint32_t *)(uintptr_t)(raw + 0x26);
 
-        if (vbe_mode != 0 || vbe_bpp != 0 || fb_addr != 0) {
-            bootinfo->vbe_mode = vbe_mode;
-            bootinfo->vbe_pitch = vbe_pitch;
-            bootinfo->vbe_width = vbe_width;
-            bootinfo->vbe_height = vbe_height;
-            bootinfo->vbe_bpp = vbe_bpp;
-            bootinfo->framebuffer_phys = fb_addr;
-        }
-        if (vbe_mode4 != 0 || vbe_bpp4 != 0 || fb_addr4 != 0) {
-            bootinfo->vbe_mode_4bpp = vbe_mode4;
-            bootinfo->vbe_pitch_4bpp = vbe_pitch4;
-            bootinfo->vbe_width_4bpp = vbe_width4;
-            bootinfo->vbe_height_4bpp = vbe_height4;
-            bootinfo->vbe_bpp_4bpp = vbe_bpp4;
-            bootinfo->framebuffer_phys_4bpp = fb_addr4;
-        }
-        bootinfo->vbe_memory_bytes = vbe_mem_bytes;
+        /* BIOS memory sizing fallbacks from stage2 scratch (boot_shared.inc offsets) */
+        snap_bios_conv_kb = *(uint16_t *)(uintptr_t)(raw + 0x2A);
+        snap_bios_ext_kb = *(uint32_t *)(uintptr_t)(raw + 0x2C);
+        snap_bios_mem_flags = *(uint16_t *)(uintptr_t)(raw + 0x30);
     }
+
+    stage3_build_bootinfo(params, bootinfo);
+
+    /* Restore preserved VBE info into the freshly-built bootinfo */
+    if (snap_vbe_mode != 0 || snap_vbe_bpp != 0 || snap_fb_addr != 0) {
+        bootinfo->vbe_mode = snap_vbe_mode;
+        bootinfo->vbe_pitch = snap_vbe_pitch;
+        bootinfo->vbe_width = snap_vbe_width;
+        bootinfo->vbe_height = snap_vbe_height;
+        bootinfo->vbe_bpp = snap_vbe_bpp;
+        bootinfo->framebuffer_phys = snap_fb_addr;
+    }
+    if (snap_vbe_mode4 != 0 || snap_vbe_bpp4 != 0 || snap_fb_addr4 != 0) {
+        bootinfo->vbe_mode_4bpp = snap_vbe_mode4;
+        bootinfo->vbe_pitch_4bpp = snap_vbe_pitch4;
+        bootinfo->vbe_width_4bpp = snap_vbe_width4;
+        bootinfo->vbe_height_4bpp = snap_vbe_height4;
+        bootinfo->vbe_bpp_4bpp = snap_vbe_bpp4;
+        bootinfo->framebuffer_phys_4bpp = snap_fb_addr4;
+    }
+    bootinfo->vbe_memory_bytes = snap_vbe_mem_bytes;
+
+    bootinfo->bios_conventional_kb = (uint32_t)snap_bios_conv_kb;
+    bootinfo->bios_extended_kb = snap_bios_ext_kb;
+    bootinfo->bios_mem_flags = (uint32_t)snap_bios_mem_flags;
 
     if (kernel_sectors > (UINT32_MAX / 512u)) {
         stage3_port_debug('!');

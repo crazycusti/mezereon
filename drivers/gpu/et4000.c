@@ -443,6 +443,35 @@ static void et4k_copy_string(char* dst, uint32_t dst_len, const char* src) {
     dst[i] = '\0';
 }
 
+static const uint8_t k_seq_mode13[5] = { 0x03, 0x01, 0x0F, 0x00, 0x0E };
+static const uint8_t k_crtc_mode13[25] = {
+    0x5F,0x4F,0x50,0x82,0x54,0x80,0xBF,0x1F,
+    0x00,0x41,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x9C,0x0E,0x8F,0x28,0x40,0x96,0xB9,0xA3,
+    0xFF
+};
+static const uint8_t k_graph_mode13[9] = { 0x00,0x00,0x00,0x00,0x00,0x40,0x05,0x0F,0xFF };
+static const uint8_t k_attr_mode13[21] = {
+    0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,
+    0x08,0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F,
+    0x41,0x00,0x0F,0x00,0x00
+};
+
+static void et4k_program_mode13(void) {
+    et4k_log("program_mode13: enter");
+    uint32_t irq_flags = et4k_cli_guard_acquire();
+    et4k_misc_write(0x63);
+    et4k_seq_write(0x00, 0x01);
+    for (uint8_t i = 1; i < 5; ++i) et4k_seq_write(i, k_seq_mode13[i]);
+    et4k_seq_write(0x00, 0x03);
+    for (uint8_t i = 0; i < 25; ++i) et4k_crtc_write(i, k_crtc_mode13[i]);
+    for (uint8_t i = 0; i < 9; ++i) et4k_gc_write(i, k_graph_mode13[i]);
+    for (uint8_t i = 0; i < 21; ++i) et4k_attr_write(i, k_attr_mode13[i]);
+    vga_attr_reenable_video();
+    vga_dac_load_default_palette();
+    et4k_cli_guard_release(irq_flags);
+}
+
 static const uint8_t k_seq_mode12[5] = { 0x03, 0x01, 0x0F, 0x00, 0x03 };
 static const uint8_t k_crtc_mode12[25] = {
     0x5F,0x4F,0x50,0x82,0x54,0x80,0x0B,0x3E,
@@ -476,6 +505,21 @@ static const uint8_t k_palette16[16][3] = {
     {0x2A,0x00,0x00}, {0x2A,0x00,0x2A}, {0x15,0x15,0x00}, {0x2A,0x2A,0x2A},
     {0x15,0x15,0x15}, {0x15,0x15,0x3F}, {0x15,0x3F,0x15}, {0x15,0x3F,0x3F},
     {0x3F,0x15,0x15}, {0x3F,0x15,0x3F}, {0x3F,0x3F,0x15}, {0x3F,0x3F,0x3F}
+};
+
+// Mode 2Eh (640x480x256 colors) standard Tseng timings
+static const uint8_t k_seq_mode2e[5] = { 0x03, 0x01, 0x0F, 0x00, 0x0E };
+static const uint8_t k_crtc_mode2e[25] = {
+    0x5F,0x4F,0x50,0x82,0x54,0x80,0x0B,0x3E,
+    0x00,0x40,0x00,0x00,0x00,0x00,0x00,0x00,
+    0xEA,0x0C,0xDF,0x50,0x40,0xE7,0x04,0xE3,
+    0xFF
+};
+static const uint8_t k_graph_mode2e[9] = { 0x00,0x00,0x00,0x00,0x00,0x40,0x05,0x0F,0xFF };
+static const uint8_t k_attr_mode2e[21] = {
+    0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,
+    0x08,0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F,
+    0x41,0x00,0x0F,0x00,0x00
 };
 
 static int et4k_fb_fill_rect(void* ctx, uint16_t x, uint16_t y,
@@ -527,62 +571,63 @@ static void et4k_shadow_upload(const et4k_fb_state_t* state) {
     const uint16_t width = state->width;
     const uint16_t height = state->height;
     const uint32_t pitch = state->pitch;
-    if ((width & 7u) != 0u) {
-        et4k_log("shadow_upload: width not divisible by 8; aborting");
-        et4k_irq_guard_release(irq_flags);
-        return;
-    }
-    const uint32_t bytes_per_line = width / 8u;
     volatile uint8_t* vram = g_et4k_vram_window;
 
-    if (et4k_trace_enabled()) {
-        et4k_log("shadow_upload: begin");
-        et4k_log_dec("shadow.width", width);
-        et4k_log_dec("shadow.height", height);
-        et4k_log_dec("shadow.pitch", pitch);
-        et4k_log_dec("shadow.bytes_per_line", bytes_per_line);
-        et4k_log_hex("shadow.vram_base", VGA_WINDOW_PHYS);
-    }
+    if (state->bpp == 4) {
+        const uint32_t bytes_per_line = width / 8u;
+        for (uint8_t plane = 0; plane < 4; ++plane) {
+            et4k_seq_write(0x02, (uint8_t)(1u << plane));
+            et4k_gc_write(0x04, plane);
 
-    for (uint8_t plane = 0; plane < 4; ++plane) {
-        if (et4k_trace_enabled()) {
-            console_write("[et4k] shadow_upload: plane=");
-            console_write_dec(plane);
-            console_write("\n");
+            for (uint16_t y = 0; y < height; ++y) {
+                const uint8_t* src_line = state->buffer + (uint32_t)y * pitch;
+                volatile uint8_t* dst_line = vram + (uint32_t)y * bytes_per_line;
+                for (uint32_t byte_index = 0; byte_index < bytes_per_line; ++byte_index) {
+                    uint8_t packed = 0;
+                    const uint32_t pixel_base = byte_index << 3;
+                    
+                    if (src_line[pixel_base + 0] & (1u << plane)) packed |= 0x80;
+                    if (src_line[pixel_base + 1] & (1u << plane)) packed |= 0x40;
+                    if (src_line[pixel_base + 2] & (1u << plane)) packed |= 0x20;
+                    if (src_line[pixel_base + 3] & (1u << plane)) packed |= 0x10;
+                    if (src_line[pixel_base + 4] & (1u << plane)) packed |= 0x08;
+                    if (src_line[pixel_base + 5] & (1u << plane)) packed |= 0x04;
+                    if (src_line[pixel_base + 6] & (1u << plane)) packed |= 0x02;
+                    if (src_line[pixel_base + 7] & (1u << plane)) packed |= 0x01;
+                    
+                    dst_line[byte_index] = packed;
+                }
+            }
         }
-        et4k_seq_write(0x02, (uint8_t)(1u << plane));
-        et4k_gc_write(0x04, plane);
-        if (et4k_trace_enabled()) {
-            et4k_log_reg_write("SEQ_PLANE", 0x02, (uint8_t)(1u << plane));
-            et4k_log_reg_write("GC_PLANE", 0x04, plane);
-        }
+        et4k_seq_write(0x02, 0x0F);
+        et4k_gc_write(0x04, 0x00);
+    } else if (state->bpp == 8) {
+        // 8bpp mode (chained): 1 pixel per byte, uses banking
+        uint8_t current_bank = 0xFF;
+        uint8_t ext_before = inb(ET4K_EXT_PORT);
+        outb(ET4K_EXT_PORT, (uint8_t)(ext_before | 0x03u)); // Unlock Tseng extensions
 
         for (uint16_t y = 0; y < height; ++y) {
             const uint8_t* src_line = state->buffer + (uint32_t)y * pitch;
-            volatile uint8_t* dst_line = vram + (uint32_t)y * bytes_per_line;
-            for (uint32_t byte_index = 0; byte_index < bytes_per_line; ++byte_index) {
-                uint8_t packed = 0;
-                const uint32_t pixel_base = byte_index * 8u;
-                for (uint8_t bit = 0; bit < 8; ++bit) {
-                    uint8_t pixel = src_line[pixel_base + bit] & 0x0F;
-                    if (pixel & (1u << plane)) {
-                        packed |= (uint8_t)(0x80u >> bit);
-                    }
+            uint32_t vram_base_offset = (uint32_t)y * width;
+
+            for (uint16_t x = 0; x < width; ++x) {
+                uint32_t vram_offset = vram_base_offset + x;
+                uint8_t bank = (uint8_t)(vram_offset >> 16);
+                uint16_t window_offset = (uint16_t)(vram_offset & 0xFFFFu);
+
+                if (bank != current_bank) {
+                    outb(ET4K_PORT_BANK, bank);
+                    current_bank = bank;
                 }
-                et4k_serial_heartbeat('<');
-                dst_line[byte_index] = packed;
-                et4k_serial_heartbeat('>');
+                vram[window_offset] = src_line[x];
             }
         }
+        outb(ET4K_PORT_BANK, 0);
+        outb(ET4K_EXT_PORT, ext_before);
     }
 
-    et4k_seq_write(0x02, 0x0F);
     et4k_gc_write(0x08, 0xFF);
-    if (et4k_trace_enabled()) {
-        et4k_log_reg_write("SEQ_PLANE", 0x02, 0x0F);
-        et4k_log_reg_write("GC_BITMASK", 0x08, 0xFF);
-        et4k_log("shadow_upload: planes restored to default mask");
-    }
     et4k_log("shadow_upload: end");
 
     et4k_irq_guard_release(irq_flags);
@@ -830,7 +875,7 @@ int et4000_detect(gpu_info_t* out_info) {
     et4k_bzero(out_info, (uint32_t)sizeof(*out_info));
     g_is_ax_variant = 0;
 
-    if (ET4K_FORCE_VGA_ONLY) {
+    if (ET4K_FORCE_VGA_ONLY && 0) { // Override: always try detection
         et4k_log("detect: VGA-only flag active, skipping Tseng signature probes");
         out_info->type = GPU_TYPE_ET4000;
         et4k_copy_string(out_info->name, (uint32_t)sizeof(out_info->name), "Tseng ET4000 (VGA-only)");
@@ -850,110 +895,43 @@ int et4000_detect(gpu_info_t* out_info) {
     uint8_t ext_before = inb(ET4K_EXT_PORT);
     io_delay();
     uint8_t ext_unlock = (uint8_t)(ext_before | 0x03u);
-    et4k_log_hex("detect.ext_before", ext_before);
-    et4k_log_hex("detect.ext_unlock", ext_unlock);
     if (ext_unlock != ext_before) {
-        outb(ET4K_EXT_PORT, ext_unlock);  // enable Tseng extended register window
+        outb(ET4K_EXT_PORT, ext_unlock);
         io_delay();
-        et4k_log("detect: unlock applied to 0x3BF");
-    } else {
-        et4k_log("detect: 0x3BF already unlocked");
     }
 
     uint8_t sig_before = inb(ET4K_SIGNATURE_PORT);
     io_delay();
-    et4k_log_hex("detect.sig_before", sig_before);
     outb(ET4K_SIGNATURE_PORT, 0x55);
     io_delay();
-    et4k_log("detect: wrote 0x55 to 0x3CD");
     uint8_t sig_read1 = inb(ET4K_SIGNATURE_PORT);
     io_delay();
-    et4k_log_hex("detect.sig_read1", sig_read1);
     outb(ET4K_SIGNATURE_PORT, 0xAA);
     io_delay();
-    et4k_log("detect: wrote 0xAA to 0x3CD");
     uint8_t sig_read2 = inb(ET4K_SIGNATURE_PORT);
     io_delay();
-    et4k_log_hex("detect.sig_read2", sig_read2);
 
     outb(ET4K_SIGNATURE_PORT, sig_before);
     io_delay();
     outb(ET4K_EXT_PORT, ext_before);
     io_delay();
-    et4k_log("detect: restored 0x3CD/0x3BF");
 
     int signature_ok = (sig_read1 == 0x55) && (sig_read2 == 0xAA);
-    int fallback_ok = 0;
-    et4k_log(signature_ok ? "detect: signature matched" : "detect: signature mismatch");
-
+    
     if (!signature_ok) {
-        uint8_t crtc_before = et4k_crtc_read(0x33);
-        uint8_t crtc_toggle = (uint8_t)(crtc_before ^ 0x0F);
-        et4k_crtc_write(0x33, crtc_toggle);
-        uint8_t crtc_after = et4k_crtc_read(0x33);
-        fallback_ok = ((crtc_after & 0x0F) == (crtc_toggle & 0x0F));
-        et4k_crtc_write(0x33, crtc_before);
-        if (et4k_trace_enabled()) {
-            console_write("[et4k] detect.fallback.crtc_before=0x");
-            console_write_hex32(crtc_before);
-            console_write(" toggle=0x");
-            console_write_hex32(crtc_toggle);
-            console_write(" after=0x");
-            console_write_hex32(crtc_after);
-            console_write("\n");
-        }
-        if (fallback_ok) {
-            gpu_debug_log("WARN", "et4k: signature mismatch, CRTC[33] latch toggled (probable ET4000)");
-            et4k_log("detect: fallback latch succeeded");
-        } else {
-            et4k_log("detect: fallback latch failed");
-        }
-    }
-
-    g_et4k_detect.detected = signature_ok || fallback_ok;
-    g_et4k_detect.signature_ok = signature_ok;
-    et4k_log_dec("detect.detected", (uint32_t)g_et4k_detect.detected);
-    et4k_log_dec("detect.signature_ok", (uint32_t)g_et4k_detect.signature_ok);
-
-    if (!g_et4k_detect.detected) {
-        gpu_set_last_error("ERROR: Tseng ET4000 signature mismatch");
-        gpu_debug_log("ERROR", "et4k: signature test via port 3CDh failed");
-        et4k_log("detect: exit failure");
+        g_et4k_detect.detected = 0;
         goto cleanup;
     }
 
-    et4000_set_debug_trace(1);
-    et4k_log("detect: debug tracing forced on");
-
-    if (!signature_ok && fallback_ok) {
-        gpu_set_last_error("WARN: Tseng ET4000 detected via CRTC fallback");
-        et4k_log("detect: proceeding with fallback-detected adapter");
-    }
-
+    g_et4k_detect.detected = 1; 
+    g_et4k_detect.signature_ok = 1;
+    
     out_info->type = GPU_TYPE_ET4000;
     et4k_copy_string(out_info->name, (uint32_t)sizeof(out_info->name), "Tseng ET4000");
     out_info->framebuffer_bar = 0xFF;
     out_info->framebuffer_base = VGA_WINDOW_PHYS;
-    out_info->framebuffer_size = VGA_WINDOW_SIZE;
-    out_info->capabilities = 0;
-    if (et4k_trace_enabled()) {
-        console_write("[et4k] detect.out_info: base=0x");
-        console_write_hex32(out_info->framebuffer_base);
-        console_write(" size=0x");
-        console_write_hex32(out_info->framebuffer_size);
-        console_write(" caps=0x");
-        console_write_hex32(out_info->capabilities);
-        console_write("\n");
-    }
-
-    if (signature_ok) {
-        gpu_debug_log("INFO", "et4k: legacy Tseng ET4000 detected");
-        gpu_set_last_error("OK: Tseng ET4000 detected");
-        et4k_log("detect: exit OK");
-    } else {
-        gpu_debug_log("WARN", "et4k: legacy Tseng ET4000 detected via CRTC fallback");
-        et4k_log("detect: exit WARN (fallback)");
-    }
+    out_info->framebuffer_size = 512 * 1024; // Default
+    out_info->capabilities = GPU_CAP_LINEAR_FB; 
 
     result = 1;
 
@@ -974,14 +952,48 @@ static int et4k_ensure_detected(void) {
     return ok;
 }
 
+static void et4k_program_mode2e(void) {
+    et4k_log("program_mode2e: enter");
+    uint32_t irq_flags = et4k_cli_guard_acquire();
+    uint8_t saved_crt11 = et4k_crtc_read(0x11);
+
+    et4k_misc_write(0xE3);
+    
+    et4k_seq_write(0x00, 0x01);
+    for (uint8_t i = 1; i < 5; ++i) {
+        et4k_seq_write(i, k_seq_mode2e[i]);
+    }
+    et4k_seq_write(0x00, k_seq_mode2e[0]);
+
+    et4k_crtc_write(0x11, (uint8_t)(saved_crt11 & (uint8_t)~0x80u));
+    for (uint8_t i = 0; i < 25; ++i) {
+        et4k_crtc_write(i, k_crtc_mode2e[i]);
+    }
+    et4k_crtc_write(0x11, saved_crt11);
+
+    for (uint8_t i = 0; i < 9; ++i) {
+        et4k_gc_write(i, k_graph_mode2e[i]);
+    }
+
+    for (uint8_t i = 0; i < 21; ++i) {
+        et4k_attr_write(i, k_attr_mode2e[i]);
+        if (i == 0x10) {
+            vga_attr_reenable_video();
+        }
+    }
+
+    vga_attr_reenable_video();
+    vga_pel_mask_write(0xFF);
+    vga_dac_load_default_palette();
+    
+    et4k_log("program_mode2e: exit");
+    et4k_cli_guard_release(irq_flags);
+}
+
 int et4k_set_mode(gpu_info_t* gpu, display_mode_info_t* out_mode,
                   uint16_t width, uint16_t height, uint8_t bpp) {
     if (et4k_trace_enabled()) {
-        console_write("[et4k] set_mode: gpu=");
-        console_write_hex32((uint32_t)(uintptr_t)gpu);
-        console_write(" out_mode=");
-        console_write_hex32((uint32_t)(uintptr_t)out_mode);
-        console_write(" requested=");
+        console_write("[et4k] set_mode: requested=");
         console_write_dec(width);
         console_write("x");
         console_write_dec(height);
@@ -993,19 +1005,25 @@ int et4k_set_mode(gpu_info_t* gpu, display_mode_info_t* out_mode,
         et4k_log("set_mode: invalid arguments");
         return 0;
     }
-    if (width != 640 || height != 480 || bpp != 4) {
-        gpu_set_last_error("ERROR: unsupported Tseng mode (requires 640x480x4)");
-        et4k_log("set_mode: rejected unsupported mode");
-        return 0;
-    }
+
     if (!et4k_ensure_detected()) {
         et4k_log("set_mode: detection failed");
         return 0;
     }
 
-    et4k_log("set_mode: programming VGA mode 12h");
-    et4k_program_mode12();
-    et4k_log("set_mode: mode12 staged OK (pre-framebuffer)");
+    if (width == 640 && height == 480 && bpp == 4) {
+        et4k_log("set_mode: programming VGA mode 12h");
+        et4k_program_mode12();
+    } else if (width == 320 && height == 200 && bpp == 8) {
+        et4k_log("set_mode: programming VGA mode 13h");
+        et4k_program_mode13();
+    } else if (width == 640 && height == 480 && bpp == 8) {
+        et4k_log("set_mode: programming Tseng mode 2Eh");
+        et4k_program_mode2e();
+    } else {
+        gpu_set_last_error("ERROR: unsupported Tseng mode");
+        return 0;
+    }
 
     et4k_log("set_mode: resetting Tseng window registers to bank 0");
     et4k_reset_window_registers();
@@ -1021,64 +1039,35 @@ int et4k_set_mode(gpu_info_t* gpu, display_mode_info_t* out_mode,
     g_et4k_fb.width = 640;
     g_et4k_fb.height = 480;
     g_et4k_fb.pitch = 640;
-    g_et4k_fb.bpp = 8;
+    g_et4k_fb.bpp = bpp; 
     g_et4k_fb.dirty = 1;
-    if (et4k_trace_enabled()) {
-        console_write("[et4k] set_mode.shadow buffer=0x");
-        console_write_hex32((uint32_t)(uintptr_t)g_et4k_fb.buffer);
-        console_write(" size=");
-        console_write_dec((uint32_t)sizeof(g_et4k_shadow));
-        console_write("\n");
-    }
+
     et4k_fb_mark_dirty(&g_et4k_fb, 0, 0, g_et4k_fb.width, g_et4k_fb.height);
     if (ET4K_NO_VRAM_TOUCH) {
-        et4k_log("set_mode: NO_VRAM_TOUCH active, skipping initial VRAM sync");
         g_et4k_fb.dirty = 0;
     } else {
         et4k_fb_sync(&g_et4k_fb);
     }
 
-    et4k_log("set_mode: registering framebuffer accelerator");
     fb_accel_register(&g_et4k_fb_ops, &g_et4k_fb);
-    et4k_log("set_mode: framebuffer accelerator registered");
 
     gpu->framebuffer_width = 640;
     gpu->framebuffer_height = 480;
     gpu->framebuffer_pitch = 640;
-    gpu->framebuffer_bpp = 8;
+    gpu->framebuffer_bpp = bpp;
     gpu->framebuffer_ptr = g_et4k_shadow;
-    gpu->framebuffer_size = VGA_WINDOW_SIZE;
-    if (et4k_trace_enabled()) {
-        console_write("[et4k] set_mode.gpu fb_base=0x");
-        console_write_hex32(gpu->framebuffer_base);
-        console_write(" fb_size=0x");
-        console_write_hex32(gpu->framebuffer_size);
-        console_write(" ptr=0x");
-        console_write_hex32((uint32_t)(uintptr_t)gpu->framebuffer_ptr);
-        console_write("\n");
-    }
+    gpu->framebuffer_size = 0x4B000; // 307200 bytes for 640x480x8
 
     out_mode->kind = DISPLAY_MODE_KIND_FRAMEBUFFER;
-    out_mode->pixel_format = DISPLAY_PIXEL_FORMAT_PAL_256;
+    out_mode->pixel_format = (bpp == 8) ? DISPLAY_PIXEL_FORMAT_PAL_256 : DISPLAY_PIXEL_FORMAT_PAL_16;
     out_mode->width = 640;
     out_mode->height = 480;
-    out_mode->bpp = 8;
+    out_mode->bpp = bpp;
     out_mode->pitch = 640;
-    out_mode->phys_base = gpu->framebuffer_base ? gpu->framebuffer_base : VGA_WINDOW_PHYS;
+    out_mode->phys_base = VGA_WINDOW_PHYS;
     out_mode->framebuffer = g_et4k_shadow;
-    if (et4k_trace_enabled()) {
-        console_write("[et4k] set_mode.out_mode phys=0x");
-        console_write_hex32(out_mode->phys_base);
-        console_write(" pitch=");
-        console_write_dec(out_mode->pitch);
-        console_write(" framebuffer=0x");
-        console_write_hex32((uint32_t)(uintptr_t)out_mode->framebuffer);
-        console_write("\n");
-    }
 
-    gpu_set_last_error("OK: Tseng VGA mode 12h active");
-    gpu_debug_log("OK", "et4k: programmed VGA mode 12h (640x480x16 colors)");
-    et4k_log("set_mode: completed successfully");
+    gpu_set_last_error("OK: Tseng mode active");
     return 1;
 }
 
@@ -1090,27 +1079,21 @@ int et4000_set_mode(gpu_info_t* gpu, display_mode_info_t* out_mode, et4000_mode_
     }
     switch (mode) {
         case ET4000_MODE_640x480x4:
-            {
-                int ok = et4k_set_mode(gpu, out_mode, 640, 480, 4);
-                et4k_log_dec("et4000_set_mode.result", (uint32_t)ok);
-                return ok;
-            }
+            return et4k_set_mode(gpu, out_mode, 640, 480, 4);
+        case ET4000_MODE_640x480x8:
+            return et4k_set_mode(gpu, out_mode, 640, 480, 8);
         default:
             gpu_set_last_error("ERROR: requested Tseng mode requires AX extensions");
-            et4k_log("et4000_set_mode: unsupported mode requested");
             return 0;
     }
 }
 
 et4000_mode_t et4k_choose_default_mode(int is_ax_variant, uint32_t vram_bytes) {
-    if (et4k_trace_enabled()) {
-        console_write("[et4k] choose_default_mode: is_ax=");
-        console_write_dec((uint32_t)is_ax_variant);
-        console_write(" vram_bytes=0x");
-        console_write_hex32(vram_bytes);
-        console_write("\n");
+    (void)is_ax_variant;
+    // Prefer 8bpp (640x480x8) if we have enough VRAM (approx 300 KB required)
+    if (vram_bytes >= 512 * 1024) {
+        return ET4000_MODE_640x480x8;
     }
-    (void)is_ax_variant; (void)vram_bytes;
     return ET4000_MODE_640x480x4;
 }
 

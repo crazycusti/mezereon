@@ -1,11 +1,14 @@
 #include "gpu.h"
 #include "cirrus.h"
-#include "../../config.h"
 #include "et4000.h"
 #include "avga2.h"
+#include "smos.h"
+#include "../../config.h"
+#include "vga_hw.h"
 #include "../../console.h"
 #include "../../display.h"
 #include "../../video_fb.h"
+#include "../../paging.h"
 #include "cirrus_accel.h"
 #include "et4000_common.h"
 #include <stdint.h>
@@ -292,6 +295,17 @@ static void gpu_register_bootinfo_adapter(const boot_info_t* bootinfo) {
         entry->mode.pitch = bootinfo->vbe_pitch;
         entry->mode.phys_base = bootinfo->framebuffer_phys;
         entry->mode.framebuffer = (volatile uint8_t*)(uintptr_t)bootinfo->framebuffer_phys;
+        if (paging_is_enabled()) {
+            uint64_t fb_bytes = (uint64_t)entry->mode.pitch * (uint64_t)entry->mode.height;
+            uint32_t limit = paging_identity_limit();
+            uint64_t end = (uint64_t)entry->mode.phys_base + fb_bytes;
+            if (limit && fb_bytes && end > (uint64_t)limit) {
+                void* mapped = paging_ioremap(entry->mode.phys_base, (uint32_t)fb_bytes, PAGING_IOREMAP_UNCACHED);
+                if (mapped) {
+                    entry->mode.framebuffer = (volatile uint8_t*)mapped;
+                }
+            }
+        }
     }
 
     if (bootinfo->framebuffer_phys_4bpp &&
@@ -307,6 +321,17 @@ static void gpu_register_bootinfo_adapter(const boot_info_t* bootinfo) {
         entry->mode.pitch = bootinfo->vbe_pitch_4bpp;
         entry->mode.phys_base = bootinfo->framebuffer_phys_4bpp;
         entry->mode.framebuffer = (volatile uint8_t*)(uintptr_t)bootinfo->framebuffer_phys_4bpp;
+        if (paging_is_enabled()) {
+            uint64_t fb_bytes = (uint64_t)entry->mode.pitch * (uint64_t)entry->mode.height;
+            uint32_t limit = paging_identity_limit();
+            uint64_t end = (uint64_t)entry->mode.phys_base + fb_bytes;
+            if (limit && fb_bytes && end > (uint64_t)limit) {
+                void* mapped = paging_ioremap(entry->mode.phys_base, (uint32_t)fb_bytes, PAGING_IOREMAP_UNCACHED);
+                if (mapped) {
+                    entry->mode.framebuffer = (volatile uint8_t*)mapped;
+                }
+            }
+        }
     }
 
     if (!g_vesa_state.mode4.available && !g_vesa_state.mode8.available) {
@@ -407,7 +432,8 @@ size_t gpu_get_mode_catalog(const gpu_info_t* gpu,
             };
             for (size_t i = 0; i < sizeof(k_tseng_modes) / sizeof(k_tseng_modes[0]); ++i) {
                 et4000_mode_t mode = k_tseng_modes[i];
-                if (gpu->type == GPU_TYPE_ET4000 && mode != ET4000_MODE_640x480x4) {
+                // Allow 640x480x8 for standard ET4000 as well
+                if (gpu->type == GPU_TYPE_ET4000 && mode == ET4000_MODE_640x400x8) {
                     continue;
                 }
                 uint16_t w = 0;
@@ -455,7 +481,15 @@ static gpu_info_t g_gpu_infos[GPU_MAX_DEVICES];
 static size_t g_gpu_count = 0;
 static gpu_info_t* g_active_fb_gpu = NULL;
 static int g_framebuffer_active = 0;
-static int g_tseng_auto_enabled = 0;
+static int g_tseng_auto_enabled = 1; // ENABLED BY DEFAULT FOR AERO
+
+int gpu_streq(const char* a, const char* b) {
+    if (!a || !b) return 0;
+    while (*a && *b && *a == *b) {
+        a++; b++;
+    }
+    return (*a == '\0' && *b == '\0');
+}
 
 void gpu_init(const boot_info_t* bootinfo) {
     et4000_set_debug_trace(g_gpu_debug);
@@ -497,12 +531,31 @@ void gpu_init(const boot_info_t* bootinfo) {
 #if CONFIG_VIDEO_ENABLE_ET4000
     if (!has_pci_gpu && g_gpu_count < GPU_MAX_DEVICES) {
         gpu_info_t info = {0};
-        if (et4000_detect(&info)) {
+        
+        if (cirrus_isa_detect(&info)) {
+            g_gpu_infos[g_gpu_count++] = info;
+            console_writeln("gpu: Cirrus ISA chip detected.");
+        } 
+        else if (et4000_detect(&info)) {
             avga2_classify_info(&info);
             g_gpu_infos[g_gpu_count++] = info;
-            if (!g_tseng_auto_enabled) {
-                console_writeln("gpu: Tseng auto activation disabled (use 'gpuprobe auto' to re-enable)");
-            }
+        }
+#if CONFIG_VIDEO_ENABLE_SMOS
+        else if (smos_detect(&info)) {
+            g_gpu_infos[g_gpu_count++] = info;
+            console_write("gpu: detected "); console_writeln(info.name);
+        }
+#endif
+        else {
+            // Final fallback: Generic VGA
+            gpu_memzero(&info, sizeof(info));
+            info.type = GPU_TYPE_VGA;
+            gpu_copy_string(info.name, sizeof(info.name), "Generic VGA");
+            info.framebuffer_size = 256 * 1024;
+            info.framebuffer_base = 0xA0000;
+            info.capabilities = GPU_CAP_LINEAR_FB;
+            g_gpu_infos[g_gpu_count++] = info;
+            console_write("gpu: detected "); console_writeln(info.name);
         }
     }
 #endif
@@ -513,6 +566,13 @@ const gpu_info_t* gpu_get_devices(size_t* count) {
         *count = g_gpu_count;
     }
     return g_gpu_infos;
+}
+
+const gpu_info_t* gpu_get_primary(void) {
+    if (g_gpu_count > 0) {
+        return &g_gpu_infos[0];
+    }
+    return NULL;
 }
 
 void gpu_log_summary(void) {
@@ -546,18 +606,46 @@ int gpu_request_framebuffer_mode(uint16_t width, uint16_t height, uint8_t bpp) {
         }
     }
 
-    for (size_t i = 0; i < g_gpu_count; i++) {
-        gpu_info_t* gpu = &g_gpu_infos[i];
-        if (gpu->type == GPU_TYPE_VGA) {
-            if (activate_vesa(width, height, bpp)) {
-                return 1;
+    int explicit_request = (width != 0 || height != 0 || bpp != 0);
+
+    // AUTO/default selection policy:
+    //  1) Prefer verified native drivers.
+    //  2) Try VESA/VBE (bootloader-provided LFB).
+    //  3) As a last resort, try unverified native modesets (better than staying in text).
+    //
+    // Explicit requests should try the matching native driver immediately.
+    for (int pass = 0; pass < (explicit_request ? 1 : 3); ++pass) {
+        for (size_t i = 0; i < g_gpu_count; i++) {
+            gpu_info_t* gpu = &g_gpu_infos[i];
+            int is_vesa = (gpu->type == GPU_TYPE_VGA);
+
+            if (!explicit_request) {
+                if (pass == 0) {
+                    // Verified native only, no VESA.
+                    if (is_vesa) continue;
+                } else if (pass == 1) {
+                    // VESA only.
+                    if (!is_vesa) continue;
+                } else {
+                    // Unverified native last, no VESA.
+                    if (is_vesa) continue;
+                }
             }
-            continue;
-        }
-        if (gpu->type == GPU_TYPE_CIRRUS) {
+
+            if (gpu->type == GPU_TYPE_CIRRUS) {
+            // Some Cirrus variants (e.g. GD543x) differ enough that our direct register
+            // programming can produce wrong geometry in some emulators.
+            // If VESA exists, prefer it; otherwise allow native modeset as a last resort.
+            if (!explicit_request &&
+                gpu->pci.vendor_id == 0x1013 &&
+                gpu->pci.device_id != 0x00B8) {
+                if (pass == 0) {
+                    console_writeln("gpu: Cirrus modeset unverified on this chip, trying VESA first.");
+                    continue;
+                }
+            }
             const cirrus_mode_desc_t* requested_mode = NULL;
             uint32_t vram = gpu->framebuffer_size;
-            int explicit_request = (width != 0 || height != 0 || bpp != 0);
             if (explicit_request) {
                 requested_mode = cirrus_find_mode(width, height, bpp, vram);
                 if (!requested_mode) {
@@ -578,7 +666,9 @@ int gpu_request_framebuffer_mode(uint16_t width, uint16_t height, uint8_t bpp) {
             if (cirrus_set_mode_desc(&gpu->pci, requested_mode, &mode, gpu)) {
                 display_manager_set_framebuffer_candidate("cirrus-lfb", &mode);
                 display_manager_activate_framebuffer();
-                cirrus_accel_enable(&mode);
+                if (gpu->capabilities & GPU_CAP_ACCEL_2D) {
+                    cirrus_accel_enable(&mode);
+                }
                 display_manager_apply_active_mode();
                 gpu_set_last_mode(gpu->name[0] ? gpu->name : "Cirrus GD5446", mode.width, mode.height, mode.bpp);
                 gpu_set_last_error("OK: Cirrus framebuffer active");
@@ -641,11 +731,34 @@ int gpu_request_framebuffer_mode(uint16_t width, uint16_t height, uint8_t bpp) {
                     uint16_t ch = 0;
                     uint8_t cb = 0;
                     tseng_enum_to_dimensions(candidates[ci], &cw, &ch, &cb);
-                    if (et4k_set_mode(gpu, &mode, cw, ch, cb)) {
-                        final_width = mode.width;
-                        final_height = mode.height;
-                        final_bpp = mode.bpp;
-                        activated = 1;
+                    
+                    if (gpu->type == GPU_TYPE_AVGA2) {
+                        if (avga2_set_mode(gpu, &mode, cw, ch, cb)) {
+                            final_width = mode.width;
+                            final_height = mode.height;
+                            final_bpp = mode.bpp;
+                            activated = 1;
+                        }
+                    } else if (gpu->type == GPU_TYPE_VGA) {
+                        // Check if it's our SMOS Aero chip disguised as VGA
+                        if (gpu_streq(gpu->name, "SMOS SPC8106F0B (Aero)") || 
+                            gpu_streq(gpu->name, "SMOS SPC8106F0A") ||
+                            gpu_streq(gpu->name, "Compaq SPC8106 (Aero)")) {
+                            if (smos_set_mode(gpu, &mode, cw, ch, cb)) {
+                                final_width = mode.width;
+                                final_height = mode.height;
+                                final_bpp = mode.bpp;
+                                activated = 1;
+                            }
+                        } else if (et4k_set_mode(gpu, &mode, cw, ch, cb)) {
+                            final_width = mode.width;
+                            final_height = mode.height;
+                            final_bpp = mode.bpp;
+                            activated = 1;
+                        }
+                    }
+
+                    if (activated) {
                         break;
                     } else if (gpu_get_debug()) {
                         console_write("[et4k] candidate ");
@@ -680,7 +793,38 @@ int gpu_request_framebuffer_mode(uint16_t width, uint16_t height, uint8_t bpp) {
             continue;
         }
 #endif
+            if (gpu->type == GPU_TYPE_VGA) {
+                if (width == 320 && height == 200 && bpp == 8) {
+                    vga_set_mode13();
+                    display_mode_info_t mode;
+                    gpu_memzero(&mode, sizeof(mode));
+                    mode.kind = DISPLAY_MODE_KIND_FRAMEBUFFER;
+                    mode.pixel_format = DISPLAY_PIXEL_FORMAT_PAL_256;
+                    mode.width = 320;
+                    mode.height = 200;
+                    mode.bpp = 8;
+                    mode.pitch = 320;
+                    mode.phys_base = 0xA0000;
+                    mode.framebuffer = (volatile uint8_t*)0xA0000;
+                    
+                    display_manager_set_framebuffer_candidate("generic-vga", &mode);
+                    display_manager_activate_framebuffer();
+                    display_manager_apply_active_mode();
+                    
+                    g_active_fb_gpu = gpu;
+                    g_framebuffer_active = 1;
+                    gpu_set_last_mode("Generic VGA", 320, 200, 8);
+                    gpu_set_last_error("OK: Mode 13h active");
+                    return 1;
+                }
+                if (activate_vesa(width, height, bpp)) {
+                    return 1;
+                }
+                continue;
+            }
+        }
     }
+
     return 0;
 }
 
@@ -918,7 +1062,9 @@ static int activate_cirrus(uint16_t width, uint16_t height, uint8_t bpp) {
 
     display_manager_set_framebuffer_candidate("cirrus-lfb", &fb_mode);
     display_manager_activate_framebuffer();
-    cirrus_accel_enable(&fb_mode);
+    if (gpu->capabilities & GPU_CAP_ACCEL_2D) {
+        cirrus_accel_enable(&fb_mode);
+    }
     display_manager_apply_active_mode();
     g_active_fb_gpu = gpu;
     g_framebuffer_active = 1;
@@ -972,6 +1118,19 @@ static int activate_vesa(uint16_t width, uint16_t height, uint8_t bpp) {
         return 0;
     }
 
+    // Avoid switching to an unreachable framebuffer (would fault under paging).
+    if (paging_is_enabled()) {
+        if ((uint32_t)(uintptr_t)mode_info->framebuffer == mode_info->phys_base) {
+            uint64_t bytes = (uint64_t)mode_info->pitch * (uint64_t)mode_info->height;
+            uint32_t limit = paging_identity_limit();
+            uint64_t end = (uint64_t)mode_info->phys_base + bytes;
+            if (!limit || end > (uint64_t)limit) {
+                gpu_set_last_error("ERROR: VESA framebuffer not mapped under paging");
+                return 0;
+            }
+        }
+    }
+
     gpu_info_t* gpu = gpu_find_by_type(GPU_TYPE_VGA);
     if (!gpu) {
         gpu_set_last_error("ERROR: VESA adapter entry missing");
@@ -981,7 +1140,7 @@ static int activate_vesa(uint16_t width, uint16_t height, uint8_t bpp) {
     display_mode_info_t mode = *mode_info;
     display_manager_set_framebuffer_candidate("vesa-vga", &mode);
     display_manager_activate_framebuffer();
-    video_switch_to_framebuffer(&mode);
+    display_manager_apply_active_mode();
 
     g_active_fb_gpu = gpu;
     g_framebuffer_active = 1;

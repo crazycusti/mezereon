@@ -24,6 +24,11 @@
 
 %define BOOTINFO_VBE_MEM_BYTES  0x26    ; VRAM Größe in Bytes
 
+; BIOS memory sizing fallbacks (stage2 scratch only; stage3 snapshots these before rebuilding boot_info_t)
+%define BOOTINFO_BIOS_CONV_KB    0x2A    ; Conventional memory (KiB) from INT 12h
+%define BOOTINFO_BIOS_EXT_KB     0x2C    ; Extended memory above 1MiB (KiB) from INT 15h (E801/88), dword
+%define BOOTINFO_BIOS_MEM_FLAGS  0x30    ; Bitfield: 1=conv valid, 2=E801 valid, 4=88h valid
+
 ; Bootinfo Konstanten
 %define BOOTINFO_MAGIC_VALUE 0xB007  ; Magic Number für Bootinfo
 %define BOOTINFO_VERSION_1   0x0001  ; Version 1 der Bootinfo-Struktur
@@ -56,9 +61,9 @@
 %define STAGE3_PARAM_E820_COUNT      0x30
 %define STAGE3_PARAM_SIZE            0x34
 
-%define STAGE3_FLAG_USE_LBA          0x00000001
-%define STAGE3_FLAG_KERNEL_PRELOADED 0x00000002
 %define STAGE3_FLAG_A20_ENABLED      0x00000004
+%define STAGE3_FLAG_KERNEL_PRELOADED 0x00000002
+%define STAGE3_FLAG_SERIAL_BOOT      0x00000008
 
 ; Bootsektor-Hilfswerte (Stage 1)
 %ifndef BOOT_DRIVE_OFFSET

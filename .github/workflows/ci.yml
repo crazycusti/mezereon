@@ -3,6 +3,7 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 jobs:
   build-test-x86:
@@ -24,4 +25,3 @@ jobs:
       - name: Smoke test (headless x86 + NE2000)
         run: |
           make test-x86-ne2k
-

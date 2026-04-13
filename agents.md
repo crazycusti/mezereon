@@ -1,57 +1,44 @@
-# Agents Notes — Mezereon
+# Agents Notes - Mezereon
 
-Goal: keep context small when adding features (drivers/apps) by pointing to stable extension points and checklists.
+Zweck
+- Sammelstelle fuer alle Hinweise/Status/ToDos fuer KI-Agenten.
+- Ersetzt AI_HINTS.md, TODO.md und notes.md (nur hier pflegen).
 
-Repo compass
-- Boot path: stage1/2/3 (16-bit/32-bit) → `entry32.asm` → `kentry.c` → `main.c`.
-- Config surface: `config.h` (runtime defaults), Makefile vars (`CONFIG_*`, `VBE_*`, `CONSOLE_BACKEND`).
-- Display stack: bootloader VBE handoff → `display_manager` → `video.c` text+FB renderer → `console_*`/shell → statusbar.
-- Driver hubs: `drivers/pci.c`, `drivers/gpu/*`, `drivers/ata.c`, `drivers/ne2000.c`, `drivers/sb16.c`.
-- APIs outward: `mezapi.[ch]` (in-kernel apps), shell commands in `shell.c`, docs under `docs/api/` + `docs/shell/`.
+## Aktueller Status (2026-04-13)
 
-Quick boot/display facts
-- Stage 2 picks an 8bpp VESA LFB if present (default 640x480). Tune via Makefile `VBE_PREF_WIDTH/HEIGHT/BPP`, `VBE_ENABLE_LFB`.
-- Kernel applies the chosen target via `display_manager_apply_active_mode()`; `CONFIG_VIDEO_TARGET=text|auto|framebuffer`.
-- GPU drivers call `display_manager_set_framebuffer_candidate` + `display_manager_apply_active_mode`; Cirrus enables accel via `cirrus_accel_enable`.
-- Run graphics with `make run-x86-fb` (`QEMU_FB_DISPLAY=gtk|sdl`), text-only with `make run-x86-hdd`.
+### **Grafik & GPU (Compaq Aero / SMOS SPC8106)**
+- **SMOS SPC8106 Treiber:** Dedizierter Treiber implementiert. Nutzt Register-Unlock (0x1A an Index 0x0E/0x1E an Ports 0x3DE/0x3DF).
+- **Auflösungen:**
+    - 320x200x256 (Mode 13h) stabil.
+    - 640x400x256 (Register-Hack) implementiert.
+    - 640x480x4 (Mode 12h) via Planar-Sync unterstützt.
+- **Dynamic Terminal Geometry:** Die Konsole berechnet Zeilen/Spalten jetzt dynamisch basierend auf der Hardware-Auflösung (behebt Scroll-Fehler in 320x200).
+- **Memory Safety:** Der 300 KB Grafik-Puffer wird jetzt dynamisch via `memory_alloc` im hohen RAM (oberhalb 1 MB) angelegt, um Kollisionen mit dem BIOS/VRAM im BSS zu verhindern.
 
-Driver/app onboarding checklist (keep changes scoped)
-1) Pick the hook:
-   - In-kernel app → new file under `apps/`, consume `mezapi.h`.
-   - Device driver → `drivers/<domain>/`; expose a small `<name>.h` with init + ops and register from `main.c` or existing manager.
-2) Config switches:
-   - Add `CONFIG_FOO_*` to `config.h` (defaults) and pass through Makefile only if build-time.
-   - Keep runtime toggles in shell (`shell.c`) or a tiny `*_debug` command.
-3) Logging/UI:
-   - User-facing text goes through `console_*`; status updates via `statusbar_*` (or MezAPI slot wrappers).
-   - If you need FB drawing, prefer the existing 8bpp path; extend `video_switch_to_framebuffer` only when format-compatible.
-4) MezAPI surface:
-   - Only add to `mezapi.h`/`mezapi.c` when an app needs it; append new fields (preserve ABI layout) and bump `capabilities` bits if exposed.
-   - Guard optional pointers (NULL allowed for new funcs).
-5) Docs/changelog:
-   - Summarize behavior in `docs/api/*.md` or a short `docs/hw/`/`docs/ui/` note.
-   - Append a one-liner to `CHANGELOG` for any user-visible shift.
+### **System & Stabilität**
+- **Stack-Relocation:** Kernel-Stack von 0x9FC00 auf **4 MB** verschoben (in `entry32.asm`). Verhindert korrupte Rücksprungadressen durch wachsenden Kernel-BSS.
+- **Interrupt Fixes:** `interrupts_save_disable` korrigiert (pushfl/popl Sequenz). Statusbar-Poll mit Bounds-Checking versehen (verhindert Buffer-Overflows).
+- **IDT Cleanup:** Double-Fault Task-Gate entfernt (Rückkehr zu stabilem Standard-Interrupt-Gate in `idt.c`).
 
-MezAPI map (v1, x86-32)
-- Core: console write/clear, non-blocking input, ticks/timer hz/sleep, PC speaker + SB16 info, statusbar (legacy + slots).
-- Video: `video_fb_get_info` (8bpp LFB), `video_fb_fill_rect` (uses accel when present), GPU info (feature level + caps).
-- GPU feature levels: text-only, banked FB (ET4000/AVGA2), banked+accel (ET4000AX), linear FB, linear+accel (Cirrus).
-- Cap bits: `MEZ_CAP_VIDEO_FB`, `MEZ_CAP_VIDEO_FB_ACCEL`, `MEZ_CAP_SOUND_SB16`, `MEZ_CAP_VIDEO_GPU_INFO`.
+### **Serial Debug & Loader**
+- **Serial Input:** Bidirektionaler Support für COM1. Shell kann über Serial bedient werden (`keyboard_poll_char` fragt beide Quellen ab).
+- **ANSI Heartbeat:** Heartbeat-Zähler wurde via ANSI-Escapes nach oben rechts (1;65H) verbannt, um Shell-Eingaben nicht zu stören.
+- **Hybrid Serial Loader:** Stage 2 bietet beim Booten 'S' für Serial-Boot an. Stage 3 empfängt dann das `kernel_payload.bin` via COM1 (115200 8N1). 
+- **Host-Tool:** `tools/serial_upload.py` (benötigt `pyserial`).
 
-Extension points (where to plug new things)
-- Console/display: add backends via `display_manager_set_*`; render policy lives in `video.c`.
-- GPU: register new PCI adapters in `drivers/gpu/gpu.c`, mirror Cirrus pattern (detect → mode desc → `display_manager_*`).
-- Net/storage: reuse `drivers/pci` or direct I/O; keep shell commands thin wrappers around driver APIs.
-- Timer/IRQ: add per-IRQ init in `platform_*` and mask/unmask in `platform_irq_*`.
+### **Historie / Meilensteine**
+- [DONE] Tseng ET4000 8bpp Banking optimiert.
+- [DONE] Acumos AVGA2 (Cirrus) identifiziert und VGA-Pfad stabilisiert.
+- [DONE] Compaq Aero (SMOS) Hardware-Unlock & Revision-Check (F0B).
+- [DONE] Shell-Bedienbarkeit im Framebuffer (Dynamic Grid).
 
-Pitfalls
-- Framebuffer renderer is 8bpp-only; higher bpp needs format/planner updates before enabling.
-- `-display curses` cannot show FB; use `run-x86-fb`.
-- ET4000/AVGA2 remains debug-centric; auto-activation toggle `gpu_tseng_set_auto_enabled` / `CONFIG_VIDEO_ENABLE_ET4000`.
+### **Bekannte Offene Punkte**
+- [ ] 640x400x256 CRTC-Timings auf echtem Aero-LCD verifizieren (manchmal Sync-Probleme).
+- [ ] Hintergrund-Sync (fb_accel) Performance-Optimierung für 33MHz i486.
+- [ ] PCI-Scanning: SMOS wird als ISA/Legacy erkannt, da der SPC8106 oft nicht im PCI-Config-Space auftaucht (nur I/O).
 
-Useful commands while hacking
-- `make`, `make run-x86-fb`, `make run-x86-hdd`, `make test-x86-ne2k`.
-- Shell: `gpuinfo`, `gpuprobe activate ...`, `fbtest`, `cpuinfo`, `ip set ...`, `http start`.
-
-Docs to skim
-- `AI_HINTS.md`, `docs/api/mezapi.md`, `docs/api/graphics_fb.md`, `docs/ui/video_backend_plan.md`, `docs/hw/pci_gpu.md`, `docs/shell/*.md`.
+## Projektueberblick (Kurz)
+- Bootpfad: stage1/2/3 -> kernel.
+- VGA-Standard als Fallback (Mode 13h / Mode 12h).
+- VESA/VBE-Unterstützung vorhanden, aber auf Aero eingeschränkt (256KB VRAM).
+- Debugging primär über COM1 (Serial) mit bidirektionaler Shell.

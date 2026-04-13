@@ -6,6 +6,12 @@
 // Initialize CPU interrupts/PIC mapping. Architecture-specific.
 void platform_interrupts_init(void);
 
+// Quiesce legacy hardware (e.g. stop floppy motor)
+void platform_quiesce_floppy(void);
+
+// System reset
+void platform_reboot(void);
+
 // Initialize periodic timer to desired Hz (best-effort).
 void platform_timer_init(uint32_t hz);
 // Change timer frequency without altering IRQ masks
@@ -25,5 +31,8 @@ void platform_interrupts_disable(void);
 
 // Monotonic tick counter (if available)
 uint32_t platform_ticks_get(void);
+
+/* Busy-wait for an approximate millisecond delay (uses PIT ticks if running) */
+void platform_delay_ms(uint32_t ms);
 
 #endif // PLATFORM_H

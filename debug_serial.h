@@ -11,6 +11,7 @@
 
 void debug_serial_plugin_init(const boot_info_t* info);
 void debug_serial_plugin_putc(char c);
+int  debug_serial_plugin_getc(void);
 void debug_serial_plugin_write(const char* s);
 void debug_serial_plugin_writeln(const char* s);
 void debug_serial_plugin_write_hex16(uint16_t v);
