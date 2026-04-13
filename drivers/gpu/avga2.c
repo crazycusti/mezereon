@@ -34,7 +34,7 @@ static void avga2_clear_vram(void) {
 static uint8_t* g_avga2_shadow = NULL;
 static uint16_t g_avga2_w, g_avga2_h;
 static uint8_t  g_avga2_bpp;
-static uint32_t g_avga2_dirty_mask[15]; // 480 lines / 32 bits = 15 uint32_t
+static uint32_t g_avga2_dirty_mask[15]; 
 static uint8_t  g_avga2_current_bank = 0xFF;
 
 static void avga2_fb_mark_dirty(void* ctx, uint16_t x, uint16_t y, uint16_t width, uint16_t height) {
@@ -54,7 +54,6 @@ static void avga2_fb_sync(void* ctx) {
     uint32_t flags = interrupts_save_disable();
     
     if (g_avga2_bpp == 8) {
-        // High-speed sync: 32-bit transfers and minimal bank switching
         for (uint16_t y = 0; y < g_avga2_h; y++) {
             if (!(g_avga2_dirty_mask[y >> 5] & (1u << (y & 31)))) continue;
 
@@ -155,12 +154,38 @@ static uint32_t avga2_get_vram_size(void) {
     avga2_unlock();
     uint8_t sr0f = vga_seq_read(0x0F);
     uint8_t mem = (uint8_t)((sr0f >> 3) & 0x03);
-    switch (mem) {
-        case 0: return 256 * 1024;
-        case 1: return 512 * 1024;
-        case 2: return 1024 * 1024;
-        default: return 2048 * 1024;
+    uint32_t size = 256 * 1024;
+    if (mem == 1) size = 512 * 1024;
+    else if (mem == 2) size = 1024 * 1024;
+    else if (mem > 2) size = 2048 * 1024;
+
+    if (size <= 256 * 1024) return size;
+
+    // Destructive Wraparound Check: Verify if 512KB is physically present
+    uint32_t flags = interrupts_save_disable();
+    avga2_set_bank(0);
+    volatile uint8_t* vram = (volatile uint8_t*)0xA0000;
+    uint8_t old0 = vram[0];
+    avga2_set_bank(4); // 4 * 64KB = 256KB offset
+    uint8_t old4 = vram[0];
+
+    vram[0] = 0xAA;
+    avga2_set_bank(0);
+    vram[0] = 0x55;
+    avga2_set_bank(4);
+    uint8_t check = vram[0];
+
+    // Restore original values
+    vram[0] = old4;
+    avga2_set_bank(0);
+    vram[0] = old0;
+    interrupts_restore(flags);
+
+    if (check == 0x55) {
+        // Wraparound detected! The hardware lied.
+        return 256 * 1024;
     }
+    return size;
 }
 
 void avga2_classify_info(gpu_info_t* info) {
@@ -180,22 +205,16 @@ void avga2_classify_info(gpu_info_t* info) {
 int avga2_restore_text_mode(void) {
     fb_accel_reset();
     uint32_t irq_flags = interrupts_save_disable();
-    
     avga2_unlock();
     vga_seq_write(0x07, 0x00); 
     vga_gc_write(0x09, 0x00);
-    
     vga_set_mode3();
-    
     vga_seq_write(0x06, 0x00);
-
     interrupts_restore(irq_flags);
     return 1;
 }
 
 int avga2_set_mode(gpu_info_t* gpu, display_mode_info_t* out_mode, uint16_t width, uint16_t height, uint8_t bpp) {
-    (void)gpu;
-    
     uint32_t vram = avga2_get_vram_size();
     uint32_t needed = (uint32_t)width * (uint32_t)height * (uint32_t)bpp / 8;
 
@@ -221,7 +240,6 @@ int avga2_set_mode(gpu_info_t* gpu, display_mode_info_t* out_mode, uint16_t widt
     g_avga2_bpp = bpp;
 
     uint32_t irq_flags = interrupts_save_disable();
-    
     if (width == 320 && height == 200 && bpp == 8) {
         vga_set_mode13();
         out_mode->pixel_format = DISPLAY_PIXEL_FORMAT_PAL_256;
@@ -278,6 +296,12 @@ int avga2_set_mode(gpu_info_t* gpu, display_mode_info_t* out_mode, uint16_t widt
     out_mode->phys_base = 0xA0000;
     out_mode->framebuffer = g_avga2_shadow;
     out_mode->set_bank = NULL; 
+
+    if (gpu) {
+        gpu->framebuffer_bpp = bpp;
+        gpu->framebuffer_width = width;
+        gpu->framebuffer_height = height;
+    }
 
     interrupts_restore(irq_flags);
     return 1;
